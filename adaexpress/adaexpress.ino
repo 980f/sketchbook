@@ -37,9 +37,10 @@
 
 /** wrap ce parts together */
 struct CircuitExpress {
-  const volatile InputPin<CPLAY_LEFTBUTTON, LOW> swA;
-  const volatile InputPin<CPLAY_RIGHTBUTTON, LOW> swB;
-  const volatile InputPin<CPLAY_SLIDESWITCHPIN, LOW> slider;
+  //gcc 4.8 couldn't handle volatile in this context. claimed qualifier was being dropped but can't add volatile to a method spec.
+  const /*volatile*/ InputPin<CPLAY_LEFTBUTTON, HIGH> A;
+  const /*volatile*/ InputPin<CPLAY_RIGHTBUTTON, HIGH> B;
+  const /*volatile*/ InputPin<CPLAY_SLIDESWITCHPIN, HIGH> slider;
   const OutputPin<CPLAY_REDLED, HIGH> redled;
 };
 const CircuitExpress ce;
@@ -81,21 +82,38 @@ void setup() {
 }
 
 #include "histogrammer.h"
-
 HistoGrammer<2> flashes;
-void loop() {
-  if (MilliTicked) { //this is true once per millisecond.
-    bool flashed=flashes(flasher);
-    ce.redled = flashed;
-    pwmin(flashed);
-    if (MilliTicked.every(1000)) {
-      Serial.print(pwmin[0]);
-      Serial.print('/');
-      Serial.println(pwmin[1]);
-    }
 
-    if (MilliTicked.every(10000)) {
-      flashes.show();
+
+bool beFlashy=true;
+void loop() {
+
+  if(ce.A){
+    if(!beFlashy){
+      Serial.println("switch A");
+    }
+    beFlashy=true;
+  }
+  if(ce.B){
+    if(beFlashy){
+      Serial.println("switch B");
+    }
+    beFlashy=false;
+  }
+  if (MilliTicked) { //this is true once per millisecond.
+    if(beFlashy){
+      bool flashed=flashes(flasher);
+      ce.redled = flashed;
+      pwmin(flashed);
+      if (MilliTicked.every(1000)) {
+        Serial.print(pwmin[0]);
+        Serial.print('/');
+        Serial.println(pwmin[1]);
+      }
+  
+      if (MilliTicked.every(10000)) {
+        flashes.show();
+      }
     }
   }
 
