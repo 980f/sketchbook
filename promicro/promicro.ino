@@ -18,33 +18,9 @@ const InputPin<10,LOW> hall;
 
 const OutputPin<17,LOW> rxled;
 
+#include "softpwm.h"
 
-/** very slow pwm */
-class TogglerTimer {
-  unsigned twiddler=0;
-public:
-  unsigned early;
-  unsigned later;
-  void reset(){
-    twiddler=0;
-  }
-  
-  /* call from a periodic source */
-  operator bool() {
-    
-    ++twiddler;
-    
-    if(twiddler<early){
-      return 0;
-    } 
-    if(twiddler>=later){
-      twiddler=0;      
-    }
-    return 1;
-  }
-};
-
-TogglerTimer led;
+SoftPwm led;
 
 void setup() {
   relay1=1;
