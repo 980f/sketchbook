@@ -28,41 +28,74 @@
   D33 - SPI FLASH Chip Select
 
 */
+
 #include "millievent.h"
 #include "softpwm.h"
 #include "pinclass.h"
 
+#include <Adafruit_CircuitPlayground.h>
+
+/** wrap ce parts together */
 struct CircuitExpress {
-  const InputPin<4, LOW> swA;
-  const InputPin<5, LOW> swB;
-  const InputPin<7, LOW> slider;
-  const OutputPin<13, LOW> redled;
+  const volatile InputPin<CPLAY_LEFTBUTTON, LOW> swA;
+  const volatile InputPin<CPLAY_RIGHTBUTTON, LOW> swB;
+  const volatile InputPin<CPLAY_SLIDESWITCHPIN, LOW> slider;
+  const OutputPin<CPLAY_REDLED, HIGH> redled;
 };
 const CircuitExpress ce;
 
-SoftPwm flasher(800, 200);
 
-#include "millichecker.h"
-MilliChecker mcheck;
+Adafruit_CircuitPlayground cp;
+
+SoftPwm flasher(1400, 600);
+
+/** track last high and low times. Once the full 980f libraries are easily accessible we will do running polynomial fits to each level */
+class PwmDecoder  {
+  unsigned width[2];
+  bool lastSample=false;
+  unsigned lastChange=0;
+  unsigned sampletick=0;
+public:
+  bool operator()(bool sample){
+    ++sampletick;
+    if(changed(lastSample,sample)){
+      width[1-lastSample]=sampletick-lastChange;
+      lastChange=sampletick;
+    }
+  }
+
+  unsigned operator [](bool which) const {
+    return width[which];//could !!which to ensure valid range.
+  }
+};
+
+PwmDecoder pwmin;
+//#include "millichecker.h"
+//MilliChecker mcheck;
 
 void setup() {
   //relying on constructors to do most init.
   Serial.begin(1000000);
   //this prevented Serial monitor from starting.  while(!Serial);
+  cp.begin();
 }
 
+#include "histogrammer.h"
+
+HistoGrammer<2> flashes;
 void loop() {
   if (MilliTicked) { //this is true once per millisecond.
-    mcheck.check();
-
-    ce.redled = flasher;
+    bool flashed=flashes(flasher);
+    ce.redled = flashed;
+    pwmin(flashed);
     if (MilliTicked.every(1000)) {
-      //     Serial.print(ce.redled ? '+':'-');
-      Serial.println(flasher.phase());
+      Serial.print(pwmin[0]);
+      Serial.print('/');
+      Serial.println(pwmin[1]);
     }
 
     if (MilliTicked.every(10000)) {
-      mcheck.show();
+      flashes.show();
     }
   }
 
