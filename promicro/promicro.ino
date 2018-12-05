@@ -17,40 +17,9 @@ const InputPin<10, LOW> hall;
 
 const OutputPin<17, LOW> rxled;
 
-/** pulse modulator, cycle is active:idle*/
-class TogglerTimer {
-  TickType zero = BadTick;
-  TickType activeTime;
-  TickType idleTime;
-public:
-  /* call from MilliTicked event */
-  operator bool() {
-    TickType now = MilliTicked.recent();
-    if (now > zero) {
-      TickType elapsed = now - zero;
-      TickType phase = elapsed % (activeTime + idleTime);
-      return phase < activeTime;
-      //return ((now-zero) %(activeTime+idleTime))<activeTime;
-    } else {
-      //not running
-      return false;
-    }
-  }
+#include "softpwm.h"
 
-  void setPhases(TickType activeTime, TickType idleTime, bool andStart = true) {
-    this->activeTime = activeTime;
-    this->idleTime = idleTime;
-    if (andStart) {
-      zero = MilliTicked.recent();
-    }
-  }
-
-  void setCycle(TickType length, TickType active) {
-    setPhases(active, (length > active) ? length - active : 0);
-  }
-};
-
-TogglerTimer led;
+SoftPwm led;
 
 MonoStable r1pulse(2345);
 
