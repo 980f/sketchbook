@@ -1,27 +1,22 @@
 /*
-  WiFiTelnetToSerial - Example Transparent UART to Telnet Server for esp8266
+  telnet server module tester.
+  "Copyright (c) 2018 Andy Heilveil (github/980F)."
 
-  Originally "Copyright (c) 2015 Hristo Gochkov. All rights reserved." but massively reworked by 980F.
+*/
 
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
+/**
+  on Wifi_Kit_8 the PRG pin is D0
 
-  This library is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-  Lesser General Public License for more details.
-
-  You should have received a copy of the GNU Lesser General Public
-  License along with this library; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 #include <ESP8266WiFi.h>
 
 Stream &debug(Serial);
 
 #include "millievent.h"
+
+#include "pinclass.h"
+
+const InputPin<D7> Verbose;
 
 //max number of simultaneous clients allowed, note: their incoming stuff is mixed together.
 #define MAX_SRV_CLIENTS 3
@@ -62,11 +57,11 @@ struct Telnetter {
       Feeds merged wifi data from all clients to the given stream.
   */
   bool serve(Stream &stream) {//todo: use functional that matches Stream::write(uint8*,unsigned)
-    if (amServing()) {
+    if (amConnected) {
       if (server.hasClient()) {//true when a client has requested connection
         if (!findSlot()) {//no free/disconnected spot so reject
           server.available().stop();//?forceful reject to client?
-          debug.println("Connection rejected ");
+          debug.println("Incoming connection rejected, no room for it.");
         }
       }
       //check clients for data
@@ -82,6 +77,20 @@ struct Telnetter {
             stream.write(sbuf, len);
           }
         }
+      }
+    } else {
+      if (amTrying) {
+//        if (Verbose) {
+//          debug.print('\t');
+//          debug.print(MilliTicked.recent());
+//          debug.print('\t');
+//          debug.println(testRate.due());
+//        }
+        if (testRate.perCycle()) {   
+          amConnected = testConnection();
+        } 
+      } else if (beTrying) {
+        tryConnect();
       }
     }
   }
@@ -112,7 +121,10 @@ struct Telnetter {
     if (cred) {
       WiFi.mode(WIFI_STA);
       WiFi.begin(cred->ssid, cred->password);
-      debug.print("\nConnecting to AP "); debug.println(cred->ssid);
+      debug.print("\nConnecting to AP "); debug.print(cred->ssid);
+      if (Verbose) {
+        debug.print(" using password "); debug.println(cred->password);
+      }
       amTrying = true;
     } else {
       amTrying = false;
@@ -122,29 +134,28 @@ struct Telnetter {
 
   bool testConnection() {
     wst = WiFi.status();
-    debug.print("APCon status ");debug.println(wst);
+    debug.print("\tAPCon status "); debug.println(wst);
     if (wst == WL_CONNECTED) {
-      debug.println("Connected!");
       server.begin();
       server.setNoDelay(true);
 
-      debug.print("Ready! Use 'telnet ");
-      debug.print(WiFi.localIP());
-      debug.println(" 23' to connect");
+      debug.print("\nUse 'telnet "); debug.print(WiFi.localIP()); debug.println(" [23]' to connect.");
+      amTrying = false; //trying to close putative timing gap
       return true;
     } else {
-      //      debug.print("APCon status ");debug.println(wst);
       return false;
     }
   }
 
+  /** see if we have a place to keep client connection info. If so retain it.*/
   bool findSlot() {
     for (unsigned i = MAX_SRV_CLIENTS; i-- > 0;) {
       auto &aclient = serverClients[i];
-      if (!aclient || !aclient.connected()) {//if available
-        if (aclient) {
-          aclient.stop();//?some kind of cleanup?
-        }
+      if (aclient && !aclient.connected()) {//connection died
+        aclient.stop();//clean it up.
+      }
+      //not an else! aclient.stop() may make aclient be false.
+      if (!aclient) {//if available
         aclient = server.available();
         debug.print("\nNew client: "); debug.println(i);
         return true;
@@ -153,40 +164,25 @@ struct Telnetter {
     return false;
   }
 
-  bool amServing() {
-    if (amConnected) {
-      return true;
-    } else {
-      if (amTrying) {
-        if (testRate.isDone()) {
-          testRate.start();//delay next
-          amConnected = testConnection();
-        } else {
-          debug.print('-');
-          if((MilliTicked.recent()%50)==0){
-            debug.println('.');
-          }
-        }
-      } else if (beTrying) {
-        tryConnect();
-        amTrying = true;
-      }
-      return false;
-    }
-  }
-
 } net;
 
 
 void setup() {
   Serial.begin(115200);
   net.begin(cred);
+  Serial.print(cred.ssid);
+  if (Verbose) {
+    Serial.print('@');
+    Serial.print(cred.password);
+  }
+
 }
 
 void loop() {
   if (MilliTicked) { //must be polled for MonoStables to work
     //by only checking once per millisecond we lower total power consumption a smidgeon.
     net.serve(Serial);
+
     net.broadcast(Serial);
   }
 
