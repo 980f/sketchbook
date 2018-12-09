@@ -18,6 +18,7 @@ Stream &debug(Serial);
 #include "millievent.h"
 #include "EEPROM.h"
 
+
 #include "pinclass.h"
 
 //a pin used to enable extra debug spew:
@@ -30,19 +31,28 @@ const InputPin<D8, LOW> Initparams;
 Credentials cred;
 Telnetter net;
 
+#include "nvblock.h"
+
+IPAddress mystaticip(192, 168, 12, 65); //65=='A'
 const unsigned CredAddress = 0;
+
+const Nvblock keepip=Nvblock::For(mystaticip,128);//todo: allocation scheme to ensure no overlap, without wrapping with a struct.
 
 void setup() {
   Serial.begin(115200);
 
   EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
-  cred.load(CredAddress);
-  if (Initparams || cred.ssid[0] == 255) {
+  if (Initparams) {
     cred.setID("honeypot");
     cred.setPWD("brigadoon-will-be-back-soon");
+    
     cred.save(CredAddress);
+    keepip.save();
+  } else {
+    cred.load(CredAddress);
+    keepip.load();    
   }
-
+  
   net.begin(cred);
 }
 
