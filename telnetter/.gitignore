@@ -5,6 +5,7 @@ cstr.h
 arduous
 telnetter.h
 textkey.cpp
+nvblock.h
 index.h
 char.cpp
 millievent.h
