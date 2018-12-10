@@ -70,18 +70,21 @@ const char *Chatter::hostname() {
 void setup() {
   Serial.begin(115200);
 
-  EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
+//can't find dox on this  EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
   cred.load(CredAddress);
+  keepip.load();
 
   if(Verbose){
     dbg("\nStored Credentials:",cred.ssid,cred.password);
+    dbg("\nStored IP: ",mystaticip);
   }
       
   if (Initparams) {
     cred.setID("honeypot");
     cred.setPWD("brigadoon-will-be-back-soon");
-
+    mystaticip=IPAddress (192, 168, 12, 65); //65=='A'
     cred.save(CredAddress);
+    dbg("\nSaved credentials at ",CredAddress);
     keepip.save();
   } else {
 //    cred.load(CredAddress);
