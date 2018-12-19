@@ -12,8 +12,11 @@
 //const OutputPin<7, LOW> relay1;
 ////low turns relay on
 //const OutputPin<9, LOW> relay2;
-//hall effect sensor is low when magnet is present
 
+const OutputPin<9> ph0;
+const OutputPin<8> ph1;
+const OutputPin<7> ph2;
+const OutputPin<6> ph3;
 
 
 class Stepper {
@@ -22,15 +25,18 @@ class Stepper {
     //  unsigned perRevolution=200;
     //  unsigned phase=0;
     //
-
-    DigitalOutput phasor[4] = {{9}, {8}, {7}, {6}}; //unipolar drive
-
     void applyPhase(unsigned phase) {
-      phase &= 3; //4-phase stepping
-      unsigned bits = 0x33 > phase;
-      for (unsigned pi = 4; pi-- > 0;) {
-        phasor[pi] = bit(bits, pi);
-      }
+      unsigned bits = 0x33 >> (phase % 4);
+
+      ph0 = bit(bits, 0);
+      ph1 = bit(bits, 1);
+      ph2 = bit(bits, 2);
+      ph3 = bit(bits, 3);
+    }
+
+    operator ()(bool fwd) {
+      step += fwd ? 1 : -1;
+      applyPhase(step);
     }
 
     operator ++() {
@@ -69,37 +75,41 @@ class ProMicro {
     };
 };
 
-ProMicro::TxLed txled;
-
-const InputPin<10, LOW> hall;
-
-const OutputPin<17, LOW> rxled;
-
-#include "softpwm.h"
-
-//SoftPwm led(250, 750);
+//ProMicro::TxLed txled;
+//
+//hall effect sensor is low when magnet is present
+//const InputPin<10, LOW> hall;
+//
+//const OutputPin<17, LOW> rxled;
+//
+//#include "softpwm.h"
+//
+////SoftPwm led(250, 750);
+//
 
 MonoStable r1pulse(100);
 Stepper geared;
+
+bool clockwise = false;
 
 void setup() {
   //  led.setPhases(250, 750);
 
   Serial.begin(500000);//number doesn't matter.
-  ++geared;//may jerk. Sould read pins and start from there.
+  //  ++geared;//may jerk. Sould read pins and start from there.
 }
 
 // the loop function runs over and over again forever
 void loop() {
   //update input pin as fast as loop() allows.
-  rxled = hall; //digitalWrite(rxled,digitalRead(hall));
+  //  rxled = hall; //digitalWrite(rxled,digitalRead(hall));
 
   if (MilliTicked) { //this is true once per millisecond.
     // causes gross delays, printing is blocking!   if(hall) Serial.println(milliEvent.recent());
     //    led ? TXLED1 : TXLED0; //vendor macros, no assignment provided.
     if (r1pulse) {
-      ++geared;
-      txled = bit(geared.step, 0);
+      geared(clockwise);
+      //          txled = bit(geared.step, 0);
     }
   }
 
@@ -108,10 +118,27 @@ void loop() {
       auto key = Serial.read();
       Serial.print(char(key));//echo.
       switch (key) {
+        case '1': case '2': case '3': case '4': {//jump to phase
+            geared.applyPhase(key - 1);
+          }
+          break;
+        case 'w':
+          ++geared;
+          Serial.println(geared.step);
+          break;
+        case 'e':
+          --geared;
+          Serial.println(geared.step);
+          break;
         case 'r':
+          clockwise = false;
           r1pulse.start();
           break;
-        case 't':
+        case 'f':
+          clockwise = true;
+          r1pulse.start();
+          break;
+        case 'x':
           r1pulse.stop();
           break;
         case 'g':
