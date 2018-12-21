@@ -1,5 +1,5 @@
 
-#undef bit
+
 #include "bitbanger.h"
 
 #include "pinclass.h"
@@ -8,6 +8,66 @@
 
 #include "cheaptricks.h"
 
+namespace T1Control {
+
+enum  CS {
+  Halted = 0,
+  By1 = 1,
+  By8 = 2,
+  By64 = 3,
+  By256 = 4,
+  By1K = 5,
+  ByFalling = 6,
+  ByRising = 7
+} cs;
+
+const unsigned divisors[] = {0, 1, 8, 64, 256, 1024, 1, 1};
+
+unsigned resolution() {
+  return divisors[cs & 7];
+}
+
+/** set cs first */
+void setDivider(unsigned ticks) { //
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0
+  // set compare match register
+  OCR1A = ticks;
+  // turn on CTC mode
+  TCCR1B = (1 << WGM12) | cs;//3 lsbs are clock select. 0== fastest rate. Only use prescalars when needed to extend range.
+  // enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
+}
+
+/** @returns the prescale setting required for the number of ticks. Will be Halted if out of range.*/
+CS prescaleRequired(long ticks) {
+  if (ticks >= (1 << (16 + 10))) {
+    return Halted;//hopeless
+  }
+  if (ticks >= (1 << (16 + 8))) {
+    return By1K;
+  }
+  if (ticks >= (1 << (16 + 6))) {
+    return By256;
+  }
+  if (ticks >= (1 << (16 + 3))) {
+    return By64;
+  }
+  if (ticks >= (1 << (16 + 0))) {
+    return By8;
+  }
+  return By1;
+}
+
+unsigned  clip(unsigned &ticks) {
+  if (ticks > 65535) {
+    ticks = 65535;
+  }
+  return ticks;
+}
+
+};
 
 //const OutputPin<7, LOW> relay1;
 ////low turns relay on
@@ -17,6 +77,12 @@ const OutputPin<9> ph0;
 const OutputPin<8> ph1;
 const OutputPin<7> ph2;
 const OutputPin<6> ph3;
+
+const InputPin<10> fasterButton;
+const InputPin<15> slowerButton;
+
+const InputPin<16> thisButton;
+const InputPin<14> thatButton;
 
 
 class Stepper {
@@ -28,10 +94,10 @@ class Stepper {
     void applyPhase(unsigned phase) {
       unsigned bits = 0x33 >> (phase % 4);
 
-      ph0 = bit(bits, 0);
-      ph1 = bit(bits, 1);
-      ph2 = bit(bits, 2);
-      ph3 = bit(bits, 3);
+      ph0 = bitFrom(bits, 0);
+      ph1 = bitFrom(bits, 1);
+      ph2 = bitFrom(bits, 2);
+      ph3 = bitFrom(bits, 3);
     }
 
     operator ()(bool fwd) {
@@ -59,7 +125,7 @@ class Stepper {
     }
 };
 
-
+#ifdef TXLED1
 class ProMicro {
   public:
     struct TxLed {
@@ -74,42 +140,39 @@ class ProMicro {
       }
     };
 };
+#endif
 
 //ProMicro::TxLed txled;
 //
-//hall effect sensor is low when magnet is present
-//const InputPin<10, LOW> hall;
-//
-//const OutputPin<17, LOW> rxled;
-//
-//#include "softpwm.h"
-//
-////SoftPwm led(250, 750);
-//
+unsigned thespeed = 60000;
+unsigned speedstep = 100;
 
-MonoStable r1pulse(100);
-Stepper geared;
+Stepper positioner;
 
 bool clockwise = false;
 
-void setup() {
-  //  led.setPhases(250, 750);
+unsigned blips = 0;
 
+void setup() {
+  T1Control::cs = T1Control::By1;
+  T1Control::setDivider(thespeed);
   Serial.begin(500000);//number doesn't matter.
-  //  ++geared;//may jerk. Sould read pins and start from there.
 }
 
-// the loop function runs over and over again forever
-void loop() {
-  //update input pin as fast as loop() allows.
-  //  rxled = hall; //digitalWrite(rxled,digitalRead(hall));
+void upspeed(unsigned newspeed) {
+  if (changed(thespeed, newspeed)) {
+    T1Control::clip(thespeed);
+    T1Control::setDivider(thespeed);
+  }
+}
 
+void loop() {
   if (MilliTicked) { //this is true once per millisecond.
-    // causes gross delays, printing is blocking!   if(hall) Serial.println(milliEvent.recent());
-    //    led ? TXLED1 : TXLED0; //vendor macros, no assignment provided.
-    if (r1pulse) {
-      geared(clockwise);
-      //          txled = bit(geared.step, 0);
+    if (fasterButton) {
+      upspeed(thespeed + speedstep);
+    }
+    if (slowerButton) {
+      upspeed(thespeed - speedstep);
     }
   }
 
@@ -118,34 +181,50 @@ void loop() {
       auto key = Serial.read();
       Serial.print(char(key));//echo.
       switch (key) {
+        case ' ':
+          Serial.print("Speed:");
+          Serial.println(thespeed);
+
+          Serial.print("Location:");
+          Serial.println(positioner.step);
+
+
+          Serial.print("Blips:");
+          Serial.println(blips);
+
+          break;
         case '1': case '2': case '3': case '4': {//jump to phase
-            geared.applyPhase(key - 1);
+            positioner.applyPhase(key - 1);
           }
           break;
+        case 'q':
+          positioner.step &= 3; //closest to 0 we can get while the phases are still tied to position.
+          break;
         case 'w':
-          ++geared;
-          Serial.println(geared.step);
+          ++positioner;
+          Serial.println(positioner.step);
           break;
         case 'e':
-          --geared;
-          Serial.println(geared.step);
+          --positioner;
+          Serial.println(positioner.step);
           break;
         case 'r':
           clockwise = false;
-          r1pulse.start();
           break;
         case 'f':
           clockwise = true;
-          r1pulse.start();
           break;
-        case 'x':
-          r1pulse.stop();
+        case 'u':
+          speedstep -= 10;
           break;
-        case 'g':
+        case 'j':
+          speedstep += 10;
           break;
         case 'y':
+          upspeed(thespeed + speedstep);
           break;
         case 'h':
+          upspeed(thespeed - speedstep);
           break;
         default:
           Serial.print("?\n");
@@ -157,4 +236,9 @@ void loop() {
       }
     }
   }
+}
+
+ISR(TIMER1_COMPA_vect) { //timer1 interrupt at step rate
+  ++blips;
+  positioner(clockwise);
 }
