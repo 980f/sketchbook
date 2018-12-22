@@ -80,16 +80,18 @@ unsigned  clip(unsigned &ticks) {
 ////low turns relay on
 //const OutputPin<9, LOW> relay2;
 
-const OutputPin<9> ph0;
-const OutputPin<8> ph1;
-const OutputPin<7> ph2;
-const OutputPin<6> ph3;
+const OutputPin<LED_BUILTIN> BugLight;
 
-const InputPin<10> fasterButton;
-const InputPin<15> slowerButton;
+const OutputPin < 16 + 9 > ph0;
+const OutputPin < 16 + 8 > ph1;
+const OutputPin < 16 + 7 > ph2;
+const OutputPin < 16 + 6 > ph3;
 
-const InputPin<16> thisButton;
-const InputPin<14> thatButton;
+const InputPin < 16 + 12 > fasterButton;
+const InputPin < 16 + 15 > slowerButton;
+
+const InputPin < 16 + 13 > thisButton;
+const InputPin < 16 + 14 > thatButton;
 
 static const unsigned grey2[] = {0, 1, 3, 2};
 class Stepper {
@@ -170,7 +172,7 @@ class ProMicro {
 //one must peruse the compiler output to find what flags can be used to conditionalize per target.
 #ifdef STMDUINO
 class TimeBase {
-public:
+  public:
     void setDivider(unsigned perStep) {
 
     }
@@ -203,13 +205,16 @@ Stepper positioner;
 TimeBase ticker;
 
 bool clockwise = false;
+bool beRunning = false;
 
 unsigned blips = 0;
 
 void theisr()
 { //timer1 interrupt at step rate
-  ++blips;
-  positioner(clockwise);
+  if (beRunning) {
+    ++blips;
+    positioner(clockwise);
+  }
 }
 
 void setup() {
@@ -219,7 +224,10 @@ void setup() {
 }
 
 void upspeed(unsigned newspeed) {
+  BugLight.toggle();
+  beRunning = true;
   if (changed(thespeed, newspeed)) {
+
     //    T1Control::clip(thespeed);
     //    T1Control::setDivider(thespeed);
   }
