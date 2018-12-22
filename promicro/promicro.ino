@@ -227,9 +227,8 @@ void upspeed(unsigned newspeed) {
   BugLight.toggle();
   beRunning = true;
   if (changed(thespeed, newspeed)) {
+    ticker.setTicks(thespeed);
 
-    //    T1Control::clip(thespeed);
-    //    T1Control::setDivider(thespeed);
   }
 }
 
@@ -266,6 +265,9 @@ void loop() {
           break;
         case 'q':
           positioner.step &= 3; //closest to 0 we can get while the phases are still tied to position.
+          break;
+        case 'x':
+          beRunning = false;
           break;
         case 'w':
           ++positioner;
