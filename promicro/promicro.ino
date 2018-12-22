@@ -1,4 +1,9 @@
 
+//each variant of stm32 support has different defined symbols for the processor selection, trivially different.
+
+#ifdef ARDUINO_ARCH_STM32F1
+#define STMDUINO
+#endif
 
 #include "bitbanger.h"
 
@@ -8,6 +13,7 @@
 
 #include "cheaptricks.h"
 
+#ifdef AVR
 namespace T1Control {
 
 enum  CS {
@@ -68,6 +74,7 @@ unsigned  clip(unsigned &ticks) {
 }
 
 };
+#endif
 
 //const OutputPin<7, LOW> relay1;
 ////low turns relay on
@@ -115,12 +122,12 @@ class Stepper {
       }
     }
 
-    operator ()(bool fwd) {
+    void operator ()(bool fwd) {
       step += fwd ? 1 : -1;
       applyPhase(step);
     }
 
-    operator ++() {
+    void operator ++() {
       ++step;
       applyPhase(step);
       //    if((++phase)==perRevolution){
@@ -129,7 +136,7 @@ class Stepper {
 
     }
 
-    operator --() {
+    void operator --() {
       --step;
       applyPhase(step);
       //    if((phase==0){
@@ -155,29 +162,66 @@ class ProMicro {
       }
     };
 };
+
 #endif
 
-//ProMicro::TxLed txled;
-//
+
+
+//one must peruse the compiler output to find what flags can be used to conditionalize per target.
+#ifdef STMDUINO
+class TimeBase {
+public:
+    void setDivider(unsigned perStep) {
+
+    }
+
+    void setTicks(unsigned perStep) {
+      Timer3.setPeriod(perStep);
+    }
+
+    void setIsr(voidFuncPtr routine) {
+      Timer3.setChannel1Mode(TIMER_OUTPUT_COMPARE);
+      Timer3.setCompare1(1);
+
+      Timer3.attachCompare1Interrupt(routine);
+
+      Timer3.refresh();
+      Timer3.resume();
+
+    }
+
+};
+//set up a tick interrupt with a interval of 1 ms.
+
+#endif
+
 unsigned thespeed = 60000;
 unsigned speedstep = 100;
 
 Stepper positioner;
 
+TimeBase ticker;
+
 bool clockwise = false;
 
 unsigned blips = 0;
 
+void theisr()
+{ //timer1 interrupt at step rate
+  ++blips;
+  positioner(clockwise);
+}
+
 void setup() {
-  T1Control::cs = T1Control::By1;
-  T1Control::setDivider(thespeed);
+  ticker.setIsr(theisr);
+  ticker.setTicks(thespeed);
   Serial.begin(500000);//number doesn't matter.
 }
 
 void upspeed(unsigned newspeed) {
   if (changed(thespeed, newspeed)) {
-    T1Control::clip(thespeed);
-    T1Control::setDivider(thespeed);
+    //    T1Control::clip(thespeed);
+    //    T1Control::setDivider(thespeed);
   }
 }
 
@@ -251,9 +295,4 @@ void loop() {
       }
     }
   }
-}
-
-ISR(TIMER1_COMPA_vect) { //timer1 interrupt at step rate
-  ++blips;
-  positioner(clockwise);
 }
