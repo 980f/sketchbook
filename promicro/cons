@@ -1,0 +1,3 @@
+## ftdi device as console.
+echo use ^A ^Q to exit, ^A ^X also exits just more aggressively
+picocom -b500000 /dev/ttyUSB0
