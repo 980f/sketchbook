@@ -26,8 +26,8 @@ class ProMicro {
     //    } txled;
     //
     //todo: get digitalpin class to function so that we can pass pin numbers.
-    const OutputPin<17> led1;
-    const OutputPin<24> led0;
+    const OutputPin<17> led1; 
+    const OutputPin<24> led0;//24 or 30 , documents differ.
 
 
     class T1Control {
@@ -41,50 +41,94 @@ class ProMicro {
           By1K = 5,
           ByFalling = 6,
           ByRising = 7
-        } cs;
+        };
 
-        T1Control(): cs(Halted) {}
+        T1Control() {}
 
-        const unsigned divisors[ByRising + 1] = {0, 1, 8, 64, 256, 1024, 1, 1};
+        static const unsigned divisors[ByRising + 1] = {0, 1, 8, 64, 256, 1024, 1, 1};
 
-        unsigned resolution() {
+        static unsigned resolution(CS cs) {
           return divisors[cs & 7];
         }
 
-        /** set cs first */
-        void setDivider(unsigned ticks) { //
+        /** ticks must be at least 3, typically as large as you can make it for a given CS.
+            example: 50Hz@16MHz: 320k ticks, use divide By8 and 40000.
+        */
+        void setPwmBase(unsigned ticks, CS cs)const { //
           TCCR1A = 0;// set entire TCCR1A register to 0
           TCCR1B = 0;// same for TCCR1B
           TCNT1  = 0;//initialize counter value to 0
           // set compare match register
-          OCR1A = ticks;
-          // turn on CTC mode
+          ICR1 = ticks;
+          // turn on CTC mode with ICR as period definer (WGM1.3:0 = 12
+          //          TCCR1A is   oc<<2*num, num=1..3, value: 1x simple pwm, x=polarity, 01: toggle, 00: not in use
           TCCR1B = (1 << WGM12) | cs;//3 lsbs are clock select. 0== fastest rate. Only use prescalars when needed to extend range.
           // enable timer compare interrupt
           TIMSK1 |= (1 << OCIE1A);
         }
 
+        template <unsigned which> class PwmBit {
+            enum {shift = which * 2, mask = 3 << shift};
+            void configure(unsigned twobits) const {
+              mergeInto(TCCR1A, (twobits << shift), mask); //todo: bring out the bit field class.
+            }
+
+          public:
+            void toggle()const {
+              configure(1);
+            }
+
+            void off() {
+              configure(0);
+            }
+
+
+            void setDuty(unsigned ticks, bool invertit = 0)const {
+              if (ticks) { //at least 1 enforced here
+                configure(2 + invertit);
+                (&TCNT1)[which] = ticks - 1;
+              } else {     //turn it off.
+                off();
+              }
+            }
+
+            unsigned clip(unsigned &ticks) const {
+              if (ticks > ICR1) {
+                ticks = ICR1;
+              }
+              return ticks;
+            }
+
+        };
+
         /** @returns the prescale setting required for the number of ticks. Will be Halted if out of range.*/
-        CS prescaleRequired(long ticks) {
-          if (ticks >= (1 << (16 + 10))) {
-            return Halted;//hopeless
-          }
-          if (ticks >= (1 << (16 + 8))) {
-            return By1K;
-          }
-          if (ticks >= (1 << (16 + 6))) {
-            return By256;
-          }
-          if (ticks >= (1 << (16 + 3))) {
-            return By64;
-          }
-          if (ticks >= (1 << (16 + 0))) {
-            return By8;
-          }
-          return By1;
+        static constexpr CS prescaleRequired(long ticks) {
+          //          if (ticks >= (1 << (16 + 10))) {
+          //            return Halted;//hopeless
+          //          }
+          //          if (ticks >= (1 << (16 + 8))) {
+          //            return By1K;
+          //          }
+          //          if (ticks >= (1 << (16 + 6))) {
+          //            return By256;
+          //          }
+          //          if (ticks >= (1 << (16 + 3))) {
+          //            return By64;
+          //          }
+          //          if (ticks >= (1 << (16 + 0))) {
+          //            return By8;
+          //          }
+          //          return By1;
+          //older compiler makes me pack the above into nested ternaries. the thing added to 16 is the power of two that the next line will return
+          return  (ticks >= (1 << (16 + 10))) ? Halted : //out of range
+                  (ticks >= (1 << (16 + 8))) ? By1K :
+                  (ticks >= (1 << (16 + 6))) ? By256 :
+                  (ticks >= (1 << (16 + 3))) ? By64 :
+                  (ticks >= (1 << (16 + 0))) ? By8 :
+                  By1;
         }
 
-        unsigned  clip(unsigned &ticks) {
+        unsigned  clip(unsigned &ticks) const {
           if (ticks > 65535) {
             ticks = 65535;
           }
