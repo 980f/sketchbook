@@ -1,4 +1,11 @@
 //board model, includes chip type.
+//from leonardo variant/pins....h
+//#define LED_BUILTIN 13
+//#define LED_BUILTIN_RX 17
+//#define LED_BUILTIN_TX 30
+//a0<->18  a1<->19 ... for 12 a ins.
+//  TIMER1A,    /* 9 */
+//  TIMER1B,    /* 10 */
 class ProMicro {
   public:
     enum {//processor constants
@@ -86,5 +93,3 @@ class ProMicro {
 
     } T1;
 };
-
-

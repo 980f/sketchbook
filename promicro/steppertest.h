@@ -23,8 +23,7 @@ void upspeed(unsigned newspeed) {
   if (changed(thespeed, newspeed)) {
     board.T1.clip(thespeed);
     board.T1.setDivider(thespeed);
-    dbg.print("Speed:");
-    dbg.println(thespeed);
+    dbg("\nSpeed:",thespeed);
   }
 }
 
@@ -32,15 +31,7 @@ void upspeed(unsigned newspeed) {
 bool stepCLI(char key) {
   switch (key) {
     case ' ':
-      dbg.print("Speed:");
-      dbg.println(thespeed);
-
-      dbg.print("Location:");
-      dbg.println(positioner.step);
-
-
-      dbg.print("Blips:");
-      dbg.println(blips);
+      dbg("\nSpeed:",thespeed," \nLocation:",positioner.step,"\nBlips:",blips);
 
       break;
 
@@ -53,11 +44,11 @@ bool stepCLI(char key) {
       break;
     case 'w':
       ++positioner;
-      dbg.println(positioner.step);
+//      dbg.println(positioner.step);
       break;
     case 'e':
       --positioner;
-      dbg.println(positioner.step);
+//      dbg.println(positioner.step);
       break;
     case 'x':
       spinit = 0;
@@ -84,4 +75,3 @@ bool stepCLI(char key) {
   }
   return true;
 }
-

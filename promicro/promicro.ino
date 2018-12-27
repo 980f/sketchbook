@@ -9,16 +9,22 @@
 #include "cheaptricks.h"
 #include "minimath.h"
 
-#define dbg Serial1
+#include "chainprinter.h"
+
+ChainPrinter dbg(Serial1);
+
+#define Console Serial1
 
 #include "promicro.board.h"
 ProMicro board;
 
+
 //0,1 are rx,tx used by Serial1
+//the test leds are low active.
 const OutputPin<2, LOW> T2;
-const OutputPin<3> T3;
-const OutputPin<4> T4;
-const OutputPin<5> T5;
+const OutputPin<3, LOW> T3;
+const OutputPin<4, LOW> T4;
+const OutputPin<5, LOW> T5;
 const OutputPin<6, LOW> T6;
 const OutputPin<7, LOW> T7;
 const OutputPin<8, LOW> T8;
@@ -31,54 +37,51 @@ const InputPin<15> slowerButton;
 //A0,A1,A2,A3
 
 
-/**normalize analog operations to full range of processor natural data type, number of bits is a local detail.*/
+/** will be adding smoothing to analog inputs so wrap the data now. */
 
-template <unsigned numBits = 8> struct AnalogValue {
-  unsigned allbits;//all ones for maximum value, all zeroes for minimum.
-  enum {
-    shift = ProMicro::unsigned_bits - numBits, //number of bits in abstract type versus number in hardware controller
-    quantum = 1 << shift,
-  };
+struct AnalogValue {
+  unsigned raw;
 
-  AnalogValue(unsigned physical) {
-    allbits = physical << shift;
+  AnalogValue() {//because pre-setup code can't talk to serial.
+    raw = 0;
   }
 
-  unsigned operator =(unsigned physical) {
-    allbits = physical << shift;
-    return allbits;
+  AnalogValue(int physical) {
+    dbg("A!");
+    raw = physical << 7; //todo: shift will be a function of input resolution (10 vs 12) and oversampling rate (8 samples is same as 3 bit shift)
   }
 
   unsigned operator =(int physical) {
-    if (physical >= 0) {
-      allbits = physical << shift;
-      return allbits;
-    } else {
-      return 0;
-    }
+    dbg("A=");
+    raw = physical << 7;
+    return raw;
   }
-
 
   operator unsigned()const {
-    return allbits;
-  }
-
-  unsigned actual()const {
-    return allbits >> shift;
+    dbg("AU.");
+    return raw;
   }
 
 };
 
-template <unsigned numBits> struct AnalogOutput {
-  const unsigned pinNumber;
-  AnalogOutput(unsigned pinNumber): pinNumber(pinNumber) {
-    //one day will check numBits and up the resolution for boards which allow that.
-  }
+struct AnalogOutput {
+    const unsigned pinNumber;
+    AnalogOutput(unsigned pinNumber): pinNumber(pinNumber) {
+      //one day will check numBits and up the resolution for boards which allow that.
+    }
 
-  //all ones for max, 0 for min.
-  void operator =(AnalogValue<numBits> allbits) const {
-    analogWrite(pinNumber, allbits.actual());
-  }
+    //all ones for max, 0 for min.
+    void operator =(AnalogValue av) const {
+      analogWrite(pinNumber, av >> 7); //15 bit averaged input, cut it down to 8 msbs of those 15. todo: configure for 10 and maybe 16 bit output.
+    }
+
+    //all ones for max, 0 for min.
+    void operator =(int raw) const {
+      analogWrite(pinNumber, raw);
+    }
+
+  private:
+    void operator =(AnalogOutput &other) = delete; //to stifle compiler saying that it did this on it own, good for it :P
 };
 
 template <unsigned numBits> struct AnalogInput {
@@ -88,47 +91,47 @@ template <unsigned numBits> struct AnalogInput {
   }
 
   //all ones for max, 0 for min.
-  operator AnalogValue<numBits>() const {
-    T9 = 1;
-    unsigned actual = 42;
-    //analogRead(pinNumber);
+  operator AnalogValue/*<numBits>*/() const {
+    dbg("AI.");
+    unsigned actual = analogRead(pinNumber);
     T9 = 0;
     T8 = 1;
-    AnalogValue<numBits> allbits =   actual ;
+    AnalogValue/*<numBits>*/ allbits =   actual ;
+    dbg("A. ");
     T8 = 0;
     return allbits;
   }
 };
 
-AnalogOutput<8> Xdrive(9);
-AnalogOutput<8> Ydrive(10);
+AnalogOutput Xdrive(9);
+AnalogOutput Ydrive(10);
 
 AnalogInput<8> joyX(A3);
 AnalogInput<8> joyY(A2);
 
-AnalogValue<8> rawX(0);
-AnalogValue<8> rawY(0);
+//AnalogValue
+int rawX;
+//AnalogValue
+int rawY;
+
 void showJoy() {
-  dbg.print("Joy x-y:");
-  dbg.print(rawX);
-  dbg.print(",");
-  dbg.println(rawY);
+  dbg("\nJoy x:", rawX, " y:", rawY);
 }
 
 #include "steppertest.h"
 
 void setup() {
-  Serial.begin(500000);//number doesn't matter.
-  Serial1.begin(115200);//hardware serial. up the baud to reduce overhead.
-  stepperSetup();
-  dbg.println("Howdy");
+  Serial.begin(500000);//number here doesn't matter.
+  Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
+  //  stepperSetup();
+  dbg("\nHowdy");
   T4 = 1;
-  T5=1;
-  T6=1;
-  
+  T5 = 1;
+  T6 = 1;
+
 }
 
-
+bool readanalog = false;
 void loop() {
   static unsigned iters = 0;
   ++iters;
@@ -136,53 +139,65 @@ void loop() {
     //    dbg.println(MilliTicked.recent());
     T2.flip();
     if (fasterButton) {
-      upspeed(thespeed + speedstep);
+      //      upspeed(thespeed + speedstep);
+      readanalog = false;
     }
     if (slowerButton) {
-      upspeed(thespeed - speedstep);
+      //      upspeed(thespeed - speedstep);
+      readanalog = true;
     }
-    if (MilliTicked.every(93)) {
+    if (readanalog && MilliTicked.every(100)) {
       T7 = 1;
-      rawX = joyX;
+      rawX =  analogRead(A3);//joyX;
       T7 = 0;
-      //    rawY = joyY;
-
+      rawY = analogRead(A2);//joyY;
+      showJoy();
       Xdrive = rawX;
       Ydrive = rawY;
     }
 
     if (MilliTicked.every(1000)) {
-      dbg.println(" milli");
+      //      dbg.println(" milli");
       T3.flip();
-      showJoy();
     }
   }
 
 
-  if (dbg && dbg.available()) {
+  if (Console&& Console.available()) {
     T4.flip();
-    auto key = dbg.read();
-    dbg.print(char(key));//echo.
-    dbg.print(':');//echo.
+    auto key = Console.read();
+    dbg(char(key),':');//echo.
 
     switch (key) {
       case 'p':
         showJoy();
         break;
 
-      case 'i': board.led0 = 0; break;
-      case 'k': board.led0 = 1; break;
-      case 'o': board.led1 = 0; break;
-      case 'l': board.led1 = 1; break;
+      case 'i':
+        board.led0 = 0;
+        T5 = 0;
+        break;
+      case 'k':
+        board.led0 = 1;
+        T5 = 1;
+        break;
+      case 'o':
+        board.led1 = 0;
+        T5 = 0;
+        break;
+      case 'l':
+        board.led1 = 1;
+        T5 = 1;
+        break;
 
       default:
         if (!stepCLI(key)) {
-          dbg.print("?\n");
+          dbg("?\n");
         }
         break;
       case '\n'://clear display via shoving some crlf's at it.
       case '\r':
-        dbg.println("\r\n");
+        dbg("\r\n");
         break;
     }
   }
