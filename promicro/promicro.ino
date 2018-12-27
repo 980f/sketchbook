@@ -28,8 +28,9 @@ const OutputPin<5, LOW> T5;
 const OutputPin<6, LOW> T6;
 const OutputPin<7, LOW> T7;
 const OutputPin<8, LOW> T8;
-const OutputPin<9, LOW> T9;
-const OutputPin<10, LOW> T10;
+//9,10 PWM, in addition to being run to LED's
+//const OutputPin<9, LOW> T9;
+//const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
 const OutputPin<16, LOW> T16;
 const InputPin<14> fasterButton;
@@ -42,23 +43,16 @@ const InputPin<15> slowerButton;
 struct AnalogValue {
   unsigned raw;
 
-  AnalogValue() {//because pre-setup code can't talk to serial.
-    raw = 0;
-  }
-
-  AnalogValue(int physical) {
-    dbg("A!");
-    raw = physical << 7; //todo: shift will be a function of input resolution (10 vs 12) and oversampling rate (8 samples is same as 3 bit shift)
+  AnalogValue(int physical = 0) {
+    raw = physical; //todo: shift will be a function of input resolution (10 vs 12) and oversampling rate (8 samples is same as 3 bit shift)
   }
 
   unsigned operator =(int physical) {
-    dbg("A=");
-    raw = physical << 7;
+    raw = physical;
     return raw;
   }
 
-  operator unsigned()const {
-    dbg("AU.");
+  operator unsigned() const {
     return raw;
   }
 
@@ -72,7 +66,8 @@ struct AnalogOutput {
 
     //all ones for max, 0 for min.
     void operator =(AnalogValue av) const {
-      analogWrite(pinNumber, av >> 7); //15 bit averaged input, cut it down to 8 msbs of those 15. todo: configure for 10 and maybe 16 bit output.
+      uint8_t oldish = av >> 7;
+      analogWrite(pinNumber, oldish); //15 bit averaged input, cut it down to 8 msbs of those 15. todo: configure for 10 and maybe 16 bit output.
     }
 
     //all ones for max, 0 for min.
@@ -84,38 +79,33 @@ struct AnalogOutput {
     void operator =(AnalogOutput &other) = delete; //to stifle compiler saying that it did this on it own, good for it :P
 };
 
-template <unsigned numBits> struct AnalogInput {
+struct AnalogInput {
   const unsigned pinNumber;
   AnalogInput(unsigned pinNumber): pinNumber(pinNumber) {
 
   }
 
   //all ones for max, 0 for min.
-  operator AnalogValue/*<numBits>*/() const {
-    dbg("AI.");
-    unsigned actual = analogRead(pinNumber);
-    T9 = 0;
-    T8 = 1;
-    AnalogValue/*<numBits>*/ allbits =   actual ;
-    dbg("A. ");
-    T8 = 0;
-    return allbits;
+  operator AnalogValue() const {
+    return AnalogValue(analogRead(pinNumber) << 5) ; //scale up until we get access to the hardware bit that does this.
   }
 };
 
-AnalogOutput Xdrive(9);
-AnalogOutput Ydrive(10);
 
-AnalogInput<8> joyX(A3);
-AnalogInput<8> joyY(A2);
+template<typename T> struct XY {
+  T X;
+  T Y;
+  XY(T x, T y): X(x), Y(y) {}
+};
 
-//AnalogValue
-int rawX;
-//AnalogValue
-int rawY;
+XY<AnalogOutput> drive(9, 10);
+
+XY<AnalogInput> joy(A3, A2);
+
+XY<AnalogValue> raw(0, 0);
 
 void showJoy() {
-  dbg("\nJoy x:", rawX, " y:", rawY);
+  dbg("\nJoy x:", raw.X, "\ty:", raw.Y);
 }
 
 #include "steppertest.h"
@@ -124,7 +114,7 @@ void setup() {
   Serial.begin(500000);//number here doesn't matter.
   Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
   //  stepperSetup();
-  dbg("\nHowdy");
+  dbg("\nHowdy\n");
   T4 = 1;
   T5 = 1;
   T6 = 1;
@@ -136,8 +126,6 @@ void loop() {
   static unsigned iters = 0;
   ++iters;
   if (MilliTicked) { //this is true once per millisecond.
-    //    dbg.println(MilliTicked.recent());
-    T2.flip();
     if (fasterButton) {
       //      upspeed(thespeed + speedstep);
       readanalog = false;
@@ -146,27 +134,28 @@ void loop() {
       //      upspeed(thespeed - speedstep);
       readanalog = true;
     }
-    if (readanalog && MilliTicked.every(100)) {
-      T7 = 1;
-      rawX =  analogRead(A3);//joyX;
-      T7 = 0;
-      rawY = analogRead(A2);//joyY;
-      showJoy();
-      Xdrive = rawX;
-      Ydrive = rawY;
+    T6=readanalog;
+    if (readanalog ) {
+      T2.flip();
+      raw.X = joy.X;
+      raw.Y = joy.Y;
+      if (MilliTicked.every(100)) {
+        showJoy();
+      }
+      drive.X = raw.X;
+      drive.Y = raw.Y;
     }
 
     if (MilliTicked.every(1000)) {
-      //      dbg.println(" milli");
       T3.flip();
     }
   }
 
 
-  if (Console&& Console.available()) {
+  if (Console && Console.available()) {
     T4.flip();
     auto key = Console.read();
-    dbg(char(key),':');//echo.
+    dbg(char(key), ':'); //echo.
 
     switch (key) {
       case 'p':
@@ -197,7 +186,7 @@ void loop() {
         break;
       case '\n'://clear display via shoving some crlf's at it.
       case '\r':
-        dbg("\r\n");
+        dbg("\n\n\n");
         break;
     }
   }
