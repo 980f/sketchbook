@@ -38,8 +38,8 @@ const InputPin<15> slowerButton;
 //A0,A1,A2,A3
 
 
+//joystick to servo version:
 #include "analog.h"
-
 
 template<typename T> struct XY {
   T X;
@@ -47,11 +47,48 @@ template<typename T> struct XY {
   XY(T x, T y): X(x), Y(y) {}
 };
 
-XY<AnalogOutput> drive(9, 10);
+//XY<AnalogOutput> drive(9, 10);
 
 XY<AnalogInput> joy(A3, A2);
 
 XY<AnalogValue> raw(0, 0);
+
+
+struct LinearMap {
+  const unsigned top;
+  const unsigned bottom;
+  LinearMap(unsigned top, unsigned bottom = 0):
+    top(top), bottom(bottom)  {
+    //#done
+  }
+  unsigned operator ()(AnalogValue avin)const {
+    auto scaledup = long(top - bottom) * avin;
+    unsigned reduced = bottom + ((scaledup + (1 << 14)) >> 15);
+    //    dbg("\nLM:",top,"-",bottom, " in",avin, "\tup:", scaledup, "\tdone:", reduced);
+    return reduced;
+  }
+};
+
+//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
+static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
+static const unsigned fullscale = 40000;
+static const LinearMap servoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
+
+struct Eyestalk {
+
+  void begin() {
+    board.T1.setPwmBase(fullscale, cs);
+  }
+
+  void X(AnalogValue value) {
+    board.T1.pwmA.setDuty(servoRange(value));
+  }
+
+  void Y(AnalogValue value) {
+    board.T1.pwmB.setDuty(servoRange(value));
+  }
+
+} eyestalk;
 
 void showJoy() {
   dbg("\nJoy x:", raw.X, "\ty:", raw.Y);
@@ -61,7 +98,9 @@ void showJoy() {
 void setup() {
   Serial.begin(500000);//number here doesn't matter.
   Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
+  eyestalk.begin();
   dbg("\nHowdy, Podner\n\n\n");
+
 }
 
 
@@ -73,12 +112,13 @@ void loop() {
   if (MilliTicked) { //this is true once per millisecond.
     if (fasterButton) {
       readanalog = false;
+      board.T1.showstate(dbg);
     }
     if (slowerButton) {
       readanalog = true;
     }
-    
-    T6=readanalog;
+
+    T6 = readanalog;
     if (readanalog ) {
       T2.flip();
       raw.X = joy.X;
@@ -86,8 +126,8 @@ void loop() {
       if (MilliTicked.every(100)) {
         showJoy();
       }
-      drive.X = raw.X;
-      drive.Y = raw.Y;
+      eyestalk.X(raw.X);
+      eyestalk.Y(raw.Y);
     }
 
     if (MilliTicked.every(1000)) {
@@ -124,9 +164,9 @@ void loop() {
         break;
 
       default:
-//        if (!stepCLI(key)) {
-          dbg("?\n");
-//        }
+        //        if (!stepCLI(key)) {
+        dbg("?\n");
+        //        }
         break;
       case '\n'://clear display via shoving some crlf's at it.
       case '\r':

@@ -26,7 +26,7 @@ class ProMicro {
     //    } txled;
     //
     //todo: get digitalpin class to function so that we can pass pin numbers.
-    const OutputPin<17> led1; 
+    const OutputPin<17> led1;
     const OutputPin<24> led0;//24 or 30 , documents differ.
 
 
@@ -53,22 +53,24 @@ class ProMicro {
 
         /** ticks must be at least 3, typically as large as you can make it for a given CS.
             example: 50Hz@16MHz: 320k ticks, use divide By8 and 40000.
+            Note that we are this time ignoring the possibility of dicking with the shared prescalar.
         */
-        void setPwmBase(unsigned ticks, CS cs)const { //
-          TCCR1A = 0;// set entire TCCR1A register to 0
-          TCCR1B = 0;// same for TCCR1B
-          TCNT1  = 0;//initialize counter value to 0
-          // set compare match register
+        void setPwmBase(unsigned ticks, CS cs)const { //pwm cycle time
+          TCCR1A = 0;//disable present settings to prevent evanescent weirdness
+          TCCR1B = 0;// ditto
+          TCNT1  = 0;//to make startup repeatable
           ICR1 = ticks;
-          // turn on CTC mode with ICR as period definer (WGM1.3:0 = 12
-          //          TCCR1A is   oc<<2*num, num=1..3, value: 1x simple pwm, x=polarity, 01: toggle, 00: not in use
-          TCCR1B = (1 << WGM12) | cs;//3 lsbs are clock select. 0== fastest rate. Only use prescalars when needed to extend range.
-          // enable timer compare interrupt
-          TIMSK1 |= (1 << OCIE1A);
+          // turn on CTC mode with ICR as period definer (WGM1.3:0 = b1110)
+          TCCR1A = 2;//WGM1:0
+          TCCR1B = (3 << 3) | cs; //3<<3 is WGM3:2. 3 lsbs are divisor select.
         }
 
         template <unsigned which> class PwmBit {
-            enum {shift = which * 2, mask = 3 << shift};
+            enum {
+              shift = which * 2,
+              mask = 3 << shift,//two control bits for each
+              Dnum = 8 + which, //Arduino digital label for output pi, used by someone somewhen to make pin be an output.
+            };
             void configure(unsigned twobits) const {
               mergeInto(TCCR1A, (twobits << shift), mask); //todo: bring out the bit field class.
             }
@@ -82,11 +84,11 @@ class ProMicro {
               configure(0);
             }
 
-
             void setDuty(unsigned ticks, bool invertit = 0)const {
               if (ticks) { //at least 1 enforced here
                 configure(2 + invertit);
-                (&TCNT1)[which] = ticks - 1;
+//  address order: TCCR, ICR, OCRA, OCRB, OCRC
+                (&ICR1)[which] = ticks - 1;
               } else {     //turn it off.
                 off();
               }
@@ -99,7 +101,16 @@ class ProMicro {
               return ticks;
             }
 
+
         };
+
+        PwmBit<1> pwmA;//PB5, D9
+        PwmBit<2> pwmB;//PB6, D10
+        // not available off chip       PwmBit<3> pwmC;
+        void showstate(ChainPrinter &dbg) {
+          dbg("\nT1\tCRA: ", TCCR1A, "\tCRB:", TCCR1B, "\tOA:", OCR1A, "\tOB:", OCR1B, "\tICR:", ICR1);
+        }
+
 
         /** @returns the prescale setting required for the number of ticks. Will be Halted if out of range.*/
         static constexpr CS prescaleRequired(long ticks) {
