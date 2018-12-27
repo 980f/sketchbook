@@ -27,7 +27,7 @@ class ProMicro {
     //
     //todo: get digitalpin class to function so that we can pass pin numbers.
     const OutputPin<17> led1;
-    const OutputPin<24> led0;//24 or 30 , documents differ.
+    const OutputPin<30> led0;//nice proc-micro graphic is wrong.
 
 
     class T1Control {
@@ -67,7 +67,7 @@ class ProMicro {
 
         template <unsigned which> class PwmBit {
             enum {
-              shift = which * 2,
+              shift = 8 - (which * 2), //1->6, 2->4, 3->2
               mask = 3 << shift,//two control bits for each
               Dnum = 8 + which, //Arduino digital label for output pi, used by someone somewhen to make pin be an output.
             };
@@ -87,7 +87,7 @@ class ProMicro {
             void setDuty(unsigned ticks, bool invertit = 0)const {
               if (ticks) { //at least 1 enforced here
                 configure(2 + invertit);
-//  address order: TCCR, ICR, OCRA, OCRB, OCRC
+                //  address order: TCCR, ICR, OCRA, OCRB, OCRC
                 (&ICR1)[which] = ticks - 1;
               } else {     //turn it off.
                 off();
@@ -101,7 +101,6 @@ class ProMicro {
               return ticks;
             }
 
-
         };
 
         PwmBit<1> pwmA;//PB5, D9
@@ -114,36 +113,13 @@ class ProMicro {
 
         /** @returns the prescale setting required for the number of ticks. Will be Halted if out of range.*/
         static constexpr CS prescaleRequired(long ticks) {
-          //          if (ticks >= (1 << (16 + 10))) {
-          //            return Halted;//hopeless
-          //          }
-          //          if (ticks >= (1 << (16 + 8))) {
-          //            return By1K;
-          //          }
-          //          if (ticks >= (1 << (16 + 6))) {
-          //            return By256;
-          //          }
-          //          if (ticks >= (1 << (16 + 3))) {
-          //            return By64;
-          //          }
-          //          if (ticks >= (1 << (16 + 0))) {
-          //            return By8;
-          //          }
-          //          return By1;
-          //older compiler makes me pack the above into nested ternaries. the thing added to 16 is the power of two that the next line will return
+          //older compiler makes me pack this into nested ternaries. the thing added to 16 is the power of two that the next line will return
           return  (ticks >= (1 << (16 + 10))) ? Halted : //out of range
                   (ticks >= (1 << (16 + 8))) ? By1K :
                   (ticks >= (1 << (16 + 6))) ? By256 :
                   (ticks >= (1 << (16 + 3))) ? By64 :
                   (ticks >= (1 << (16 + 0))) ? By8 :
                   By1;
-        }
-
-        unsigned  clip(unsigned &ticks) const {
-          if (ticks > 65535) {
-            ticks = 65535;
-          }
-          return ticks;
         }
 
     } T1;
