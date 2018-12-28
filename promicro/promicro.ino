@@ -11,9 +11,44 @@
 
 #include "chainprinter.h"
 
-ChainPrinter dbg(Serial1);
 
-#define Console Serial1
+
+/** merge usb serial and serial1 streams.*/
+class TwinConsole {
+  public:
+    ChainPrinter dbg;
+    ChainPrinter dbg2;
+    TwinConsole(): dbg(Serial), dbg2(Serial1) {
+      //#done unless we find we can call begin here.
+    }
+
+    int getKey() {
+      if (Serial && Serial.available()) {
+        return Serial.read();
+      }
+      if (Serial1 && Serial1.available()) {
+        return Serial1.read();
+      }
+      return -1;
+    }
+
+    void begin() {
+      Serial.begin(500000);//number here doesn't matter.
+      Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
+    }
+
+    template<typename ... Args> TwinConsole& operator()(const Args ... args) {
+      if (sizeof... (args)) {
+        dbg(args...);
+        dbg2(args...);
+      }
+      return *this;
+    }
+
+};
+
+TwinConsole Console;
+#define dbg Console
 
 #include "promicro.board.h"
 ProMicro board;
@@ -47,8 +82,6 @@ template<typename T> struct XY {
   XY(T x, T y): X(x), Y(y) {}
 };
 
-//XY<AnalogOutput> drive(9, 10);
-
 XY<AnalogInput> joy(A3, A2);
 
 XY<AnalogValue> raw(0, 0);
@@ -69,7 +102,7 @@ struct LinearMap {
   }
 };
 
-//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
+//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init inline.
 static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
 static const unsigned fullscale = 40000;
 static const LinearMap servoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
@@ -96,8 +129,7 @@ void showJoy() {
 
 
 void setup() {
-  Serial.begin(500000);//number here doesn't matter.
-  Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
+  Console.begin();
   eyestalk.begin();
   dbg("\nHowdy, Podner\n\n\n");
 
@@ -112,7 +144,7 @@ void loop() {
   if (MilliTicked) { //this is true once per millisecond.
     if (fasterButton) {
       readanalog = false;
-      board.T1.showstate(dbg);
+      board.T1.showstate(dbg.dbg2);
     }
     if (slowerButton) {
       readanalog = true;
@@ -132,14 +164,15 @@ void loop() {
 
     if (MilliTicked.every(1000)) {
       T3.flip();
+      Console(" @",MilliTicked.recent(),iters);
     }
   }
 
 
-  if (Console && Console.available()) {
+  int key = Console.getKey();
+  if (key>=0) {
     T4.flip();
-    auto key = Console.read();
-    dbg(char(key), ':'); //echo.
+    Console(char(key), ':'); //echo.
 
     switch (key) {
       case 'p':
@@ -147,11 +180,11 @@ void loop() {
         break;
 
       case 'i':
-        board.led0 = 0;
+        board.ledd5 = 0;
         T5 = 0;
         break;
       case 'k':
-        board.led0 = 1;
+        board.ledd5 = 1;
         T5 = 1;
         break;
       case 'o':
@@ -165,12 +198,12 @@ void loop() {
 
       default:
         //        if (!stepCLI(key)) {
-        dbg("?\n");
+        Console("?\n");
         //        }
         break;
       case '\n'://clear display via shoving some crlf's at it.
       case '\r':
-        dbg("\n\n\n");
+        Console("\n\n\n");
         break;
     }
   }

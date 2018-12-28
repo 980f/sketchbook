@@ -6,29 +6,59 @@
 //a0<->18  a1<->19 ... for 12 a ins.
 //  TIMER1A,    /* 9 */
 //  TIMER1B,    /* 10 */
-class ProMicro {
+class AT32U4 {
   public:
     enum {//processor constants
       unsigned_bits = 16, //AVR does not provide much of C++ library :(
 
     };
-    //
-    //    struct TxLed {
-    //      bool lastset;
-    //      operator bool()const {
-    //        return lastset;
-    //      }
-    //      bool operator=(bool setting) {
-    //        lastset = setting;
-    //        lastset ? TXLED1 : TXLED0; //vendor macros, should replace with an OutputPin
-    //        return setting;
-    //      }
-    //    } txled;
-    //
-    //todo: get digitalpin class to function so that we can pass pin numbers.
-    const OutputPin<17> led1;
-    const OutputPin<30> led0;//nice proc-micro graphic is wrong.
+    
+    struct Port {
+      byte pins;
+      byte ddir;
+      byte bits;
+    };
+    
+    struct PinReference {      
+      static Port &forLetter(char letter){
+        switch(letter&7){//cheap way to do case insensitive, but only is valid for valid values.
+          default: return *reinterpret_cast<Port*>(PORTC);//all problems tossed in with least useful port to appease compiler.
+          case 2: return *reinterpret_cast<Port*>(PORTB);
+          case 3: return *reinterpret_cast<Port*>(PORTC);
+          case 4: return *reinterpret_cast<Port*>(PORTD);
+          case 5: return *reinterpret_cast<Port*>(PORTE);
+          case 6: return *reinterpret_cast<Port*>(PORTF);          
+        }
+      }
+      Port &port;
+      const unsigned shift;
+      
+      PinReference(char letter,unsigned shift,bool out):port(forLetter(letter)),shift(shift){
+        drive(out);//don't need to wait for setup().
+      }
+      
+      operator bool () const {
+        return (port.pins&(1<<shift))!=0;
+      }
+      
+      bool operator =(bool setit){
+        if(setit){
+          port.bits |=(1<<shift);
+        } else {
+          port.bits &=~(1<<shift);
+        }
+        return setit!=0;//canonical
+      }
 
+      /** set data direction */
+      void drive(bool out){
+        if(out){
+          port.ddir |=(1<<shift);
+        } else {
+          port.ddir &=~(1<<shift);
+        }
+      }
+    };
 
     class T1Control {
       public:
@@ -123,4 +153,18 @@ class ProMicro {
         }
 
     } T1;
+};
+
+struct ProMicro: public AT32U4 {
+      //todo: get digitalpin class to function so that we can pass pin numbers.
+    const OutputPin<LED_BUILTIN_RX> led1;
+//    const OutputPin<24> led0;//nice proc-micro graphic is wrong. arduino dox are wrong.
+
+//    PinReference 
+bool ledd5;
+    ProMicro()
+//    :ledd5('D',5,1) 
+    {
+      
+    }
 };
