@@ -56,6 +56,7 @@ class AT32U4 {
           port.ddir |=(1<<shift);
         } else {
           port.ddir &=~(1<<shift);
+          port.bits |=(1<<shift);//enable pullups all around, the device isn't flexible enough to make this a choice.
         }
       }
     };

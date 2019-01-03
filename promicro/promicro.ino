@@ -11,22 +11,23 @@
 
 #include "chainprinter.h"
 
-
+#include "stopwatch.h"
 
 /** merge usb serial and serial1 streams.*/
 class TwinConsole {
   public:
-    ChainPrinter dbg;
-    ChainPrinter dbg2;
-    TwinConsole(): dbg(Serial), dbg2(Serial1) {
+    ChainPrinter usb;
+    ChainPrinter uart;
+    TwinConsole(): usb(Serial), uart(Serial1) {
       //#done unless we find we can call begin here.
     }
 
+/** @returns keystrokes from every source, randomly interleaved, -1 if there are no strokes present. */
     int getKey() {
-      if (Serial && Serial.available()) {
-        return Serial.read();
-      }
-      if (Serial1 && Serial1.available()) {
+//      if (Serial && Serial.available()) {
+//        return Serial.read();
+//      }
+      if (Serial1.available()) {
         return Serial1.read();
       }
       return -1;
@@ -39,8 +40,8 @@ class TwinConsole {
 
     template<typename ... Args> TwinConsole& operator()(const Args ... args) {
       if (sizeof... (args)) {
-        dbg(args...);
-        dbg2(args...);
+        if(Serial) usb(args...);
+        uart(args...);//uarts always are ready
       }
       return *this;
     }
@@ -48,7 +49,7 @@ class TwinConsole {
 };
 
 TwinConsole Console;
-#define dbg Console
+
 
 #include "promicro.board.h"
 ProMicro board;
@@ -124,34 +125,38 @@ struct Eyestalk {
 } eyestalk;
 
 void showJoy() {
-  dbg("\nJoy x:", raw.X, "\ty:", raw.Y);
+  Console("\nJoy x:", raw.X, "\ty:", raw.Y);
 }
 
 
 void setup() {
   Console.begin();
   eyestalk.begin();
-  dbg("\nHowdy, Podner\n\n\n");
+  Console("\nHowdy, Podner\n\n\n");
 
 }
 
 
-bool readanalog = false;//enable joystick actions
+bool updateEyes= false;//enable joystick actions
 
 void loop() {
   static unsigned iters = 0;
   ++iters;
+  Console("\n!",iters,",",millis());
+  Console("\n#",iters,",",millis());
+  
   if (MilliTicked) { //this is true once per millisecond.
+    Console("\n+",MilliTicked.recent());
     if (fasterButton) {
-      readanalog = false;
-      board.T1.showstate(dbg.dbg2);
+      updateEyes = false;
+      board.T1.showstate(Console.uart);
     }
     if (slowerButton) {
-      readanalog = true;
+      updateEyes = true;
     }
 
-    T6 = readanalog;
-    if (readanalog ) {
+    T6 = updateEyes;
+    if (updateEyes ) {
       T2.flip();
       raw.X = joy.X;
       raw.Y = joy.Y;
@@ -164,12 +169,12 @@ void loop() {
 
     if (MilliTicked.every(1000)) {
       T3.flip();
-      Console(" @",MilliTicked.recent(),iters);
+      Console(" @",MilliTicked.recent());
     }
   }
 
 
-  int key = Console.getKey();
+  int key = -1;//Console.getKey();
   if (key>=0) {
     T4.flip();
     Console(char(key), ':'); //echo.
