@@ -1,4 +1,6 @@
 
+#define useFruit 1
+
 
 #include "bitbanger.h"
 
@@ -38,7 +40,7 @@ const InputPin<15> slowerButton;
 //A0,A1,A2,A3
 
 
-//joystick to servo version:
+//joystick to servo value:
 #include "analog.h"
 
 template<typename T> struct XY {
@@ -47,13 +49,12 @@ template<typename T> struct XY {
   XY(T x, T y): X(x), Y(y) {}
 };
 
-//XY<AnalogOutput> drive(9, 10);
-
+//joystick device
 XY<AnalogInput> joy(A3, A2);
-
+//records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
-
+/** like arduino's map() but with subtle syntax and one axis with a fixed 0 as the low.*/
 struct LinearMap {
   const unsigned top;
   const unsigned bottom;
@@ -69,6 +70,28 @@ struct LinearMap {
   }
 };
 
+#if useFruit
+#include <Adafruit_PWMServoDriver.h>
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+struct Eyestalk {
+// our servo # counter
+uint8_t servonum = 0;
+
+  void begin() {
+    board.T1.setPwmBase(fullscale, cs);
+  }
+
+  void X(AnalogValue value) {
+    board.T1.pwmA.setDuty(servoRange(value));
+  }
+
+  void Y(AnalogValue value) {
+    board.T1.pwmB.setDuty(servoRange(value));
+  }
+
+} eyestalk;
+#else
 //wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
 static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
 static const unsigned fullscale = 40000;
@@ -89,6 +112,11 @@ struct Eyestalk {
   }
 
 } eyestalk;
+#endif
+
+
+
+
 
 void showJoy() {
   dbg("\nJoy x:", raw.X, "\ty:", raw.Y);

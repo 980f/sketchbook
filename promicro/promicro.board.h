@@ -31,7 +31,7 @@ class ProMicro {
 
 
     class T1Control {
-      public:
+      public://here through resolution() are part of picking the precalar. Most systems have 16MHz as the input to this but that is configurable via the PLL stuff (not yet encoded).
         enum  CS {
           Halted = 0,
           By1 = 1,
@@ -45,7 +45,7 @@ class ProMicro {
 
         T1Control() {}
 
-        static const unsigned divisors[ByRising + 1] = {0, 1, 8, 64, 256, 1024, 1, 1};
+        static constexpr1 unsigned divisors[ByRising + 1] = {0, 1, 8, 64, 256, 1024, 1, 1};
 
         static unsigned resolution(CS cs) {
           return divisors[cs & 7];
@@ -69,21 +69,25 @@ class ProMicro {
             enum {
               shift = 8 - (which * 2), //1->6, 2->4, 3->2
               mask = 3 << shift,//two control bits for each
-              Dnum = 8 + which, //Arduino digital label for output pi, used by someone somewhen to make pin be an output.
+              Dnum = 8 + which, //Arduino digital label for output pin, used by someone somewhen to make pin be an output.
             };
+            //set output pin mode, RTFM or see where this is called.
             void configure(unsigned twobits) const {
               mergeInto(TCCR1A, (twobits << shift), mask); //todo: bring out the bit field class.
             }
 
           public:
+            //toggle mode has the bit change state when the compare occurs. One uses 'force on' 'force off' to set the polarity before FIRST cycle, only really useful in up/down mode.
             void toggle()const {
               configure(1);
             }
-
-            void off() {
+            
+            /** nominal turn PWM off for this channel, actually just disconnects from timer, remember to set bit to desired state via DIO before calling this. */
+            void off() const {
               configure(0);
             }
 
+            /** set delay from cycle begin to where output changes, @param invertit sets polarity of signal, value is that of early part of cycle */
             void setDuty(unsigned ticks, bool invertit = 0)const {
               if (ticks) { //at least 1 enforced here
                 configure(2 + invertit);
@@ -94,6 +98,7 @@ class ProMicro {
               }
             }
 
+            /** @returns value of given param after possible changing it to be less than or equal to the cycle max.*/
             unsigned clip(unsigned &ticks) const {
               if (ticks > ICR1) {
                 ticks = ICR1;
@@ -114,11 +119,11 @@ class ProMicro {
         /** @returns the prescale setting required for the number of ticks. Will be Halted if out of range.*/
         static constexpr CS prescaleRequired(long ticks) {
           //older compiler makes me pack this into nested ternaries. the thing added to 16 is the power of two that the next line will return
-          return  (ticks >= (1 << (16 + 10))) ? Halted : //out of range
-                  (ticks >= (1 << (16 + 8))) ? By1K :
-                  (ticks >= (1 << (16 + 6))) ? By256 :
-                  (ticks >= (1 << (16 + 3))) ? By64 :
-                  (ticks >= (1 << (16 + 0))) ? By8 :
+          return  (ticks >= (1L << (16 + 10))) ? Halted : //out of range
+                  (ticks >= (1L << (16 + 8))) ? By1K :
+                  (ticks >= (1L << (16 + 6))) ? By256 :
+                  (ticks >= (1L << (16 + 3))) ? By64 :
+                  (ticks >= (1L << (16 + 0))) ? By8 :
                   By1;
         }
 
