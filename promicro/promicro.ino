@@ -1,4 +1,7 @@
 
+//set useFruit to 1 to use adafruit 16 channel system as output (4k resolution), 0 for AVR TIM1 on D9/D10 as PWM pair with 40k resolution.
+#define useFruit 1
+
 
 #include "bitbanger.h"
 
@@ -14,40 +17,7 @@
 #include "stopwatch.h"
 
 /** merge usb serial and serial1 streams.*/
-class TwinConsole {
-  public:
-    ChainPrinter usb;
-    ChainPrinter uart;
-    TwinConsole(): usb(Serial), uart(Serial1) {
-      //#done unless we find we can call begin here.
-    }
-
-/** @returns keystrokes from every source, randomly interleaved, -1 if there are no strokes present. */
-    int getKey() {
-//      if (Serial && Serial.available()) {
-//        return Serial.read();
-//      }
-      if (Serial1.available()) {
-        return Serial1.read();
-      }
-      return -1;
-    }
-
-    void begin() {
-      Serial.begin(500000);//number here doesn't matter.
-      Serial1.begin(500000);//hardware serial. up the baud to reduce overhead.
-    }
-
-    template<typename ... Args> TwinConsole& operator()(const Args ... args) {
-      if (sizeof... (args)) {
-        if(Serial) usb(args...);
-        uart(args...);//uarts always are ready
-      }
-      return *this;
-    }
-
-};
-
+#include "twinconsole.h"
 TwinConsole Console;
 
 
@@ -74,20 +44,30 @@ const InputPin<15> slowerButton;
 //A0,A1,A2,A3
 
 
-//joystick to servo version:
+//joystick to servo value:
 #include "analog.h"
 
 template<typename T> struct XY {
   T X;
   T Y;
   XY(T x, T y): X(x), Y(y) {}
+
+  //type Other must be assignable to typename T
+  template <typename Other>operator =(XY<Other> input) {
+    X = input.X;
+    Y = input.Y;
+  }
+
 };
 
-XY<AnalogInput> joy(A3, A2);
 
+//joystick device
+
+XY<AnalogInput> joy(A3, A2);
+//records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
-
+/** like arduino's map() but with subtle syntax and one axis with a fixed 0 as the low.*/
 struct LinearMap {
   const unsigned top;
   const unsigned bottom;
@@ -103,9 +83,41 @@ struct LinearMap {
   }
 };
 
-//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init inline.
+
+#if useFruit
+#include <Adafruit_PWMServoDriver.h>
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+//4k range
+static const LinearMap servoRange(410, 205); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
+
+struct Eyestalk {
+  
+  void begin() {
+    pwm.begin();
+    pwm.setPWMFreq(50);  // Analog servos run at ~60 Hz updates
+    //25MHz is base clock, cycle is 4k ticks so max rate is 
+  }
+
+  void X(AnalogValue value) {
+    pwm.setPWM(which.X , 0, servoRange(value));
+  }
+
+  void Y(AnalogValue value) {
+    pwm.setPWM(which.Y , 0, servoRange(value));
+  }
+  
+  XY<uint8_t> which = {0, 1};//which of 16 servos. Allows for arbitrary pair
+
+  void operator =(const XY<AnalogValue>&raw) {
+    X(raw.X);
+    Y(raw.Y);
+  }
+
+} eyestalk;
+#else
+//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
 static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
-static const unsigned fullscale = 40000;
+static const unsigned fullscale = 40000; //40000 X 8 = 320000, /16MHz = 20ms aka 50Hz.
 static const LinearMap servoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
 
 struct Eyestalk {
@@ -122,7 +134,13 @@ struct Eyestalk {
     board.T1.pwmB.setDuty(servoRange(value));
   }
 
+  void operator =(const XY<AnalogValue>&raw) {
+    X(raw.X);
+    Y(raw.Y);
+  }
+
 } eyestalk;
+#endif
 
 void showJoy() {
   Console("\nJoy x:", raw.X, "\ty:", raw.Y);
@@ -132,21 +150,23 @@ void showJoy() {
 void setup() {
   Console.begin();
   eyestalk.begin();
-  Console("\nHowdy, Podner\n\n\n");
+  Console("\nSweet 16 \n\n\n");
+  //todo: figureout which is input, which is output,
+  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
 }
 
-
-bool updateEyes= false;//enable joystick actions
+bool updateEyes = false; //enable joystick actions
 
 void loop() {
-  static unsigned iters = 0;
-  ++iters;
-  Console("\n!",iters,",",millis());
-  Console("\n#",iters,",",millis());
-  
+  //  static unsigned iters = 0;
+  //  ++iters;
+  //  Console("\n!", iters, ",", millis());
+  //  Console("\n#", iters, ",", millis());
+
   if (MilliTicked) { //this is true once per millisecond.
-    Console("\n+",MilliTicked.recent());
+    //    Console("\n+", MilliTicked.recent());
     if (fasterButton) {
       updateEyes = false;
       board.T1.showstate(Console.uart);
@@ -158,26 +178,24 @@ void loop() {
     T6 = updateEyes;
     if (updateEyes ) {
       T2.flip();
-      raw.X = joy.X;
-      raw.Y = joy.Y;
+      raw = joy;//normalizes scale.
       if (MilliTicked.every(100)) {
         showJoy();
       }
-      eyestalk.X(raw.X);
-      eyestalk.Y(raw.Y);
+      eyestalk = raw;
     }
 
     if (MilliTicked.every(1000)) {
       T3.flip();
-      Console(" @",MilliTicked.recent());
+      Console(" @", MilliTicked.recent());
     }
   }
 
 
-  int key = -1;//Console.getKey();
-  if (key>=0) {
+  int key = Console.getKey();
+  if (key >= 0) {
     T4.flip();
-    Console(char(key), ':'); //echo.
+    Console(key, ' ', char(key), ':'); //echo.
 
     switch (key) {
       case 'p':
