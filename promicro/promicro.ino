@@ -84,18 +84,19 @@ struct LinearMap {
 };
 
 
-#if useFruit
 #include <Adafruit_PWMServoDriver.h>
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+#if useFruit
+
 //4k range
 static const LinearMap servoRange(410, 205); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
 
 struct Eyestalk {
-  
-  void begin() {
-    pwm.begin();
+
+  static void begin() {
     pwm.setPWMFreq(50);  // Analog servos run at ~60 Hz updates
-    //25MHz is base clock, cycle is 4k ticks so max rate is 
+    //25MHz is base clock, cycle is 4k ticks so max rate is
   }
 
   void X(AnalogValue value) {
@@ -105,7 +106,7 @@ struct Eyestalk {
   void Y(AnalogValue value) {
     pwm.setPWM(which.Y , 0, servoRange(value));
   }
-  
+
   XY<uint8_t> which = {0, 1};//which of 16 servos. Allows for arbitrary pair
 
   void operator =(const XY<AnalogValue>&raw) {
@@ -149,11 +150,17 @@ void showJoy() {
 
 void setup() {
   Console.begin();
+  pwm.begin();//use by eyestalks, should precede use of them.
+
   eyestalk.begin();
   Console("\nSweet 16 \n\n\n");
   //todo: figureout which is input, which is output,
   pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  //put power to pins to test w/voltmeter.
+  for (unsigned pi = 16; pi-- > 0;) {
+    pwm.setPWM(pi, 0, pi << 8);
+  }
 
 }
 
@@ -168,11 +175,15 @@ void loop() {
   if (MilliTicked) { //this is true once per millisecond.
     //    Console("\n+", MilliTicked.recent());
     if (fasterButton) {
-      updateEyes = false;
+      if (changed(updateEyes, false)) {
+        Console("\nDisabling joystick");
+      }
       board.T1.showstate(Console.uart);
     }
     if (slowerButton) {
-      updateEyes = true;
+      if (changed(updateEyes, true)) {
+        Console("\nEnabling joystick");
+      }
     }
 
     T6 = updateEyes;
@@ -201,22 +212,25 @@ void loop() {
       case 'p':
         showJoy();
         break;
-
-      case 'i':
-        board.ledd5 = 0;
-        T5 = 0;
-        break;
-      case 'k':
-        board.ledd5 = 1;
-        T5 = 1;
-        break;
-      case 'o':
-        board.led1 = 0;
-        T5 = 0;
-        break;
-      case 'l':
-        board.led1 = 1;
-        T5 = 1;
+      case 's':
+        Console("\nScanning for I2C devices:");
+        for (byte address = 16; address < 127; address++ )  {
+          Console(".");
+          Wire.beginTransmission(address);
+          auto error = Wire.endTransmission();
+          switch (error) {
+            case 0:
+              Console("\nI2C device found at address ", address);
+              break;
+            case 4:
+              Console("\nUnknown error for address ", address);
+              break;
+            default:
+              Console(error);
+              break;
+          }
+        }
+        Console("\nScanning for I2C devices is done.");
         break;
 
       default:
