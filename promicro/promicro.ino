@@ -67,22 +67,7 @@ XY<AnalogInput> joy(A3, A2);
 //records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
-/** like arduino's map() but with subtle syntax and one axis with a fixed 0 as the low.*/
-struct LinearMap {
-  const unsigned top;
-  const unsigned bottom;
-  LinearMap(unsigned top, unsigned bottom = 0):
-    top(top), bottom(bottom)  {
-    //#done
-  }
-  unsigned operator ()(AnalogValue avin)const {
-    auto scaledup = long(top - bottom) * avin;
-    unsigned reduced = bottom + ((scaledup + (1 << 14)) >> 15);
-    //    dbg("\nLM:",top,"-",bottom, " in",avin, "\tup:", scaledup, "\tdone:", reduced);
-    return reduced;
-  }
-};
-
+#include "linearmap.h"
 
 #include <Adafruit_PWMServoDriver.h>
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
