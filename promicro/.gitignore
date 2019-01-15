@@ -9,6 +9,7 @@ analog.h
 stopwatch.h
 boolish.cpp
 digitalpin.h
+linearmap.h
 millievent.h
 lardls
 cheaptricks.h

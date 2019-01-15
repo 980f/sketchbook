@@ -33,28 +33,35 @@ const OutputPin<10, LOW> T10;
 //if we only had C++14 these would be inside Solenoider:
 static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
 static const LinearMap dutyRange(6000, 0); //sets the limit
+static const LinearMap percent(100, 0); //sets the limit
+
 /** driving a solenoid */
 struct Solenoider {
   bool primary;
-  AnalogValue rate = ~0U;
-  AnalogValue duty = 0;
+  AnalogValue rate;
+  AnalogValue duty;
 
   void begin(bool which) {
     primary = which;
+    rate=~0U;//slow as possible
+    duty=0;//minimal blips.
   }
 
   void setRate(AnalogValue av) {
     if (changed(rate, av)) {
+      Console("\nRate=",percent(rate)); 
       board.T1.setPwmBase(av * 2, cs);
     }
   }
 
   void setDuty(AnalogValue av) {
     if (changed(duty, av)) {
+      unsigned raw=dutyRange(av);
+      Console("\nDuty=",percent(duty)," raw:",raw);
       if (primary) {
-        board.T1.pwmA.setDuty(dutyRange(av));
+        board.T1.pwmA.setDuty(raw);
       } else {
-        board.T1.pwmB.setDuty(dutyRange(av));
+        board.T1.pwmB.setDuty(raw);
       }
     }
   }
@@ -65,10 +72,10 @@ AnalogInput rateControl(A3);
 AnalogInput dutyControl(A2);
 
 void setup() {
-  plus.begin(1);
+  plus.begin(0);
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
-
+void loop() { 
+  plus.setRate(rateControl);
+  plus.setDuty(dutyControl);  
 }

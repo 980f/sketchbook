@@ -2,11 +2,14 @@ chainprinter.h
 pinclass.h
 arduous
 pinuser.h
+bitbanger.h
 analog.h
 boolish.cpp
+linearmap.h
 millievent.h
 lardls
 cheaptricks.h
 twinconsole.h
+promicro.board.h
 eztypes.h
 boolish.h
