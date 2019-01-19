@@ -4,8 +4,10 @@ pinclass.h
 arduous
 cheaptricks.cpp
 pinuser.h
+wirewrapper.h
 bitbanger.h
 analog.h
+pca9685.h
 stopwatch.h
 boolish.cpp
 digitalpin.h
@@ -19,5 +21,6 @@ minimath.h
 promicro.board.h
 eztypes.h
 softpwm.h
+pca9685.cpp
 boolish.h
 stepper.h
