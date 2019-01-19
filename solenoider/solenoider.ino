@@ -72,6 +72,7 @@ AnalogInput rateControl(A3);
 AnalogInput dutyControl(A2);
 
 void setup() {
+  Console.begin();
   plus.begin(0);
 }
 

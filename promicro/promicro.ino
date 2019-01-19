@@ -69,27 +69,27 @@ XY<AnalogValue> raw(0, 0);
 
 #include "linearmap.h"
 
-#include <Adafruit_PWMServoDriver.h>
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+#include "pca9685.h"
+PCA9685 pwm;
 
 #if useFruit
 
-//4k range
-static const LinearMap servoRange(410, 205); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
 
 struct Eyestalk {
+  
+  LinearMap servoRange={410, 205};
+
 
   static void begin() {
-    pwm.setPWMFreq(50);  // Analog servos run at ~60 Hz updates
-    //25MHz is base clock, cycle is 4k ticks so max rate is
+    pwm.setPWMFreq(50);
   }
 
   void X(AnalogValue value) {
-    pwm.setPWM(which.X , 0, servoRange(value));
+    pwm.setChannel(which.X , 0, servoRange(value));
   }
 
   void Y(AnalogValue value) {
-    pwm.setPWM(which.Y , 0, servoRange(value));
+    pwm.setChannel(which.Y , 0, servoRange(value));
   }
 
   XY<uint8_t> which = {0, 1};//which of 16 servos. Allows for arbitrary pair
@@ -134,17 +134,19 @@ void showJoy() {
 
 
 void setup() {
+  //todo: figure out which of these is input, which is output,
+  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  
   Console.begin();
   pwm.begin();//use by eyestalks, should precede use of them.
 
   eyestalk.begin();
-  Console("\nSweet 16 \n\n\n");
-  //todo: figureout which is input, which is output,
-  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
-  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  
+  Console("\nSweeter 16 \n\n\n");
   //put power to pins to test w/voltmeter.
   for (unsigned pi = 16; pi-- > 0;) {
-    pwm.setPWM(pi, 0, pi << 8);
+    pwm.setChannel(pi, 0, pi << 8);
   }
 
 }
@@ -152,13 +154,7 @@ void setup() {
 bool updateEyes = false; //enable joystick actions
 
 void loop() {
-  //  static unsigned iters = 0;
-  //  ++iters;
-  //  Console("\n!", iters, ",", millis());
-  //  Console("\n#", iters, ",", millis());
-
   if (MilliTicked) { //this is true once per millisecond.
-    //    Console("\n+", MilliTicked.recent());
     if (fasterButton) {
       if (changed(updateEyes, false)) {
         Console("\nDisabling joystick");
@@ -200,7 +196,7 @@ void loop() {
       case 's':
         Console("\nScanning for I2C devices:");
         for (byte address = 16; address < 127; address++ )  {
-          Console(".");
+          
           Wire.beginTransmission(address);
           auto error = Wire.endTransmission();
           switch (error) {
@@ -211,7 +207,7 @@ void loop() {
               Console("\nUnknown error for address ", address);
               break;
             default:
-              Console(error);
+              Console(".");
               break;
           }
         }
@@ -219,9 +215,7 @@ void loop() {
         break;
 
       default:
-        //        if (!stepCLI(key)) {
         Console("?\n");
-        //        }
         break;
       case '\n'://clear display via shoving some crlf's at it.
       case '\r':
