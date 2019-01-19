@@ -139,7 +139,7 @@ void setup() {
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
   
   Console.begin();
-  pwm.begin();//use by eyestalks, should precede use of them.
+  pwm.begin(4);//4:totempole drive.
 
   eyestalk.begin();
   
