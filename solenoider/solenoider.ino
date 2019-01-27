@@ -43,21 +43,21 @@ struct Solenoider {
 
   void begin(bool which) {
     primary = which;
-    rate=~0U;//slow as possible
-    duty=0;//minimal blips.
+    rate = ~0U; //slow as possible
+    duty = 0; //minimal blips.
   }
 
   void setRate(AnalogValue av) {
     if (changed(rate, av)) {
-      Console("\nRate=",percent(rate)); 
+      Console("\nRate=", percent(rate));
       board.T1.setPwmBase(av * 2, cs);
     }
   }
 
   void setDuty(AnalogValue av) {
     if (changed(duty, av)) {
-      unsigned raw=dutyRange(av);
-      Console("\nDuty=",percent(duty)," raw:",raw);
+      unsigned raw = dutyRange(av);
+      Console("\nDuty=", percent(duty), " raw:", raw);
       if (primary) {
         board.T1.pwmA.setDuty(raw);
       } else {
@@ -67,6 +67,18 @@ struct Solenoider {
   }
 };
 
+static LinearMap jawRange(6000, 1000); //sets the limit
+AnalogValue jawrate=0;
+void jaw(AnalogValue av) {
+  if (changed(jawrate, av)) {
+    unsigned raw = jawRange(av);
+    Console("\nJaw=", percent(jawrate), " raw:", raw,"\ttop:",jawRange.top);
+    board.T1.pwmA.setDuty(raw);
+    board.T1.pwmB.setDuty(raw);
+  }
+}
+
+
 Solenoider plus;
 AnalogInput rateControl(A3);
 AnalogInput dutyControl(A2);
@@ -74,9 +86,13 @@ AnalogInput dutyControl(A2);
 void setup() {
   Console.begin();
   plus.begin(0);
+  plus.setRate(20000);//should be 50Hz
 }
 
-void loop() { 
-  plus.setRate(rateControl);
-  plus.setDuty(dutyControl);  
+void loop() {
+  
+  jawRange.top=AnalogValue(rateControl)/4U;//8000 to 0
+//  plus.setRate(rateControl);
+//  plus.setDuty(dutyControl);
+  jaw(dutyControl);
 }
