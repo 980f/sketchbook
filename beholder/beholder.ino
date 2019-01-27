@@ -1,7 +1,23 @@
+/**
+Drive the Beholder.
 
-//set useFruit to 1 to use adafruit 16 channel system as output (4k resolution), 0 for AVR TIM1 on D9/D10 as PWM pair with 40k resolution.
-#define useFruit 0
+We will have 6 labelled eyestalks, each can be killed, plus some that just wiggle until the beholder fully dies (as if)
+So make that 6+1, where we might drive duplicate outputs for the one.
 
+TODO: 
+) get 16 channel pwm working perfectly.
+) array of stalks, 0 for 'all' 1:6 for the featured ones.
+) store calibration constants per stalk in eeprom.
+) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
+) command parser to 
+)) set 'waving', 'alert' common states, 
+)) kill individual stalks. 
+)) resurrect (reset for next group)
+)) apply eyeball coords (a pair)
+)) apply jaw actions (single analog channel)
+)) apply eyebrows actions (single analog channel)
+
+*/
 #include "bitbanger.h"
 
 #include "pinclass.h"
@@ -179,6 +195,11 @@ void showJoy() {
   Console("\nJoy x: ", raw.X, "\ty: ", raw.Y);
 }
 
+/** set adafruit pwm channels to their channel number, for debugging software and heck, devices as well with the 16 levels. */
+void rampFruit(){  
+  pwm.idChannels(0,15);  
+}
+
 ////////////////////////////////////////////////////////////////
 void setup() {
   //todo: figure out which of these is input, which is output,
@@ -186,17 +207,14 @@ void setup() {
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
   Console.begin();
+  
   pwm.begin(4);//4:totempole drive.
 
   eyestalk0.begin();
-
   eyestalk1.begin();
 
   Console("\nSweeter 16 \n\n\n");
-  //put power to pins to test w/voltmeter.
-  for (unsigned pi = 16; pi-- > 0;) {
-    pwm.setChannel(pi, 0, pi << 8);
-  }
+  rampFruit();
 
 }
 
