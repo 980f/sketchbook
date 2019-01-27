@@ -1,21 +1,21 @@
 /**
-Drive the Beholder.
+  Drive the Beholder.
 
-We will have 6 labelled eyestalks, each can be killed, plus some that just wiggle until the beholder fully dies (as if)
-So make that 6+1, where we might drive duplicate outputs for the one.
+  We will have 6 labelled eyestalks, each can be killed, plus some that just wiggle until the beholder fully dies (as if)
+  So make that 6+1, where we might drive duplicate outputs for the one.
 
-TODO: 
-) get 16 channel pwm working perfectly.
-) array of stalks, 0 for 'all' 1:6 for the featured ones.
-) store calibration constants per stalk in eeprom.
-) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
-) command parser to 
-)) set 'waving', 'alert' common states, 
-)) kill individual stalks. 
-)) resurrect (reset for next group)
-)) apply eyeball coords (a pair)
-)) apply jaw actions (single analog channel)
-)) apply eyebrows actions (single analog channel)
+  TODO:
+  ) get 16 channel pwm working perfectly.
+  ) array of stalks, 0 for 'all' 1:6 for the featured ones.
+  ) store calibration constants per stalk in eeprom.
+  ) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
+  ) command parser to
+  )) set 'waving', 'alert' common states,
+  )) kill individual stalks.
+  )) resurrect (reset for next group)
+  )) apply eyeball coords (a pair)
+  )) apply jaw actions (single analog channel)
+  )) apply eyebrows actions (single analog channel)
 
 */
 #include "bitbanger.h"
@@ -41,27 +41,54 @@ ProMicro board;
 #include "pca9685.h"
 PCA9685 pwm;
 
+//diagnostic, should go in own file.
+void scanI2C() {
+  Console("\nScanning for I2C devices:");
+  for (byte address = 16; address < 123; address++ )  {
+    Wire.beginTransmission(address);
+    auto error = Wire.endTransmission();
+    switch (error) {
+      case 0://success
+        Console("\nI2C device found at address ", address);
+        break;
+      case 1://data too long to fit in transmit buffer
+        break;
+      case 2://received NACK on transmit of address
+        break;
+      case 3://received NACK on transmit of data
+        break;
+      case 4://other error
+        Console("\nUnknown error for address ", address);
+        break;
+      default:
+        Console(".");
+        break;
+    }
+  }
+  Console("\nScanning for I2C devices is done.");
+}
+
 //joystick to servo value:
 #include "analog.h"
 #include "linearmap.h"
 
 
 //0,1 are rx,tx used by Serial1
-//the test leds are low active.
-//const OutputPin<2, LOW> T2;
-//const OutputPin<3, LOW> T3;
+//2,3 are I2C
+//Andy's test leds are low active:
 //const OutputPin<4, LOW> T4;
 //const OutputPin<5, LOW> T5;
 const OutputPin<6, LOW> T6;
 const OutputPin<7, LOW> T7;
 const OutputPin<8, LOW> T8;
-//9,10 PWM, in addition to being run to LED's
+//9,10 PWM
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
 const OutputPin<16, LOW> T16;
 const InputPin<14> fasterButton;
 const InputPin<15> slowerButton;
+
 //A0,A1,A2,A3
 
 template<typename T> struct XY {
@@ -196,26 +223,8 @@ void showJoy() {
 }
 
 /** set adafruit pwm channels to their channel number, for debugging software and heck, devices as well with the 16 levels. */
-void rampFruit(){  
-  pwm.idChannels(0,15);  
-}
-
-////////////////////////////////////////////////////////////////
-void setup() {
-  //todo: figure out which of these is input, which is output,
-  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
-  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
-
-  Console.begin();
-  
-  pwm.begin(4);//4:totempole drive.
-
-  eyestalk0.begin();
-  eyestalk1.begin();
-
-  Console("\nSweeter 16 \n\n\n");
-  rampFruit();
-
+void rampFruit() {
+  pwm.idChannels(0, 15);
 }
 
 bool updateEyes = true; //enable joystick actions
@@ -230,8 +239,35 @@ void update(bool on) {
   }
 }
 
+////////////////////////////////////////////////////////////////
+void setup() {
+  T6 = 1;
+  //todo: figure out which of these is input, which is output,
+  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
+  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
+
+  Console.begin();
+  Wire.begin();
+  scanI2C();
+       
+  Console("\nConfiguring pwm chip");
+  // pwm.begin(4);//4:totempole drive.
+  Console("\nConfiguring pwm eyestalk");
+  // eyestalk0.begin();
+  Console("\nConfiguring native eyestalk");
+  // eyestalk1.begin();
+
+  Console("\nRamping pwm board outputs");
+  // rampFruit();
+  Console("\nRamped pwm board outputs");
+  T6 = 0;
+  T7 = 1;
+  Console("\nBehold the Beholder 1.0 \n\n\n");
+}
+
+
 void loop() {
-  if (MilliTicked) { //this is true once per millisecond.
+  if (false && MilliTicked) { //this is true once per millisecond.
     if (updateEyes ) {
       raw = joy;//normalizes scale.
       if (MilliTicked.every(100)) {
@@ -246,10 +282,9 @@ void loop() {
     }
   }
 
-
   int key = Console.getKey();
   if (key >= 0) {
-
+    T8 = 1;
     switch (key) {
       case 'l':
         update(false);
@@ -264,23 +299,7 @@ void loop() {
         showRaw();
         break;
       case 's':
-        Console("\nScanning for I2C devices:");
-        for (byte address = 16; address < 127; address++ )  {
-          Wire.beginTransmission(address);
-          auto error = Wire.endTransmission();
-          switch (error) {
-            case 0:
-              Console("\nI2C device found at address ", address);
-              break;
-            case 4:
-              Console("\nUnknown error for address ", address);
-              break;
-            default:
-              Console(".");
-              break;
-          }
-        }
-        Console("\nScanning for I2C devices is done.");
+        scanI2C();
         break;
 
       default:
@@ -291,6 +310,7 @@ void loop() {
         Console("\n\n\n");
         break;
     }
+    T8 = 0;
   }
 
 }
