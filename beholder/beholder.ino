@@ -251,7 +251,7 @@ void setup() {
   scanI2C();
        
   Console("\nConfiguring pwm chip");
-  // pwm.begin(4);//4:totempole drive.
+   pwm.begin(4);//4:totempole drive.
   Console("\nConfiguring pwm eyestalk");
   // eyestalk0.begin();
   Console("\nConfiguring native eyestalk");
