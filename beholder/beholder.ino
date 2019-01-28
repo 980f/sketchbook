@@ -130,11 +130,12 @@ struct FruitStalk:
     which(xservo, yservo) {
 
   }
-
-  static void begin() {
-    pwm.setPWMFreq(50);
-    pwm.wake();
-  }
+  
+//now part of pwm begin.
+//  static void begin() {
+//    pwm.setPWMFreq(50);
+//    pwm.wake();
+//  }
 
   void X(AnalogValue value) {
     if (changed(adc.X, servoRangeX(value))) {
@@ -224,16 +225,16 @@ void setup() {
   Console.begin();
   Wire.begin();
   scanI2C();
-       
+
   Console("\nConfiguring pwm chip");
-   pwm.begin(4);//4:totempole drive.
+  pwm.begin(4,50);//4:totempole drive.
   Console("\nConfiguring pwm eyestalk");
-  // eyestalk0.begin();
+//code moved into pwm.begin  eyestalk0.begin();
   Console("\nConfiguring native eyestalk");
-  // eyestalk1.begin();
+  eyestalk1.begin();
 
   Console("\nRamping pwm board outputs");
-  // rampFruit();
+  rampFruit();
   Console("\nRamped pwm board outputs");
   T6 = 0;
   T7 = 1;
