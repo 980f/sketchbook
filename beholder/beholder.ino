@@ -54,8 +54,9 @@ PCA9685 pwm;
 //const OutputPin<4, LOW> T4;
 //const OutputPin<5, LOW> T5;
 const OutputPin<6, LOW> T6;
-const OutputPin<7, LOW> T7;
-const OutputPin<8, LOW> T8;
+//7-8 rotary knob
+const InputPin<7, LOW> T7;
+const InputPin<8, LOW> T8;
 //9,10 PWM
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
@@ -64,7 +65,45 @@ const OutputPin<16, LOW> T16;
 const InputPin<14> fasterButton;
 const InputPin<15> slowerButton;
 
-//A0,A1,A2,A3
+//A0,A1,A2,A3 used for joystick and pots.
+
+
+void handleKnob();
+#include "microevent.h"
+/** a kinda quadrature encoder, a clock and direction */
+template<unsigned clockPN, unsigned directionPN> class RotaryKnob {
+    int location;
+
+    const InputPin<clockPN, LOW> clock;
+    const InputPin<directionPN, LOW> direction;
+
+  public:
+    RotaryKnob () {
+      zero();
+
+      //Arduino doesn't (yet;) support this:      auto handleKnob= [&](){update()};
+      attachInterrupt(digitalPinToInterrupt(clockPN), &handleKnob, FALLING);
+    }
+
+    void zero() {
+      location = 0;
+    }
+
+    void update() {
+      location += direction ? -1 : 1;
+    }
+    /** getter for location */
+    operator int()const {
+      return location;
+    }
+
+};
+
+RotaryKnob<7, 8> knob; //7 is only interrupt pin not otherwise occupied
+void handleKnob() {
+  knob.update();
+}
+
 
 template<typename T> struct XY {
   T X;
@@ -89,15 +128,16 @@ template<typename T> struct XY {
 
 //joystick device
 
-XY<AnalogInput> joy(A1, A0);
+const XY<const AnalogInput> joy(A1, A0);
 
 //records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
 //range adjustment knobs
-AnalogInput lowend(A2);
-AnalogInput highend(A2);
+const AnalogInput lowend(A2);
+const AnalogInput highend(A3);
 
+//400 to 200 gave 1.8ms to 3.75 ms, a factor of 1.875 or so off of expected.
 LinearMap servoRangeX(400, 200);
 LinearMap servoRangeY(400, 200);
 
@@ -108,50 +148,45 @@ struct Eyestalk {
   //XY<AnalogValue> dead(0, 0);
   //XY<AnalogValue> alert(0, 0);
 
-  virtual void X(AnalogValue value) {
+  virtual void X(AnalogValue value);
 
-  }
+  virtual void Y(AnalogValue value);
 
-  virtual  void Y(AnalogValue value);
-
-  void operator =( XY<AnalogValue> raw) {
+  virtual void operator =( XY<AnalogValue> raw) {
     X(raw.X);
     Y(raw.Y);
   }
 
 } ;
 
-
+/** using adafruit 16 channel pwm controller
+    we are initially leaving all the phases set to the same value, to minimize I2C execution time.
+*/
 struct FruitStalk:
   public Eyestalk {
   XY<uint8_t> which;//which of 16 servos. Allows for arbitrary pair
 
   FruitStalk(uint8_t xservo, uint8_t yservo):
     which(xservo, yservo) {
-
+    //#done
   }
-  
-//now part of pwm begin.
-//  static void begin() {
-//    pwm.setPWMFreq(50);
-//    pwm.wake();
-//  }
 
   void X(AnalogValue value) {
     if (changed(adc.X, servoRangeX(value))) {
-      pwm.setChannel(which.X , 0, adc.X);
+      pwm.setWidth(which.X , adc.X);
     }
   }
 
   void Y(AnalogValue value) {
     if (changed(adc.Y, servoRangeY(value))) {
-      pwm.setChannel(which.Y , 0, adc.Y);
+      pwm.setWidth(which.Y , adc.Y);
     }
   }
 
-  void operator =( XY<AnalogValue> raw) {
-    X(raw.X);
-    Y(raw.Y);
+  using Eyestalk::operator =;
+
+  static void begin() {
+    pwm.begin(4, 50); //4:totempole drive.
   }
 
 };
@@ -180,15 +215,13 @@ struct T1Eyestalk:
     }
   }
 
-  void operator =( XY<AnalogValue> raw) {
-    X(raw.X);
-    Y(raw.Y);
-  }
+  using Eyestalk::operator =;
 };
 
 FruitStalk eyestalk0(0, 1);
 
 T1Eyestalk eyestalk1;
+
 void showRaw() {
   Console("\nPwm AF x: ", eyestalk0.adc.X, "\ty: ", eyestalk0.adc.Y);
   Console("\nPwm T1 x: ", eyestalk1.adc.X, "\ty: ", eyestalk1.adc.Y);
@@ -215,6 +248,13 @@ void update(bool on) {
   }
 }
 
+void joy2eye() {
+  raw = joy;//normalizes scale.
+  eyestalk0 = raw;
+  eyestalk1 = raw;
+}
+
+
 ////////////////////////////////////////////////////////////////
 void setup() {
   T6 = 1;
@@ -224,33 +264,27 @@ void setup() {
 
   Console.begin();
   Wire.begin();
+  Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   scanI2C();
 
-  Console("\nConfiguring pwm chip");
-  pwm.begin(4,50);//4:totempole drive.
-  Console("\nConfiguring pwm eyestalk");
-//code moved into pwm.begin  eyestalk0.begin();
+  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));
+  FruitStalk::begin();
   Console("\nConfiguring native eyestalk");
-  eyestalk1.begin();
+  T1Eyestalk::begin();
 
   Console("\nRamping pwm board outputs");
   rampFruit();
-  Console("\nRamped pwm board outputs");
+  //  Console("\nRamped pwm board outputs");
   T6 = 0;
-  T7 = 1;
-  Console("\nBehold the Beholder 1.0 \n\n\n");
+
+  Console("\nBehold the Beholder 1.002 \n\n\n");
 }
 
 
 void loop() {
-  if (false && MilliTicked) { //this is true once per millisecond.
+  if ( MilliTicked) { //this is true once per millisecond.
     if (updateEyes ) {
-      raw = joy;//normalizes scale.
-      if (MilliTicked.every(100)) {
-        showJoy();
-      }
-      eyestalk0 = raw;
-      eyestalk1 = raw;
+      joy2eye();
     }
 
     if (MilliTicked.every(1000)) {
@@ -260,8 +294,18 @@ void loop() {
 
   int key = Console.getKey();
   if (key >= 0) {
-    T8 = 1;
     switch (key) {
+      case 'j':
+        knob.zero();
+      //#join
+      case 'k':
+        Console("\nKnob: ", knob);
+        break;
+      case ' ':
+        joy2eye();
+        showJoy();
+        showRaw();
+        break;
       case 'l':
         update(false);
         break;
@@ -286,7 +330,7 @@ void loop() {
         Console("\n\n\n");
         break;
     }
-    T8 = 0;
+
   }
 
 }
