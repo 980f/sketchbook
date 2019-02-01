@@ -55,8 +55,6 @@ PCA9685 pwm;
 //const OutputPin<5, LOW> T5;
 const OutputPin<6, LOW> T6;
 //7-8 rotary knob
-const InputPin<7, LOW> T7;
-const InputPin<8, LOW> T8;
 //9,10 PWM
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
@@ -68,11 +66,12 @@ const InputPin<15> slowerButton;
 //A0,A1,A2,A3 used for joystick and pots.
 
 
-void handleKnob();
-#include "microevent.h"
-/** a kinda quadrature encoder, a clock and direction */
-template<unsigned clockPN, unsigned directionPN> class RotaryKnob {
-    int location;
+void handleKnob_knob();
+/** a kinda quadrature encoder, a clock and direction. The detents are only where both signals are high, most likely to ensure low power consumption.
+    The data type must be atomic if you are going to read it raw. When we fin
+*/
+template<unsigned clockPN, unsigned directionPN, typename Knobish = uint8_t> class RotaryKnob {
+    Knobish location;
 
     const InputPin<clockPN, LOW> clock;
     const InputPin<directionPN, LOW> direction;
@@ -80,9 +79,8 @@ template<unsigned clockPN, unsigned directionPN> class RotaryKnob {
   public:
     RotaryKnob () {
       zero();
-
       //Arduino doesn't (yet;) support this:      auto handleKnob= [&](){update()};
-      attachInterrupt(digitalPinToInterrupt(clockPN), &handleKnob, FALLING);
+      attachInterrupt(digitalPinToInterrupt(clockPN), &handleKnob_knob, FALLING);
     }
 
     void zero() {
@@ -93,14 +91,14 @@ template<unsigned clockPN, unsigned directionPN> class RotaryKnob {
       location += direction ? -1 : 1;
     }
     /** getter for location */
-    operator int()const {
+    operator Knobish()const {
       return location;
     }
 
 };
 
 RotaryKnob<7, 8> knob; //7 is only interrupt pin not otherwise occupied
-void handleKnob() {
+void handleKnob_knob() {
   knob.update();
 }
 
@@ -108,13 +106,25 @@ void handleKnob() {
 template<typename T> struct XY {
   T X;
   T Y;
-  XY(T x, T y):
+
+
+  /**only works if class has default constructor:*/
+  XY() {
+    //#done
+  }
+
+  /** single arg constructor */
+  template<typename C>
+  XY(C x, C y):
     X(x), Y(y) {
     //#nada
-  }//only works if class has default constructor
+  }
 
-
-  XY() {
+  /** two arg constructor */
+  template<typename C1, typename C2>
+  XY(C1 x1, C2 x2, C1 y1, C2 y2):
+    X(x1, x2), Y(y1, y2) {
+    //#nada
   }
 
   //type Other must be assignable to typename T
@@ -141,102 +151,136 @@ const AnalogInput highend(A3);
 LinearMap servoRangeX(400, 200);
 LinearMap servoRangeY(400, 200);
 
-struct Eyestalk {
-  XY<unsigned> adc;//4debug
-  //  XY<LinearMap> servoRange;//each needs their own range, they vary.
 
-  //XY<AnalogValue> dead(0, 0);
-  //XY<AnalogValue> alert(0, 0);
+class Muscle {
+    /** takes value in range 0:4095 */
+    PCA9685::Output hw;
+  public: //for debug access
+    unsigned adc;//debug value: last sent to hw
+  public:
+    LinearMap range = {400, 200}; //tweakable range, each unit needs a trim
 
-  virtual void X(AnalogValue value);
+    Muscle(PCA9685 &dev, uint8_t which): hw(dev, which), adc(~0) {
+      //#done
+    }
 
-  virtual void Y(AnalogValue value);
+    void operator =(AnalogValue pos) {
+      if (changed(adc, range(pos))) {
+        hw = adc;
+      }
+    }
 
-  virtual void operator =( XY<AnalogValue> raw) {
-    X(raw.X);
-    Y(raw.Y);
-  }
+    /** @return pointer to related parameter */
+    virtual uint16_t *param(char key) {
+      switch (key) {
+        case 'b':
+          return &range.bottom;
+        case 't':
+          return &range.top;
+        default:
+          return nullptr;
+      }
+    }
+};
 
-} ;
+
+class EyeMuscle: public Muscle {
+
+  public:
+    /** position when related stalk is dead.*/
+    AnalogValue dead = 0; //will tweak for each stalk, for effect
+    /** position when related stalk is under attack.*/
+    AnalogValue alert = 0x7FFF; //will tweak for each stalk, for effect
+
+    EyeMuscle(/*PCA9685 &dev,*/ uint8_t which): Muscle(pwm, which) {
+      //#done
+    }
+    using Muscle::operator = ;
+
+    /** @return pointer to related parameter */
+    uint16_t *param(char key) {
+      switch (key) {
+        case 'd':
+          return dead.guts();
+        case 'a':
+          return alert.guts();
+        default:
+          return Muscle::param(key);
+      }
+    }
+};
+
+
 
 /** using adafruit 16 channel pwm controller
     we are initially leaving all the phases set to the same value, to minimize I2C execution time.
 */
-struct FruitStalk:
-  public Eyestalk {
-  XY<uint8_t> which;//which of 16 servos. Allows for arbitrary pair
+struct EyeStalk {
+  XY<EyeMuscle> muscle;
 
-  FruitStalk(uint8_t xservo, uint8_t yservo):
-    which(xservo, yservo) {
+  EyeStalk(uint8_t xservo, uint8_t yservo):
+    muscle(xservo, yservo) {
     //#done
   }
 
-  void X(AnalogValue value) {
-    if (changed(adc.X, servoRangeX(value))) {
-      pwm.setWidth(which.X , adc.X);
-    }
-  }
-
-  void Y(AnalogValue value) {
-    if (changed(adc.Y, servoRangeY(value))) {
-      pwm.setWidth(which.Y , adc.Y);
-    }
-  }
-
-  using Eyestalk::operator =;
-
-  static void begin() {
-    pwm.begin(4, 50); //4:totempole drive.
+  void operator=(XY<AnalogValue> joystick) {
+    muscle = joystick;
   }
 
 };
 
-//wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
-static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
-static const unsigned fullscale = 40000; //40000 X 8 = 320000, /16MHz = 20ms aka 50Hz.
-static const LinearMap T1ServoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
+////wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
+//static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
+//static const unsigned fullscale = 40000; //40000 X 8 = 320000, /16MHz = 20ms aka 50Hz.
+//static const LinearMap T1ServoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
+//
+//struct T1Eyestalk:
+//  public Eyestalk {
+//
+//  static void begin() {
+//    board.T1.setPwmBase(fullscale, cs);
+//  }
+//
+//  void X(AnalogValue value)  {
+//    if (changed(adc.X, T1ServoRange(value))) {
+//      board.T1.pwmA.setDuty(adc.X);
+//    }
+//  }
+//
+//  void Y(AnalogValue value) {
+//    if (changed(adc.Y, T1ServoRange(value))) {
+//      board.T1.pwmB.setDuty(adc.Y);
+//    }
+//  }
+//
+//  using Eyestalk::operator =;
+//};
 
-struct T1Eyestalk:
-  public Eyestalk {
-
-  static void begin() {
-    board.T1.setPwmBase(fullscale, cs);
-  }
-
-  void X(AnalogValue value)  {
-    if (changed(adc.X, T1ServoRange(value))) {
-      board.T1.pwmA.setDuty(adc.X);
-    }
-  }
-
-  void Y(AnalogValue value) {
-    if (changed(adc.Y, T1ServoRange(value))) {
-      board.T1.pwmB.setDuty(adc.Y);
-    }
-  }
-
-  using Eyestalk::operator =;
+EyeStalk eyestalk[1 + 6] = {
+  {0, 1},
+  {2, 3},
+  {4, 5},
+  {6, 7},
+  {8, 9},
+  {10, 11},
+  {12, 13},
 };
 
-FruitStalk eyestalk0(0, 1);
-
-T1Eyestalk eyestalk1;
+//T1Eyestalk eyestalk1;
 
 void showRaw() {
-  Console("\nPwm AF x: ", eyestalk0.adc.X, "\ty: ", eyestalk0.adc.Y);
-  Console("\nPwm T1 x: ", eyestalk1.adc.X, "\ty: ", eyestalk1.adc.Y);
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {
+    Console("\nPwm AF x: ", eyestalk[ei].muscle.X.adc, "\ty: ", eyestalk[ei].muscle.Y.adc);
+  }
 }
 
 void showJoy() {
   Console("\nJoy x: ", raw.X, "\ty: ", raw.Y);
 }
 
-/** set adafruit pwm channels to their channel number, for debugging software and heck, devices as well with the 16 levels. */
-void rampFruit() {
-  pwm.idChannels(0, 15);
-}
 
 bool updateEyes = true; //enable joystick actions
+bool amMonster = false; //detects which end of link
 
 void update(bool on) {
   if (changed(updateEyes, on)) {
@@ -250,34 +294,26 @@ void update(bool on) {
 
 void joy2eye() {
   raw = joy;//normalizes scale.
-  eyestalk0 = raw;
-  eyestalk1 = raw;
+  eyestalk[0] = raw;
+
 }
 
 
 ////////////////////////////////////////////////////////////////
 void setup() {
   T6 = 1;
-  //todo: figure out which of these is input, which is output,
-  pinMode(1, INPUT_PULLUP); //RX is picking up TX on empty cable.
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
   Console.begin();
-  Wire.begin();
+  
+  Wire.begin(); //must preceded scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   scanI2C();
 
-  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));
-  FruitStalk::begin();
-  Console("\nConfiguring native eyestalk");
-  T1Eyestalk::begin();
-
-  Console("\nRamping pwm board outputs");
-  rampFruit();
-  //  Console("\nRamped pwm board outputs");
+  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));  
+  amMonster=pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
-
-  Console("\nBehold the Beholder 1.002 \n\n\n");
+  Console("\n",amMonster?"Behold":"Who is"," the Beholder 1.003 \n\n\n");
 }
 
 
