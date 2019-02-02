@@ -143,13 +143,10 @@ const XY<const AnalogInput> joy(A1, A0);
 //records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
-//range adjustment knobs
-const AnalogInput lowend(A2);
-const AnalogInput highend(A3);
 
 //400 to 200 gave 1.8ms to 3.75 ms, a factor of 1.875 or so off of expected.
-LinearMap servoRangeX(400, 200);
-LinearMap servoRangeY(400, 200);
+//LinearMap servoRangeX(400, 200);
+//LinearMap servoRangeY(400, 200);
 
 
 class Muscle {
@@ -158,7 +155,8 @@ class Muscle {
   public: //for debug access
     unsigned adc;//debug value: last sent to hw
   public:
-    LinearMap range = {400, 200}; //tweakable range, each unit needs a trim
+    //temporarily shared for debug of code.
+    static LinearMap range;// = {400, 200}; //tweakable range, each unit needs a trim
 
     Muscle(PCA9685 &dev, uint8_t which): hw(dev, which), adc(~0) {
       //#done
@@ -183,6 +181,7 @@ class Muscle {
     }
 };
 
+LinearMap Muscle::range = {400, 200}; //tweakable range, each unit needs a trim
 
 class EyeMuscle: public Muscle {
 
@@ -229,32 +228,6 @@ struct EyeStalk {
 
 };
 
-////wanted to put these into Eyestalk but AVR compiler is too ancient for LinearMap init in line.
-//static const ProMicro::T1Control::CS cs = ProMicro::T1Control::By8;
-//static const unsigned fullscale = 40000; //40000 X 8 = 320000, /16MHz = 20ms aka 50Hz.
-//static const LinearMap T1ServoRange(4000, 2000); //from sparkfun: 20ms cycle and 1ms to 2ms range of signal.
-//
-//struct T1Eyestalk:
-//  public Eyestalk {
-//
-//  static void begin() {
-//    board.T1.setPwmBase(fullscale, cs);
-//  }
-//
-//  void X(AnalogValue value)  {
-//    if (changed(adc.X, T1ServoRange(value))) {
-//      board.T1.pwmA.setDuty(adc.X);
-//    }
-//  }
-//
-//  void Y(AnalogValue value) {
-//    if (changed(adc.Y, T1ServoRange(value))) {
-//      board.T1.pwmB.setDuty(adc.Y);
-//    }
-//  }
-//
-//  using Eyestalk::operator =;
-//};
 
 EyeStalk eyestalk[1 + 6] = {
   {0, 1},
@@ -294,26 +267,63 @@ void update(bool on) {
 
 void joy2eye() {
   raw = joy;//normalizes scale.
-  eyestalk[0] = raw;
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {
+    eyestalk[ei] = raw;
+  }
+}
+
+void knob2range(bool upper) {
+  if (upper) {
+    Muscle::range.top = 4 * knob;
+  } else {
+    Muscle::range.bottom = 2 * knob;
+  }
+  Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
+}
+
+//range adjustment knobs
+const AnalogInput lowend(A2);
+const AnalogInput highend(A3);
+
+LinearMap highrange = {1000, 100};
+LinearMap lowrange = {500, 1};
+
+bool upone(uint16_t &rangeElement, const AnalogInput &pot, const LinearMap &scale) {
+  AnalogValue av = pot;
+  uint16_t raw = scale(av);
+  if (changed(rangeElement, raw)) {
+    Console("\nset ", rangeElement, " from: ", av, "->", raw, " scale: ", scale.bottom, ":", scale.top);
+    return true;
+  }
+  return false;
 
 }
 
-
+void showMrange() {
+  Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
+}
+void uprange() {
+  bool updated = upone(Muscle::range.top, highend, highrange);
+  updated |= upone(Muscle::range.bottom, lowend, lowrange); //# single | or, we need the term evaluated
+  if (updated) {
+    showMrange();
+  }
+}
 ////////////////////////////////////////////////////////////////
 void setup() {
   T6 = 1;
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
   Console.begin();
-  
+
   Wire.begin(); //must preceded scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   scanI2C();
 
-  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));  
-  amMonster=pwm.begin(4, 50); //4:totempole drive.
+  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));
+  amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
-  Console("\n",amMonster?"Behold":"Who is"," the Beholder 1.003 \n\n\n");
+  Console("\n", amMonster ? "Behold" : "Who is", " the Beholder 1.003 \n\n\n");
 }
 
 
@@ -323,6 +333,7 @@ void loop() {
       joy2eye();
     }
 
+    uprange();
     if (MilliTicked.every(1000)) {
       Console(" @", MilliTicked.recent());
     }
@@ -331,6 +342,12 @@ void loop() {
   int key = Console.getKey();
   if (key >= 0) {
     switch (key) {
+      case 'b':
+        knob2range(0);
+        break;
+      case 't':
+        knob2range(0);
+        break;
       case 'j':
         knob.zero();
       //#join
@@ -341,6 +358,7 @@ void loop() {
         joy2eye();
         showJoy();
         showRaw();
+        showMrange();
         break;
       case 'l':
         update(false);
@@ -357,7 +375,9 @@ void loop() {
       case 's':
         scanI2C();
         break;
-
+      case 'r':
+        pwm.idChannels(2, 15);
+        break;
       default:
         Console("\nUnknown command:", key, ' ', char(key)); //echo.
         break;
