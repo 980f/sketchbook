@@ -14,6 +14,7 @@ eztypes.h
 index.h
 lardls
 linearmap.h
+microevent.h
 millievent.h
 minimath.h
 pca9685.cpp
@@ -22,6 +23,10 @@ pinclass.h
 pinuser.h
 promicro.board.h
 scani2c.h
+softpwm.h
+stepper.cpp
+stepper.h
+stopwatch.cpp
 stopwatch.h
 textkey.h
 twinconsole.h
