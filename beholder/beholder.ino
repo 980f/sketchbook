@@ -301,7 +301,7 @@ void setup() {
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   scanI2C();
 
-  Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));
+  Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
   amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
 
@@ -328,25 +328,28 @@ class LinearRecognizer {
     short si = 0; //Arduino optimization
 
   public:
-    LinearRecognizer(const char * const seq): seq(seq) {}
+    LinearRecognizer(const char *seq): seq(seq) {}
 
     /** @returns whether sequence has been seen */
-    operator bool()const {
+    operator bool() const {
       return seq[si] == 0;
     }
 
-    /** @returns <em>false</em> if sequence has been recognized, in which case recognition is forgotten. */
+    /** @returns whether sequence has been recognized, in which case recognition is forgotten. */
     bool operator ~() {
-      if (this->operator bool()) {
+      if (*this) {
         si = 0;
-        return false;
-      } else {
         return true;
+      } else {
+        return false;
       }
     }
 
-    /** @returns whether @param next was expected part of sequence */
+    /** @returns whether @param next was expected part of sequence. NUL's are ignored. */
     bool operator ()(char next) {
+      if (next == 0) { //#if we don't exclude nulls we can overrun our sequence definitoin storage.
+        return si != 0; //maintain state
+      }
       if (next == seq[si]) {
         ++si;
         return true;
@@ -355,8 +358,21 @@ class LinearRecognizer {
         return false;
       }
     }
+
+    /** coerce to 'recognized' else back to 0*/
+    void operator=(bool fakeit) {
+      if (fakeit) {
+        while (seq[si]) {
+          ++si;
+        }
+      } else {
+        si = 0;
+      }
+    }
 };
 
+/** recognize a sequence of digits. if asked for the sequence provide it, but clear it. You can peek at the value, but shouldn't except for debugging this module itself.
+  leading zeroes are effectively ignored, they do not trigger octal interpretation. */
 struct NumberRecognizer {
   unsigned accumulator = 0;
   bool operator()(int key) {
@@ -373,6 +389,7 @@ struct NumberRecognizer {
   }
 };
 
+
 void doarrow(bool plusone, bool upit) {
   loc[plusone] += upit ? 10 : -10;
   Muscle::range.clip(loc[plusone]);
@@ -381,8 +398,11 @@ void doarrow(bool plusone, bool upit) {
   Console("\npwm[", tunee + plusone, "]=", value);
 }
 
-LinearRecognizer ansicoder("\e[");
+LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
+
 NumberRecognizer param;
+
+bool rawecho = false;
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
 void doKey(int key) {
@@ -391,7 +411,8 @@ void doKey(int key) {
     return;
   }
 
-  if (~ansicoder) {//test and clear
+
+  if (~ansicoder[0]) {//test and clear
     switch (key) {//ansi code
       case 'A':
         doarrow(1, 1);
@@ -405,21 +426,54 @@ void doKey(int key) {
       case 'D':
         doarrow(0, 0);
         break;
-
+      case '~':
+        switch (param) {
+          case 3://del
+          case 5://pageup
+          case 6://page dn
+            break;
+        }
+        break;
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
-        if (!ansicoder(key)) {
-          Console("\nUnknown ansi code:", char(key));
+        if (!ansicoder[0](key)) {
+          Console("\nUnknown ansi [ code:", char(key));
         }
         break;
     }
     return;
   }
 
-  if (ansicoder(key)) {
-    return; //part of a prefix
+  if (~ansicoder[1]) {//test and clear
+    switch (key) {//ansi code
+      case 'H':
+        Console("\nWell Hello!");
+        break;
+      case 'F':
+        Console("\nGoodbye!");
+        break;
+      case 'P':
+      case 'Q':
+      case 'R':
+      case 'S':
+        Console("\nRomans:", key - 'P');
+        break;
+      //      case 'D':
+      //        break;
+
+      default: //code not understood
+        //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
+        if (!ansicoder[1](key)) {
+          Console("\nUnknown ansi O code:", char(key));
+        }
+        break;
+    }
+    return;
   }
 
+  if (ansicoder[1](key) | ansicoder[0](key)) {//# must check all, return if any.
+    return; //part of a prefix
+  }
 
   switch (key) {
     case 'F':
@@ -431,6 +485,7 @@ void doKey(int key) {
       break;
     case 'w':
       tunee = 2 * param;
+      Console("\nPair ", tunee);
       break;
     case 'x':
       tweak(0, param);
@@ -465,6 +520,10 @@ void doKey(int key) {
     case '*':
       scanI2C();
       break;
+    case '!':
+      rawecho = param;
+      Console("\nraw echo:", rawecho);
+      break;
     case 'r':
       pwm.idChannels(2, 15);
       Console("\npwm's are now set to their channel number");
@@ -490,6 +549,9 @@ void loop() {
 
   int key = Console.getKey();
   if (key >= 0) {
+    if (rawecho) {
+      Console("\tKey: ", key, ' ', char(key));
+    }
     doKey(key) ;
   }
 }
