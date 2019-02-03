@@ -6,7 +6,6 @@
 
   TODO:
   ) get 16 channel pwm working perfectly.
-  ) array of stalks, 0 for 'all' 1:6 for the featured ones.
   ) store calibration constants per stalk in eeprom.
   ) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
   ) command parser to
@@ -65,7 +64,7 @@ const InputPin<15> slowerButton;
 
 //A0,A1,A2,A3 used for joystick and pots.
 
-
+#if knobby
 void handleKnob_knob();
 /** a kinda quadrature encoder, a clock and direction. The detents are only where both signals are high, most likely to ensure low power consumption.
     The data type must be atomic if you are going to read it raw. When we fin
@@ -102,6 +101,7 @@ void handleKnob_knob() {
   knob.update();
 }
 
+#endif
 
 template<typename T> struct XY {
   T X;
@@ -144,11 +144,6 @@ const XY<const AnalogInput> joy(A1, A0);
 XY<AnalogValue> raw(0, 0);
 
 
-//400 to 200 gave 1.8ms to 3.75 ms, a factor of 1.875 or so off of expected.
-//LinearMap servoRangeX(400, 200);
-//LinearMap servoRangeY(400, 200);
-
-
 class Muscle {
     /** takes value in range 0:4095 */
     PCA9685::Output hw;
@@ -181,7 +176,7 @@ class Muscle {
     }
 };
 
-LinearMap Muscle::range = {400, 200}; //tweakable range, each unit needs a trim
+LinearMap Muscle::range = {500, 10}; //tweakable range, each unit needs a trim
 
 class EyeMuscle: public Muscle {
 
@@ -239,8 +234,6 @@ EyeStalk eyestalk[1 + 6] = {
   {12, 13},
 };
 
-//T1Eyestalk eyestalk1;
-
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
     Console("\nPwm AF x: ", eyestalk[ei].muscle.X.adc, "\ty: ", eyestalk[ei].muscle.Y.adc);
@@ -266,17 +259,17 @@ void update(bool on) {
 }
 
 void joy2eye() {
-  raw = joy;//normalizes scale.
+  //  raw = joy;//normalizes scale.
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
     eyestalk[ei] = raw;
   }
 }
 
-void knob2range(bool upper) {
+void knob2range(bool upper, unsigned asis) {
   if (upper) {
-    Muscle::range.top = 4 * knob;
+    Muscle::range.top = asis;
   } else {
-    Muscle::range.bottom = 2 * knob;
+    Muscle::range.bottom = asis;
   }
   Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
 }
@@ -288,27 +281,15 @@ const AnalogInput highend(A3);
 LinearMap highrange = {1000, 100};
 LinearMap lowrange = {500, 1};
 
-bool upone(uint16_t &rangeElement, const AnalogInput &pot, const LinearMap &scale) {
-  AnalogValue av = pot;
-  uint16_t raw = scale(av);
-  if (changed(rangeElement, raw)) {
-    Console("\nset ", rangeElement, " from: ", av, "->", raw, " scale: ", scale.bottom, ":", scale.top);
-    return true;
-  }
-  return false;
-
-}
-
 void showMrange() {
   Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
 }
-void uprange() {
-  bool updated = upone(Muscle::range.top, highend, highrange);
-  updated |= upone(Muscle::range.bottom, lowend, lowrange); //# single | or, we need the term evaluated
-  if (updated) {
-    showMrange();
-  }
-}
+
+//channel being tuned
+uint8_t tunee = 0;
+
+#include "char.h"
+
 ////////////////////////////////////////////////////////////////
 void setup() {
   T6 = 1;
@@ -323,70 +304,192 @@ void setup() {
   Console("\nConfiguring pwm eyestalk, divider =", pwm.fromHz(50));
   amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
-  Console("\n", amMonster ? "Behold" : "Who is", " the Beholder 1.003 \n\n\n");
+
+  Console("\n", amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
+}
+
+
+
+uint16_t loc[2];
+
+void tweak(bool plusone, unsigned value) {
+  loc[plusone] = Muscle::range.clipped(value);
+  pwm.setWidth(tunee + plusone, value);
+  Console("\npwm[", tunee + plusone, "]=", value);
+}
+
+/** a cheap sequence recognizer.
+    present it with your tokens, it returns whether the sequence might be present.
+    the ~operator reports on whether the sequence was recognized, and if so then forgets that it was.
+    the operator bool reports on whether the complete sequence has been recognized, it is cleared when presented another token so must be checked with each token.
+*/
+class LinearRecognizer {
+    const char * const seq;
+    short si = 0; //Arduino optimization
+
+  public:
+    LinearRecognizer(const char * const seq): seq(seq) {}
+
+    /** @returns whether sequence has been seen */
+    operator bool()const {
+      return seq[si] == 0;
+    }
+
+    /** @returns <em>false</em> if sequence has been recognized, in which case recognition is forgotten. */
+    bool operator ~() {
+      if (this->operator bool()) {
+        si = 0;
+        return false;
+      } else {
+        return true;
+      }
+    }
+
+    /** @returns whether @param next was expected part of sequence */
+    bool operator ()(char next) {
+      if (next == seq[si]) {
+        ++si;
+        return true;
+      } else {
+        si = 0;
+        return false;
+      }
+    }
+};
+
+struct NumberRecognizer {
+  unsigned accumulator = 0;
+  bool operator()(int key) {
+    if (Char(key).appliedDigit(accumulator)) { //rpn number entry
+      //      Console("\n",accumulator);
+      return true;
+    } else {
+      return false;
+    }
+  }
+  /** look at it and it is gone! */
+  operator unsigned() {
+    return take(accumulator);
+  }
+};
+
+void doarrow(bool plusone, bool upit) {
+  loc[plusone] += upit ? 10 : -10;
+  Muscle::range.clip(loc[plusone]);
+  unsigned value = loc[plusone];
+  pwm.setWidth(tunee + plusone, value);
+  Console("\npwm[", tunee + plusone, "]=", value);
+}
+
+LinearRecognizer ansicoder("\e[");
+NumberRecognizer param;
+
+/** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
+void doKey(int key) {
+  //test digits before ansi so that we can have a numerical parameter
+  if (param(key)) { //part of a number, do no more
+    return;
+  }
+
+  if (~ansicoder) {//test and clear
+    switch (key) {//ansi code
+      case 'A':
+        doarrow(1, 1);
+        break;
+      case 'B':
+        doarrow(1, 0);
+        break;
+      case 'C':
+        doarrow(0, 1);
+        break;
+      case 'D':
+        doarrow(0, 0);
+        break;
+
+      default: //code not understood
+        //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
+        if (!ansicoder(key)) {
+          Console("\nUnknown ansi code:", char(key));
+        }
+        break;
+    }
+    return;
+  }
+
+  if (ansicoder(key)) {
+    return; //part of a prefix
+  }
+
+
+  switch (key) {
+    case 'F':
+      Console("\n Set prescale to: ", param);
+      pwm.setPrescale(param, true);
+    //#join
+    case 'f':
+      Console("\n prescale: ", pwm.getPrescale());
+      break;
+    case 'w':
+      tunee = 2 * param;
+      break;
+    case 'x':
+      tweak(0, param);
+      break;
+    case 's':
+      tweak(1, param);
+      break;
+    case 'b':
+      knob2range(0, param);
+      break;
+    case 't':
+      knob2range(1, param);
+      break;
+    case ' ':
+      joy2eye();
+      showJoy();
+      showRaw();
+      showMrange();
+      break;
+    case 'l':
+      update(false);
+      break;
+    case 'o':
+      update(true);
+      break;
+    case 'p':
+      showJoy();
+      break;
+    case 'j':
+      showRaw();
+      break;
+    case '*':
+      scanI2C();
+      break;
+    case 'r':
+      pwm.idChannels(2, 15);
+      Console("\npwm's are now set to their channel number");
+      break;
+    default:
+      Console("\nUnknown command:", key, ' ', char(key));
+      break;
+    case '\n'://clear display via shoving some crlf's at it.
+    case '\r':
+      Console("\n\n\n");
+      break;
+  }
 }
 
 
 void loop() {
   if ( MilliTicked) { //this is true once per millisecond.
+    raw = joy;//normalizes scale.
     if (updateEyes ) {
       joy2eye();
-    }
-
-    uprange();
-    if (MilliTicked.every(1000)) {
-      Console(" @", MilliTicked.recent());
     }
   }
 
   int key = Console.getKey();
   if (key >= 0) {
-    switch (key) {
-      case 'b':
-        knob2range(0);
-        break;
-      case 't':
-        knob2range(0);
-        break;
-      case 'j':
-        knob.zero();
-      //#join
-      case 'k':
-        Console("\nKnob: ", knob);
-        break;
-      case ' ':
-        joy2eye();
-        showJoy();
-        showRaw();
-        showMrange();
-        break;
-      case 'l':
-        update(false);
-        break;
-      case 'o':
-        update(true);
-        break;
-      case 'p':
-        showJoy();
-        break;
-      case 'x':
-        showRaw();
-        break;
-      case 's':
-        scanI2C();
-        break;
-      case 'r':
-        pwm.idChannels(2, 15);
-        break;
-      default:
-        Console("\nUnknown command:", key, ' ', char(key)); //echo.
-        break;
-      case '\n'://clear display via shoving some crlf's at it.
-      case '\r':
-        Console("\n\n\n");
-        break;
-    }
-
+    doKey(key) ;
   }
-
 }
