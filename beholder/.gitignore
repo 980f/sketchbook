@@ -14,6 +14,7 @@ eztypes.h
 index.h
 lardls
 linearmap.h
+linearrecognizer.h
 millievent.h
 minimath.h
 pca9685.cpp
@@ -25,4 +26,5 @@ scani2c.h
 stopwatch.h
 textkey.h
 twinconsole.h
+unsignedrecognizer.h
 wirewrapper.h

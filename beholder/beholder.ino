@@ -23,38 +23,38 @@
 #include "digitalpin.h"
 #include "millievent.h"
 
-#include "cheaptricks.h"
-#include "minimath.h"
+#include "cheaptricks.h" //for changed()
+#include "minimath.h"  //for template max/min instead of macro
 
-#include "chainprinter.h"
+#include "chainprinter.h" //for easier diagnostic messages
 
-#include "stopwatch.h"
+#include "stopwatch.h" //to time things
 
 /** merge usb serial and serial1 streams.*/
 #include "twinconsole.h"
 TwinConsole Console;
 
-#include "promicro.board.h"
+#include "promicro.board.h" //mostly for 32U4 timer 1 use
 ProMicro board;
 
-#include "pca9685.h"
+#include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm;
 
-#include "scani2c.h"
+#include "scani2c.h" //diagnostic scan for devices. the pc9685 shoes up as 64 and 112 on power up, I make the 112 go away.
 
 //joystick to servo value:
-#include "analog.h"
-#include "linearmap.h"
+#include "analog.h" //deal with the difference in number of bits of analog info in, out, and simulated  
+#include "linearmap.h" //simpler scaling component than Arduino map(), also syntactically cuter.
 
-
+//pin uses:
 //0,1 are rx,tx used by Serial1
-//2,3 are I2C
+//2,3 are I2C bus (Wire)
 //Andy's test leds are low active:
-//const OutputPin<4, LOW> T4;
-//const OutputPin<5, LOW> T5;
+const InputPin<4, LOW> jawopen;
+const InputPin<5, LOW> browup;
 const OutputPin<6, LOW> T6;
 //7-8 rotary knob
-//9,10 PWM
+//9,10 PWM outputs
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
@@ -64,49 +64,10 @@ const InputPin<15> slowerButton;
 
 //A0,A1,A2,A3 used for joystick and pots.
 
-#if knobby
-void handleKnob_knob();
-/** a kinda quadrature encoder, a clock and direction. The detents are only where both signals are high, most likely to ensure low power consumption.
-    The data type must be atomic if you are going to read it raw. When we fin
-*/
-template<unsigned clockPN, unsigned directionPN, typename Knobish = uint8_t> class RotaryKnob {
-    Knobish location;
-
-    const InputPin<clockPN, LOW> clock;
-    const InputPin<directionPN, LOW> direction;
-
-  public:
-    RotaryKnob () {
-      zero();
-      //Arduino doesn't (yet;) support this:      auto handleKnob= [&](){update()};
-      attachInterrupt(digitalPinToInterrupt(clockPN), &handleKnob_knob, FALLING);
-    }
-
-    void zero() {
-      location = 0;
-    }
-
-    void update() {
-      location += direction ? -1 : 1;
-    }
-    /** getter for location */
-    operator Knobish()const {
-      return location;
-    }
-
-};
-
-RotaryKnob<7, 8> knob; //7 is only interrupt pin not otherwise occupied
-void handleKnob_knob() {
-  knob.update();
-}
-
-#endif
-
+/** many things come in pairs for this project */
 template<typename T> struct XY {
   T X;
   T Y;
-
 
   /**only works if class has default constructor:*/
   XY() {
@@ -137,13 +98,12 @@ template<typename T> struct XY {
 
 
 //joystick device
-
 const XY<const AnalogInput> joy(A1, A0);
 
 //records recent joystick value
 XY<AnalogValue> raw(0, 0);
 
-
+/** servo channel access and basic configuration such as range of travel */
 class Muscle {
     /** takes value in range 0:4095 */
     PCA9685::Output hw;
@@ -157,13 +117,14 @@ class Muscle {
       //#done
     }
 
+    /** goto some position, as fraction of configured range. */
     void operator =(AnalogValue pos) {
       if (changed(adc, range(pos))) {
         hw = adc;
       }
     }
 
-    /** @return pointer to related parameter */
+    /** @return pointer to related parameter, used by configuration interface */
     virtual uint16_t *param(char key) {
       switch (key) {
         case 'b':
@@ -176,20 +137,37 @@ class Muscle {
     }
 };
 
+//temprarily shared range.
 LinearMap Muscle::range = {500, 10}; //tweakable range, each unit needs a trim
 
+enum EyeState : uint8_t { //specing small type in case we shove it directly into eeprom
+  Dead,
+  Alert,
+  Seeking
+};
+/** actuator with configuration for behaviors */
 class EyeMuscle: public Muscle {
-
   public:
     /** position when related stalk is dead.*/
-    AnalogValue dead = 0; //will tweak for each stalk, for effect
+    AnalogValue dead = AnalogValue::Min; //will tweak for each stalk, for effect
     /** position when related stalk is under attack.*/
-    AnalogValue alert = 0x7FFF; //will tweak for each stalk, for effect
+    AnalogValue alert = AnalogValue::Max; //will tweak for each stalk, for effect
 
     EyeMuscle(/*PCA9685 &dev,*/ uint8_t which): Muscle(pwm, which) {
       //#done
     }
     using Muscle::operator = ;
+
+    void be(EyeState es) {
+      switch (es) {
+        case Dead:
+          *this = dead;
+          break;
+        case Alert:
+          *this = alert;
+          break;
+      }
+    }
 
     /** @return pointer to related parameter */
     uint16_t *param(char key) {
@@ -233,6 +211,9 @@ EyeStalk eyestalk[1 + 6] = {
   {10, 11},
   {12, 13},
 };
+
+EyeMuscle brow(15);
+EyeMuscle jaw(14);
 
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
@@ -288,108 +269,8 @@ void showMrange() {
 //channel being tuned
 uint8_t tunee = 0;
 
-#include "char.h"
-
-////////////////////////////////////////////////////////////////
-void setup() {
-  T6 = 1;
-  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
-
-  Console.begin();
-
-  Wire.begin(); //must preceded scan!
-  Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-  scanI2C();
-
-  Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
-  amMonster = pwm.begin(4, 50); //4:totempole drive.
-  T6 = 0;
-
-  Console("\n", amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
-}
-
-
-
+//play with two channels at a time
 uint16_t loc[2];
-
-void tweak(bool plusone, unsigned value) {
-  loc[plusone] = Muscle::range.clipped(value);
-  pwm.setWidth(tunee + plusone, value);
-  Console("\npwm[", tunee + plusone, "]=", value);
-}
-
-/** a cheap sequence recognizer.
-    present it with your tokens, it returns whether the sequence might be present.
-    the ~operator reports on whether the sequence was recognized, and if so then forgets that it was.
-    the operator bool reports on whether the complete sequence has been recognized, it is cleared when presented another token so must be checked with each token.
-*/
-class LinearRecognizer {
-    const char * const seq;
-    short si = 0; //Arduino optimization
-
-  public:
-    LinearRecognizer(const char *seq): seq(seq) {}
-
-    /** @returns whether sequence has been seen */
-    operator bool() const {
-      return seq[si] == 0;
-    }
-
-    /** @returns whether sequence has been recognized, in which case recognition is forgotten. */
-    bool operator ~() {
-      if (*this) {
-        si = 0;
-        return true;
-      } else {
-        return false;
-      }
-    }
-
-    /** @returns whether @param next was expected part of sequence. NUL's are ignored. */
-    bool operator ()(char next) {
-      if (next == 0) { //#if we don't exclude nulls we can overrun our sequence definitoin storage.
-        return si != 0; //maintain state
-      }
-      if (next == seq[si]) {
-        ++si;
-        return true;
-      } else {
-        si = 0;
-        return false;
-      }
-    }
-
-    /** coerce to 'recognized' else back to 0*/
-    void operator=(bool fakeit) {
-      if (fakeit) {
-        while (seq[si]) {
-          ++si;
-        }
-      } else {
-        si = 0;
-      }
-    }
-};
-
-/** recognize a sequence of digits. if asked for the sequence provide it, but clear it. You can peek at the value, but shouldn't except for debugging this module itself.
-  leading zeroes are effectively ignored, they do not trigger octal interpretation. */
-struct NumberRecognizer {
-  unsigned accumulator = 0;
-  bool operator()(int key) {
-    if (Char(key).appliedDigit(accumulator)) { //rpn number entry
-      //      Console("\n",accumulator);
-      return true;
-    } else {
-      return false;
-    }
-  }
-  /** look at it and it is gone! */
-  operator unsigned() {
-    return take(accumulator);
-  }
-};
-
-
 void doarrow(bool plusone, bool upit) {
   loc[plusone] += upit ? 10 : -10;
   Muscle::range.clip(loc[plusone]);
@@ -398,10 +279,22 @@ void doarrow(bool plusone, bool upit) {
   Console("\npwm[", tunee + plusone, "]=", value);
 }
 
+
+void tweak(bool plusone, unsigned value) {
+  loc[plusone] = Muscle::range.clipped(value);
+  pwm.setWidth(tunee + plusone, value);
+  Console("\npwm[", tunee + plusone, "]=", value);
+}
+
+
+#include "char.h"
+#include "unsignedrecognizer.h"
+UnsignedRecognizer param;
+
+#include "linearrecognizer.h"
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
-NumberRecognizer param;
-
+//full keystroke echo, added for figuring out non-ascii keys.
 bool rawecho = false;
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
@@ -538,6 +431,24 @@ void doKey(int key) {
   }
 }
 
+////////////////////////////////////////////////////////////////
+void setup() {
+  T6 = 1;
+  pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
+
+  Console.begin();
+
+  Wire.begin(); //must preceded scan!
+  Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
+  scanI2C();
+
+  Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
+  amMonster = pwm.begin(4, 50); //4:totempole drive.
+  T6 = 0;
+
+  Console("\n", amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
+}
+
 
 void loop() {
   if ( MilliTicked) { //this is true once per millisecond.
@@ -545,6 +456,8 @@ void loop() {
     if (updateEyes ) {
       joy2eye();
     }
+    brow.be(browup?Alert:Dead);
+    jaw.be(jawopen?Alert:Dead);
   }
 
   int key = Console.getKey();
