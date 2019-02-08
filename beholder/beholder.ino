@@ -64,41 +64,10 @@ const InputPin<15> slowerButton;
 
 //A0,A1,A2,A3 used for joystick and pots.
 
-/** many things come in pairs for this project */
-template<typename T> struct XY {
-  T X;
-  T Y;
-
-  /**only works if class has default constructor:*/
-  XY() {
-    //#done
-  }
-
-  /** single arg constructor */
-  template<typename C>
-  XY(C x, C y):
-    X(x), Y(y) {
-    //#nada
-  }
-
-  /** two arg constructor */
-  template<typename C1, typename C2>
-  XY(C1 x1, C2 x2, C1 y1, C2 y2):
-    X(x1, x2), Y(y1, y2) {
-    //#nada
-  }
-
-  //type Other must be assignable to typename T
-  template <typename Other>operator =(XY<Other> input) {
-    X = input.X;
-    Y = input.Y;
-  }
-
-};
-
+#include "xypair.h" 
 
 //joystick device
-const XY<const AnalogInput> joy(A1, A0);
+const XY<const AnalogInput> joy(A2, A3);
 
 //records recent joystick value
 XY<AnalogValue> raw(0, 0);
@@ -239,10 +208,10 @@ void update(bool on) {
   }
 }
 
-void joy2eye() {
-  //  raw = joy;//normalizes scale.
+//all eyestalks in unison
+void joy2eye(XY<AnalogValue> xy) {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    eyestalk[ei] = raw;
+    eyestalk[ei] = xy;
   }
 }
 
@@ -290,6 +259,8 @@ void tweak(bool plusone, unsigned value) {
 #include "char.h"
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
+//settin up for 2 parameter commands
+unsigned pushed;
 
 #include "linearrecognizer.h"
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
@@ -319,7 +290,7 @@ void doKey(int key) {
       case 'D':
         doarrow(0, 0);
         break;
-      case '~':
+      case '~'://a number appeared between escape prefix and the '~'
         switch (param) {
           case 3://del
           case 5://pageup
@@ -345,7 +316,7 @@ void doKey(int key) {
       case 'F':
         Console("\nGoodbye!");
         break;
-      case 'P':
+      case 'P'://F1..F4o
       case 'Q':
       case 'R':
       case 'S':
@@ -369,7 +340,15 @@ void doKey(int key) {
   }
 
   switch (key) {
-    case 'F':
+    case ','://push a parameter for 2 parameter commands.
+      pushed = param;
+      break;
+    case '.'://simulate joystick value
+      raw.X = take(pushed);
+      raw.Y = param;
+      joy2eye(raw);
+      break;
+    case 'F'://set pwm frequency parameter, 122 for 50Hz. 
       Console("\n Set prescale to: ", param);
       pwm.setPrescale(param, true);
     //#join
@@ -392,17 +371,11 @@ void doKey(int key) {
     case 't':
       knob2range(1, param);
       break;
-    case ' ':
-      joy2eye();
-      showJoy();
-      showRaw();
-      showMrange();
-      break;
-    case 'l':
-      update(false);
-      break;
-    case 'o':
-      update(true);
+    case 'r':
+      if(pushed){//zero is not a reasonable range value so we can key off this
+        knob2range(0, param);
+        knob2range(1, take(pushed));
+      }
       break;
     case 'p':
       showJoy();
@@ -410,14 +383,26 @@ void doKey(int key) {
     case 'j':
       showRaw();
       break;
+    case ' ':
+      joy2eye(raw);
+      showJoy();
+      showRaw();
+      showMrange();
+      break;
+    case 'l'://disconnect eyes from joystick
+      update(false);
+      break;
+    case 'o'://run eyes from joystick
+      update(true);
+      break;
     case '*':
       scanI2C();
       break;
-    case '!':
+    case '!'://debug function key input
       rawecho = param;
       Console("\nraw echo:", rawecho);
       break;
-    case 'r':
+    case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
       Console("\npwm's are now set to their channel number");
       break;
@@ -451,13 +436,13 @@ void setup() {
 
 
 void loop() {
-  if ( MilliTicked) { //this is true once per millisecond.
+  if (MilliTicked) { //this is true once per millisecond.
     raw = joy;//normalizes scale.
-    if (updateEyes ) {
-      joy2eye();
+    if (updateEyes) {
+      joy2eye(raw);
     }
-    brow.be(browup?Alert:Dead);
-    jaw.be(jawopen?Alert:Dead);
+    brow.be(browup ? Alert : Dead);
+    jaw.be(jawopen ? Alert : Dead);
   }
 
   int key = Console.getKey();
