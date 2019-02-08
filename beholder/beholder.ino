@@ -49,9 +49,8 @@ PCA9685 pwm;
 //pin uses:
 //0,1 are rx,tx used by Serial1
 //2,3 are I2C bus (Wire)
-//Andy's test leds are low active:
-const InputPin<4, LOW> jawopen;
-const InputPin<5, LOW> browup;
+const OutputPin<14, LOW> T4;
+const OutputPin<15, LOW> T5;
 const OutputPin<6, LOW> T6;
 //7-8 rotary knob
 //9,10 PWM outputs
@@ -59,8 +58,8 @@ const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
 const OutputPin<16, LOW> T16;
-const InputPin<14> fasterButton;
-const InputPin<15> slowerButton;
+const InputPin<14, LOW> jawopen;
+const InputPin<15, LOW> browup;
 
 //A0,A1,A2,A3 used for joystick and pots.
 
@@ -68,13 +67,15 @@ const InputPin<15> slowerButton;
 
 //joystick device
 const XY<const AnalogInput> joy(A2, A3);
+//pair of pots
+const XY<const AnalogInput> pot(A0, A1);
 
-//records recent joystick value
-XY<AnalogValue> raw(0, 0);
 
 /** servo channel access and basic configuration such as range of travel */
 class Muscle {
-    /** takes value in range 0:4095 */
+/** using adafruit 16 channel pwm controller
+    we are initially leaving all the phases set to the same value, to minimize I2C execution time.
+   takes value in range 0:4095 */
     PCA9685::Output hw;
   public: //for debug access
     unsigned adc;//debug value: last sent to hw
@@ -153,9 +154,6 @@ class EyeMuscle: public Muscle {
 
 
 
-/** using adafruit 16 channel pwm controller
-    we are initially leaving all the phases set to the same value, to minimize I2C execution time.
-*/
 struct EyeStalk {
   XY<EyeMuscle> muscle;
 
@@ -181,8 +179,18 @@ EyeStalk eyestalk[1 + 6] = {
   {12, 13},
 };
 
-EyeMuscle brow(15);
+
+//application data
+
+//records recent joystick value
+XY<AnalogValue> raw(0, 0);
+
+LinearMap highrange = {1000, 100};
+LinearMap lowrange = {500, 1};
+
+EyeMuscle brow(15);//pwm channel number
 EyeMuscle jaw(14);
+
 
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
@@ -223,13 +231,6 @@ void knob2range(bool upper, unsigned asis) {
   }
   Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
 }
-
-//range adjustment knobs
-const AnalogInput lowend(A2);
-const AnalogInput highend(A3);
-
-LinearMap highrange = {1000, 100};
-LinearMap lowrange = {500, 1};
 
 void showMrange() {
   Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
