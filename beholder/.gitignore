@@ -33,3 +33,4 @@ textkey.h
 twinconsole.h
 unsignedrecognizer.h
 wirewrapper.h
+xypair.h

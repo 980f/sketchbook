@@ -63,27 +63,27 @@ const InputPin<15, LOW> browup;
 
 //A0,A1,A2,A3 used for joystick and pots.
 
-#include "xypair.h" 
+#include "xypair.h"
 
 //joystick device
-const XY<const AnalogInput> joy(A2, A3);
+const XY<const AnalogInput> joydev(A2, A3);
 //pair of pots
-const XY<const AnalogInput> pot(A0, A1);
+const XY<const AnalogInput> potdev(A0, A1);
 
 
 /** servo channel access and basic configuration such as range of travel */
 class Muscle {
-/** using adafruit 16 channel pwm controller
-    we are initially leaving all the phases set to the same value, to minimize I2C execution time.
-   takes value in range 0:4095 */
+    /** using adafruit 16 channel pwm controller
+        we are initially leaving all the phases set to the same value, to minimize I2C execution time.
+       takes value in range 0:4095 */
     PCA9685::Output hw;
   public: //for debug access
     unsigned adc;//debug value: last sent to hw
   public:
     //temporarily shared for debug of code.
-    static LinearMap range;// = {400, 200}; //tweakable range, each unit needs a trim
+    LinearMap range;// = {400, 200}; //tweakable range, each unit needs a trim
 
-    Muscle(PCA9685 &dev, uint8_t which): hw(dev, which), adc(~0) {
+    Muscle(PCA9685 &dev, uint8_t which): hw(dev, which), adc(~0), range(400, 200) {
       //#done
     }
 
@@ -91,6 +91,15 @@ class Muscle {
     void operator =(AnalogValue pos) {
       if (changed(adc, range(pos))) {
         hw = adc;
+      }
+    }
+
+    bool test(unsigned raw) {
+      if (changed(adc, range.clipped(raw))) {
+        hw = adc;
+        return true;
+      } else {
+        return false;
       }
     }
 
@@ -105,10 +114,14 @@ class Muscle {
           return nullptr;
       }
     }
+
+    uint8_t which() {
+      return hw.which;
+    }
 };
 
 //temprarily shared range.
-LinearMap Muscle::range = {500, 10}; //tweakable range, each unit needs a trim
+//LinearMap Muscle::range = {500, 10}; //tweakable range, each unit needs a trim
 
 enum EyeState : uint8_t { //specing small type in case we shove it directly into eeprom
   Dead,
@@ -169,7 +182,17 @@ struct EyeStalk {
 };
 
 
-EyeStalk eyestalk[1 + 6] = {
+
+
+//application data
+
+//records recent joystick value
+XY<AnalogValue> joy(0, 0);
+
+LinearMap highrange = {1000, 100};
+LinearMap lowrange = {500, 1};
+// the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
+EyeStalk eyestalk[1 + 6] = {//pwm channel numbers
   {0, 1},
   {2, 3},
   {4, 5},
@@ -178,18 +201,10 @@ EyeStalk eyestalk[1 + 6] = {
   {10, 11},
   {12, 13},
 };
-
-
-//application data
-
-//records recent joystick value
-XY<AnalogValue> raw(0, 0);
-
-LinearMap highrange = {1000, 100};
-LinearMap lowrange = {500, 1};
-
-EyeMuscle brow(15);//pwm channel number
-EyeMuscle jaw(14);
+//pairing jaw and eyebrow so that we can borrow eyestalk tuning and testing code
+EyeStalk jawbrow(14, 15);
+EyeMuscle &brow(jawbrow.muscle.Y);
+EyeMuscle &jaw(jawbrow.muscle.X);
 
 
 void showRaw() {
@@ -199,7 +214,7 @@ void showRaw() {
 }
 
 void showJoy() {
-  Console("\nJoy x: ", raw.X, "\ty: ", raw.Y);
+  Console("\nJoy x: ", joy.X, "\ty: ", joy.Y);
 }
 
 
@@ -217,43 +232,40 @@ void update(bool on) {
 }
 
 //all eyestalks in unison
-void joy2eye(XY<AnalogValue> xy) {
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {
+void joy2all(XY<AnalogValue> xy) {
+  for (unsigned ei = countof(eyestalk); ei-- > 1;) {//exclude big eyeball
     eyestalk[ei] = xy;
   }
 }
 
-void knob2range(bool upper, unsigned asis) {
-  if (upper) {
-    Muscle::range.top = asis;
-  } else {
-    Muscle::range.bottom = asis;
-  }
-  Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
-}
-
-void showMrange() {
-  Console("\nMuscle: ", Muscle::range.bottom, ":", Muscle::range.top);
-}
 
 //channel being tuned
-uint8_t tunee = 0;
+short tunee = 0;
+bool wm=0;// which muscle when tuning half of a pair
 
-//play with two channels at a time
-uint16_t loc[2];
+void joy2eye(XY<AnalogValue> xy) {
+  eyestalk[tunee] = xy;
+}
+
+void setRange(unsigned topper, unsigned lower) {
+  Muscle &muscle( wm ? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
+  muscle.range.top = topper;
+  muscle.range.bottom = lower;
+  Console("\nRange: ", muscle.range.top, "->",  muscle.range.bottom);
+}
+
 void doarrow(bool plusone, bool upit) {
-  loc[plusone] += upit ? 10 : -10;
-  Muscle::range.clip(loc[plusone]);
-  unsigned value = loc[plusone];
-  pwm.setWidth(tunee + plusone, value);
-  Console("\npwm[", tunee + plusone, "]=", value);
+  wm=plusone;
+  Muscle &muscle( wm ? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
+  tweak(plusone, muscle.adc + upit ? 10 : -10);
 }
 
 
 void tweak(bool plusone, unsigned value) {
-  loc[plusone] = Muscle::range.clipped(value);
-  pwm.setWidth(tunee + plusone, value);
-  Console("\npwm[", tunee + plusone, "]=", value);
+  wm=plusone;
+  Muscle &muscle( wm? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
+  muscle.test(value);
+  Console("\npwm[", muscle.which(), "]=", muscle.adc);
 }
 
 
@@ -345,11 +357,11 @@ void doKey(int key) {
       pushed = param;
       break;
     case '.'://simulate joystick value
-      raw.X = take(pushed);
-      raw.Y = param;
-      joy2eye(raw);
+      joy.X = take(pushed);
+      joy.Y = param;
+      joy2eye(joy);
       break;
-    case 'F'://set pwm frequency parameter, 122 for 50Hz. 
+    case 'F'://set pwm frequency parameter, 122 for 50Hz.
       Console("\n Set prescale to: ", param);
       pwm.setPrescale(param, true);
     //#join
@@ -357,7 +369,7 @@ void doKey(int key) {
       Console("\n prescale: ", pwm.getPrescale());
       break;
     case 'w':
-      tunee = 2 * param;
+      tunee = param;
       Console("\nPair ", tunee);
       break;
     case 'x':
@@ -367,15 +379,14 @@ void doKey(int key) {
       tweak(1, param);
       break;
     case 'b':
-      knob2range(0, param);
+      //      knob2range(0, param);
       break;
     case 't':
-      knob2range(1, param);
+      //      knob2range(1, param);
       break;
     case 'r':
-      if(pushed){//zero is not a reasonable range value so we can key off this
-        knob2range(0, param);
-        knob2range(1, take(pushed));
+      if (pushed) { //zero is not a reasonable range value so we can key off this
+        setRange( take(pushed),param);
       }
       break;
     case 'p':
@@ -385,10 +396,10 @@ void doKey(int key) {
       showRaw();
       break;
     case ' ':
-      joy2eye(raw);
+      joy2eye(joy);
       showJoy();
       showRaw();
-      showMrange();
+      //      showMrange();
       break;
     case 'l'://disconnect eyes from joystick
       update(false);
@@ -438,9 +449,9 @@ void setup() {
 
 void loop() {
   if (MilliTicked) { //this is true once per millisecond.
-    raw = joy;//normalizes scale.
+    joy = joydev;//normalizes scale.
     if (updateEyes) {
-      joy2eye(raw);
+      joy2eye(joy);
     }
     brow.be(browup ? Alert : Dead);
     jaw.be(jawopen ? Alert : Dead);
