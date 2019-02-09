@@ -360,7 +360,7 @@ void doKey(int key) {
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
         if (!ansicoder[0](key)) {
-          Console("\nUnknown ansi [ code:", char(key));
+          Console("\nUnknown ansi [ code: param:", char(key),param);
         }
         break;
     }
