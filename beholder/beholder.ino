@@ -98,18 +98,6 @@ struct Muscle {
     }
   }
 
-  /** @return pointer to related parameter, used by configuration interface */
-  virtual uint16_t *param(char key) {
-    switch (key) {
-      case 'b':
-        return &range.bottom;
-      case 't':
-        return &range.top;
-      default:
-        return nullptr;
-    }
-  }
-
 };
 
 /** each stalk is in one of these states */
@@ -197,8 +185,12 @@ struct UI {
 
   //muscle of interest
   Muscle &moi() const {
-    Muscle &muscle( wm ? eyestalk[tunee].X : eyestalk[tunee].Y);
-    return muscle;
+    if (tunee < countof(eyestalk)) {
+      Muscle &muscle( wm ? eyestalk[tunee].X : eyestalk[tunee].Y);
+      return muscle;
+    } else {//anything other than random memory
+      return ( wm ? jaw : brow);
+    }
   }
 
   void update(bool on) {
@@ -221,7 +213,11 @@ void joy2all(XY<AnalogValue> xy) {
 }
 
 void joy2eye(XY<AnalogValue> xy) {
-  eyestalk[ui.tunee] = xy;
+  if (ui.tunee == 9) { //do all
+    joy2all(xy);
+  } else {
+    eyestalk[ui.tunee] = xy;
+  }
 }
 
 
@@ -243,6 +239,15 @@ void doarrow(bool plusone, bool upit) {
   ui.wm = plusone;
   Muscle &muscle( ui.moi());
   tweak(plusone, muscle.adc + upit ? 10 : -10);
+}
+
+void knob2range(bool top, unsigned value) {
+  Muscle &muscle( ui.moi());
+  if (top) {
+    muscle.range.top = value;
+  } else {
+    muscle.range.bottom = value;
+  }
 }
 
 void be(EyeState es) {
@@ -271,14 +276,14 @@ void record(EyeState es) {
 const char initdata[] = {
 
   //channel.w.range.x.range.y.position.dead.position.alert
-  "1w400,200x400,200y0,0D20000,20000A"
-  "2w400,200x400,200y0,0D20000,20000A"
-  "3w400,200x400,200y0,0D20000,20000A"
-  "4w400,200x400,200y0,0D20000,20000A"
-  "5w400,200x400,200y0,0D20000,20000A"
-  "6w400,200x400,200y0,0D20000,20000A"
-  "0w400,200x400,200y0,0D20000,20000A" //big eye
-  "7w400,200x400,200y0,0D20000,20000A" //jawbrow
+  "1w999,9x999,9y0,0D20000,20000A"
+  "2w999,9x999,9y0,0D20000,20000A"
+  "3w999,9x999,9y0,0D20000,20000A"
+  "4w999,9x999,9y0,0D20000,20000A"
+  "5w999,9x999,9y0,0D20000,20000A"
+  "6w999,9x999,9y0,0D20000,20000A"
+  "0w999,9x999,9y0,0D20000,20000A" //big eye
+  "7w999,9x999,9y0,0D20000,20000A" //jawbrow
 
 };
 
@@ -428,18 +433,18 @@ void doKey(int key) {
       Console("\nEye ", ui.tunee);
       break;
 
-    case 'e':
+    case 'e'://set one muscle to absolute position
       tweak(0, param);
       break;
-    case 's':
+    case 's'://set other muscle to absolute position
       tweak(1, param);
       break;
 
-    case 'b':
-      //      knob2range(0, param);
+    case 'b'://set lower end of range for most recently touched muscle
+      knob2range(0, param);
       break;
-    case 't':
-      //      knob2range(1, param);
+    case 't'://set higher end of range for most recently touched muscle
+      knob2range(1, param);
       break;
     case 'x': //pick axis, if values present then set its range.
     case 'y':
