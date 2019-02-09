@@ -5,46 +5,40 @@
   So make that 6+1, where we might drive duplicate outputs for the one.
 
   TODO:
-  ) get 16 channel pwm working perfectly.
   ) store calibration constants per stalk in eeprom.
   ) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
   ) command parser to
   )) set 'waving', 'alert' common states,
   )) kill individual stalks.
   )) resurrect (reset for next group)
-  )) apply eyeball coords (a pair)
-  )) apply jaw actions (single analog channel)
-  )) apply eyebrows actions (single analog channel)
+
+  NOTE WELL: The value ~0 is used to mark 'not a value'. If not checked then it is either -1 or 65535 aka 'all ones'.
 
 */
-#include "bitbanger.h"
 
-#include "pinclass.h"
-#include "digitalpin.h"
-#include "millievent.h"
-
+#include "bitbanger.h" //early to replace Arduino's macros with real code
 #include "cheaptricks.h" //for changed()
 #include "minimath.h"  //for template max/min instead of macro
 
-#include "chainprinter.h" //for easier diagnostic messages
-
 #include "stopwatch.h" //to time things
+
+#include "pinclass.h"
+//#include "digitalpin.h"
+#include "millievent.h"
 
 /** merge usb serial and serial1 streams.*/
 #include "twinconsole.h"
 TwinConsole Console;
 
-#include "promicro.board.h" //mostly for 32U4 timer 1 use
-ProMicro board;
-
+#include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm;
-
-#include "scani2c.h" //diagnostic scan for devices. the pc9685 shoes up as 64 and 112 on power up, I make the 112 go away.
 
 //joystick to servo value:
 #include "analog.h" //deal with the difference in number of bits of analog info in, out, and simulated  
 #include "linearmap.h" //simpler scaling component than Arduino map(), also syntactically cuter.
+
+#include "xypair.h"
 
 //pin uses:
 //0,1 are rx,tx used by Serial1
@@ -52,19 +46,18 @@ PCA9685 pwm;
 const OutputPin<14, LOW> T4;
 const OutputPin<15, LOW> T5;
 const OutputPin<6, LOW> T6;
-//7-8 rotary knob
+//7-8 reserved for rotary knob
 //9,10 PWM outputs
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
 const OutputPin<16, LOW> T16;
+
+//digital inputs to control eyebrow and jaw:
 const InputPin<14, LOW> jawopen;
 const InputPin<15, LOW> browup;
 
 //A0,A1,A2,A3 used for joystick and pots.
-
-#include "xypair.h"
-
 //joystick device
 const XY<const AnalogInput> joydev(A2, A3);
 //pair of pots
@@ -72,76 +65,76 @@ const XY<const AnalogInput> potdev(A0, A1);
 
 
 /** servo channel access and basic configuration such as range of travel */
-class Muscle {
-    /** using adafruit 16 channel pwm controller
-        we are initially leaving all the phases set to the same value, to minimize I2C execution time.
-       takes value in range 0:4095 */
-    PCA9685::Output hw;
-  public: //for debug access
-    unsigned adc;//debug value: last sent to hw
-  public:
-    //temporarily shared for debug of code.
-    LinearMap range;// = {400, 200}; //tweakable range, each unit needs a trim
+struct Muscle {
+  unsigned adc;//debug value: last sent to hw
+  AnalogValue pos;
+  /** using adafruit 16 channel pwm controller
+      we are initially leaving all the phases set to the same value, to minimize I2C execution time.
+     takes value in range 0:4095 */
+  PCA9685::Output hw;
+  LinearMap range; //tweakable range, trimming the servo.
 
-    Muscle(PCA9685 &dev, uint8_t which): hw(dev, which), adc(~0), range(400, 200) {
-      //#done
-    }
+  Muscle(PCA9685 &dev, uint8_t which): adc(~0), hw(dev, which), range(400, 200) {
+    //#done
+  }
 
-    /** goto some position, as fraction of configured range. */
-    void operator =(AnalogValue pos) {
-      if (changed(adc, range(pos))) {
-        hw = adc;
-      }
-    }
+  /** easy creator, but comipler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
+  explicit Muscle(uint8_t which): Muscle(pwm, which) {}
 
-    bool test(unsigned raw) {
-      if (changed(adc, range.clipped(raw))) {
-        hw = adc;
-        return true;
-      } else {
-        return false;
-      }
+  /** goto some position, as fraction of configured range. */
+  void operator =(AnalogValue pos) {
+    if (changed(adc, range(this->pos = pos))) {
+      hw = adc;
     }
+  }
 
-    /** @return pointer to related parameter, used by configuration interface */
-    virtual uint16_t *param(char key) {
-      switch (key) {
-        case 'b':
-          return &range.bottom;
-        case 't':
-          return &range.top;
-        default:
-          return nullptr;
-      }
+  /** access pwm and set it to a raw value, within range of this muscle.*/
+  bool test(unsigned raw) {
+    if (changed(adc, range.clipped(raw))) {
+      hw = adc;
+      return true;
+    } else {
+      return false;
     }
+  }
 
-    uint8_t which() {
-      return hw.which;
+  /** @return pointer to related parameter, used by configuration interface */
+  virtual uint16_t *param(char key) {
+    switch (key) {
+      case 'b':
+        return &range.bottom;
+      case 't':
+        return &range.top;
+      default:
+        return nullptr;
     }
+  }
+
 };
 
-//temprarily shared range.
-//LinearMap Muscle::range = {500, 10}; //tweakable range, each unit needs a trim
-
+/** each stalk is in one of these states */
 enum EyeState : uint8_t { //specing small type in case we shove it directly into eeprom
-  Dead,
-  Alert,
-  Seeking
+  Dead,   // as limp appearing as possible
+  Alert,  // looking at *you*
+  Seeking // wiggling aimlessly
 };
-/** actuator with configuration for behaviors */
-class EyeMuscle: public Muscle {
-  public:
-    /** position when related stalk is dead.*/
-    AnalogValue dead = AnalogValue::Min; //will tweak for each stalk, for effect
-    /** position when related stalk is under attack.*/
-    AnalogValue alert = AnalogValue::Max; //will tweak for each stalk, for effect
 
-    EyeMuscle(/*PCA9685 &dev,*/ uint8_t which): Muscle(pwm, which) {
-      //#done
-    }
-    using Muscle::operator = ;
+/** actuator to use */
+using EyeMuscle = Muscle ;
 
-    void be(EyeState es) {
+struct EyeStalk : public XY<EyeMuscle> {
+  EyeState es = ~0; //for behavior stuff, we will want to do things like "if not dead then"
+  EyeStalk (short xw, short yw): XY<EyeMuscle>(xw, yw) {}
+
+  /** set to a pair of values */
+  using XY<EyeMuscle>:: operator =;
+  /** position when related stalk is dead.*/
+  XY<AnalogValue> dead = {AnalogValue::Min, AnalogValue::Min}; //will tweak for each stalk, for effect
+  /** position when related stalk is under attack.*/
+  XY<AnalogValue> alert = {AnalogValue::Max, AnalogValue::Max}; //will tweak for each stalk, for effect
+
+  void be(EyeState es) {
+    if (changed(this->es, es)) {
       switch (es) {
         case Dead:
           *this = dead;
@@ -149,50 +142,26 @@ class EyeMuscle: public Muscle {
         case Alert:
           *this = alert;
           break;
-      }
-    }
-
-    /** @return pointer to related parameter */
-    uint16_t *param(char key) {
-      switch (key) {
-        case 'd':
-          return dead.guts();
-        case 'a':
-          return alert.guts();
         default:
-          return Muscle::param(key);
+          break;
       }
     }
-};
-
-
-
-struct EyeStalk {
-  XY<EyeMuscle> muscle;
-
-  EyeStalk(uint8_t xservo, uint8_t yservo):
-    muscle(xservo, yservo) {
-    //#done
-  }
-
-  void operator=(XY<AnalogValue> joystick) {
-    muscle = joystick;
   }
 
 };
-
-
 
 
 //application data
 
 //records recent joystick value
-XY<AnalogValue> joy(0, 0);
+XY<AnalogValue> joy(0, ~0);//weird init so we can detect 'never init'
 
-LinearMap highrange = {1000, 100};
-LinearMap lowrange = {500, 1};
+void showJoy() {
+  Console("\nJoy x: ", joy.X.raw, "\ty: ", joy.Y.raw);
+}
+
 // the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
-EyeStalk eyestalk[1 + 6] = {//pwm channel numbers
+EyeStalk eyestalk[] = {//pwm channel numbers
   {0, 1},
   {2, 3},
   {4, 5},
@@ -200,76 +169,101 @@ EyeStalk eyestalk[1 + 6] = {//pwm channel numbers
   {8, 9},
   {10, 11},
   {12, 13},
+  {14, 15}
 };
 //pairing jaw and eyebrow so that we can borrow eyestalk tuning and testing code
-EyeStalk jawbrow(14, 15);
-EyeMuscle &brow(jawbrow.muscle.Y);
-EyeMuscle &jaw(jawbrow.muscle.X);
 
+EyeMuscle &brow(eyestalk[7].Y);
+EyeMuscle &jaw(eyestalk[7].X);
 
+//show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    Console("\nPwm AF x: ", eyestalk[ei].muscle.X.adc, "\ty: ", eyestalk[ei].muscle.Y.adc);
+    Console("\nPwm AF x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
   }
 }
 
-void showJoy() {
-  Console("\nJoy x: ", joy.X, "\ty: ", joy.Y);
-}
+//UI state
+struct UI {
+  bool updateEyes = true; //enable joystick actions
+  bool amMonster = false; //detects which end of link
 
+  //full keystroke echo, added for figuring out non-ascii keys.
+  bool rawecho = false;
 
-bool updateEyes = true; //enable joystick actions
-bool amMonster = false; //detects which end of link
+  //channel being tuned
+  short tunee = 0;
+  bool wm = 0; // which muscle when tuning half of a pair
 
-void update(bool on) {
-  if (changed(updateEyes, on)) {
-    if (on) {
-      Console("\nEnabling joystick");
-    } else {
-      Console("\nFreezing position");
+  //muscle of interest
+  Muscle &moi() const {
+    Muscle &muscle( wm ? eyestalk[tunee].X : eyestalk[tunee].Y);
+    return muscle;
+  }
+
+  void update(bool on) {
+    if (changed(updateEyes, on)) {
+      if (on) {
+        Console("\nEnabling joystick");
+      } else {
+        Console("\nFreezing position");
+      }
     }
   }
-}
+
+} ui;
 
 //all eyestalks in unison
 void joy2all(XY<AnalogValue> xy) {
-  for (unsigned ei = countof(eyestalk); ei-- > 1;) {//exclude big eyeball
+  for (unsigned ei = 6; ei-- > 1;) {//exclude big eyeball, brow and jaw
     eyestalk[ei] = xy;
   }
 }
 
-
-//channel being tuned
-short tunee = 0;
-bool wm=0;// which muscle when tuning half of a pair
-
 void joy2eye(XY<AnalogValue> xy) {
-  eyestalk[tunee] = xy;
+  eyestalk[ui.tunee] = xy;
 }
+
 
 void setRange(unsigned topper, unsigned lower) {
-  Muscle &muscle( wm ? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
-  muscle.range.top = topper;
-  muscle.range.bottom = lower;
+  Muscle &muscle( ui.moi());
+  muscle.range = LinearMap(topper, lower);
   Console("\nRange: ", muscle.range.top, "->",  muscle.range.bottom);
-}
-
-void doarrow(bool plusone, bool upit) {
-  wm=plusone;
-  Muscle &muscle( wm ? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
-  tweak(plusone, muscle.adc + upit ? 10 : -10);
 }
 
 
 void tweak(bool plusone, unsigned value) {
-  wm=plusone;
-  Muscle &muscle( wm? eyestalk[tunee].muscle.X : eyestalk[tunee].muscle.Y);
+  ui.wm = plusone;
+  Muscle &muscle( ui.moi());
   muscle.test(value);
-  Console("\npwm[", muscle.which(), "]=", muscle.adc);
+  Console("\npwm[", muscle.hw.which, "]=", muscle.adc);
 }
 
+void doarrow(bool plusone, bool upit) {
+  ui.wm = plusone;
+  Muscle &muscle( ui.moi());
+  tweak(plusone, muscle.adc + upit ? 10 : -10);
+}
 
-#include "char.h"
+void be(EyeState es) {
+  eyestalk[ui.tunee].be(es);
+}
+
+/** we always go to the position to record, then record it. So we can reuse the position request variable as the value to save*/
+void record(EyeState es) {
+  switch (es) {
+    case Dead:
+      eyestalk[ui.tunee].dead = joy;
+      break;
+    case Alert:
+      eyestalk[ui.tunee].alert = joy;
+    default:
+      //Console("\nBad eyestate in record",es);
+      break;
+  }
+}
+
+////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
 //settin up for 2 parameter commands
@@ -278,8 +272,12 @@ unsigned pushed;
 #include "linearrecognizer.h"
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
-//full keystroke echo, added for figuring out non-ascii keys.
-bool rawecho = false;
+void setJoy() {
+  joy.X = take(pushed);
+  joy.Y = param;
+  joy2eye(joy);
+}
+
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
 void doKey(int key) {
@@ -357,10 +355,25 @@ void doKey(int key) {
       pushed = param;
       break;
     case '.'://simulate joystick value
-      joy.X = take(pushed);
-      joy.Y = param;
-      joy2eye(joy);
+      setJoy();
       break;
+    case 'D': //record dead position
+      if (param && pushed) {
+        setJoy();//goes to entered position
+      }
+      record(EyeState::Dead);
+      break;
+    case 'd': //goto dead position
+      if (param) {
+        ui.tunee = param;
+      }
+
+      break;
+    case 'A': //record alert position
+      break;
+    case 'a': //goto alert position
+      break;
+
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
       Console("\n Set prescale to: ", param);
       pwm.setPrescale(param, true);
@@ -369,8 +382,8 @@ void doKey(int key) {
       Console("\n prescale: ", pwm.getPrescale());
       break;
     case 'w':
-      tunee = param;
-      Console("\nPair ", tunee);
+      ui.tunee = param;
+      Console("\nPair ", ui.tunee);
       break;
     case 'x':
       tweak(0, param);
@@ -386,7 +399,7 @@ void doKey(int key) {
       break;
     case 'r':
       if (pushed) { //zero is not a reasonable range value so we can key off this
-        setRange( take(pushed),param);
+        setRange( take(pushed), param);
       }
       break;
     case 'p':
@@ -402,17 +415,17 @@ void doKey(int key) {
       //      showMrange();
       break;
     case 'l'://disconnect eyes from joystick
-      update(false);
+      ui.update(false);
       break;
     case 'o'://run eyes from joystick
-      update(true);
+      ui.update(true);
       break;
     case '*':
       scanI2C();
       break;
     case '!'://debug function key input
-      rawecho = param;
-      Console("\nraw echo:", rawecho);
+      ui.rawecho = param;
+      Console("\nraw echo:", ui.rawecho);
       break;
     case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
@@ -428,7 +441,17 @@ void doKey(int key) {
   }
 }
 
+/** this data will eventually come from EEPROM.
+    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+*/
+const char initdata[] = {
+
+  //channel.w.
+  "1wx400,200rs400,200r120,120D240,240A"
+};
+
 ////////////////////////////////////////////////////////////////
+
 void setup() {
   T6 = 1;
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
@@ -440,26 +463,26 @@ void setup() {
   scanI2C();
 
   Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
-  amMonster = pwm.begin(4, 50); //4:totempole drive.
+  ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
 
-  Console("\n", amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
+  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
 }
 
 
 void loop() {
   if (MilliTicked) { //this is true once per millisecond.
     joy = joydev;//normalizes scale.
-    if (updateEyes) {
+    if (ui.updateEyes) {
       joy2eye(joy);
     }
-    brow.be(browup ? Alert : Dead);
-    jaw.be(jawopen ? Alert : Dead);
+    brow = (browup ? AnalogValue::Max : AnalogValue::Min);
+    jaw = (jawopen ? AnalogValue::Max : AnalogValue::Min);
   }
 
   int key = Console.getKey();
   if (key >= 0) {
-    if (rawecho) {
+    if (ui.rawecho) {
       Console("\tKey: ", key, ' ', char(key));
     }
     doKey(key) ;
