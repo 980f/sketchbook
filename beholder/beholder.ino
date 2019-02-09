@@ -145,7 +145,7 @@ struct EyeStalk : public XY<EyeMuscle> {
 XY<AnalogValue> joy(0, ~0);//weird init so we can detect 'never init'
 
 void showJoy() {
-  Console("\nJoy x: ", joy.X.raw, "\ty: ", joy.Y.raw);
+  Console("\nJoy x: ", ~joy.X, "\ty: ", ~joy.Y);
 }
 
 // the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
@@ -167,7 +167,7 @@ EyeMuscle &jaw(eyestalk[7].X);
 //show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    Console("\nPwm AF x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
+    Console("\nDev[",ei,"] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
   }
 }
 
@@ -254,6 +254,21 @@ void be(EyeState es) {
   eyestalk[ui.tunee].be(es);
 }
 
+void allbe(EyeState es) {
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+    eyestalk[ei].be(es);
+  }
+}
+
+void livebe(EyeState es) {
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+    EyeStalk &eye(eyestalk[ei]);
+    if (eye.es != EyeState::Dead) {
+      eye.be(es);
+    }
+  }
+}
+
 /** we always go to the position to record, then record it. So we can reuse the position request variable as the value to save*/
 void record(EyeState es) {
   switch (es) {
@@ -318,12 +333,14 @@ void doSetpoint(boolean set, EyeState es ) {
       setJoy();//goes to entered position
     }
     record(es);
+    Console("\nRecorded ", ui.tunee, "\tsetpoint:", es, "\tx:", ~joy.X, "\ty:", ~joy.Y);
   } else {//goto dead position
     if (param) {
       ui.tunee = param;
     }
   }
   be(es);
+  Console("\nStalk ", ui.tunee, " to setpoint:", es);
 }
 
 
@@ -333,7 +350,6 @@ void doKey(int key) {
   if (param(key)) { //part of a number, do no more
     return;
   }
-
 
   if (~ansicoder[0]) {//test and clear
     switch (key) {//ansi code
@@ -360,7 +376,7 @@ void doKey(int key) {
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
         if (!ansicoder[0](key)) {
-          Console("\nUnknown ansi [ code: param:", char(key),param);
+          Console("\nUnknown ansi [ code:", char(key), " param:", param);
         }
         break;
     }
@@ -387,7 +403,7 @@ void doKey(int key) {
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
         if (!ansicoder[1](key)) {
-          Console("\nUnknown ansi O code:", char(key));
+          Console("\nUnknown ansi O code:", char(key), " param:", param);
         }
         break;
     }
@@ -426,6 +442,13 @@ void doKey(int key) {
     //#join
     case 'f':
       Console("\n prescale: ", pwm.getPrescale());
+      break;
+
+    case 'Z': //reset scene
+      allbe(EyeState::Seeking);
+      break;
+    case 'z': //start wiggling
+      livebe(EyeState::Seeking);
       break;
 
     case 'w': //select eye of interest
@@ -514,7 +537,7 @@ void setup() {
 
   //running the init block:
   //  processinit();
-  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: 8feb2019 19:09)\n\n\n");//todo: git hash insertion.
+  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: 9feb2019 11:17)\n\n\n");//todo: git hash insertion.
 }
 
 
