@@ -263,6 +263,34 @@ void record(EyeState es) {
   }
 }
 
+///////////////////////////////////////////////////////////////
+
+/** this data will eventually come from EEPROM.
+    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+*/
+const char initdata[] = {
+
+  //channel.w.range.x.range.y.position.dead.position.alert
+  "1w400,200x400,200y0,0D20000,20000A"
+  "2w400,200x400,200y0,0D20000,20000A"
+  "3w400,200x400,200y0,0D20000,20000A"
+  "4w400,200x400,200y0,0D20000,20000A"
+  "5w400,200x400,200y0,0D20000,20000A"
+  "6w400,200x400,200y0,0D20000,20000A"
+  "0w400,200x400,200y0,0D20000,20000A" //big eye
+  "7w400,200x400,200y0,0D20000,20000A" //jawbrow
+
+};
+
+void processinit() {
+  Console("\nInit block is ", sizeof(initdata), " bytes");
+  const char *ptr = initdata;
+  while (char c = *ptr++) {
+    doKey(int(c));
+  }
+  Console("\nInit block done.");
+}
+
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
@@ -276,6 +304,21 @@ void setJoy() {
   joy.X = take(pushed);
   joy.Y = param;
   joy2eye(joy);
+}
+
+/** either record the given position as a the given state, or go into that state */
+void doSetpoint(boolean set, EyeState es ) {
+  if (set) {
+    if (param && pushed) {
+      setJoy();//goes to entered position
+    }
+    record(es);
+  } else {//goto dead position
+    if (param) {
+      ui.tunee = param;
+    }
+  }
+  be(es);
 }
 
 
@@ -327,7 +370,7 @@ void doKey(int key) {
       case 'F':
         Console("\nGoodbye!");
         break;
-      case 'P'://F1..F4o
+      case 'P'://F1..F4
       case 'Q':
       case 'R':
       case 'S':
@@ -357,21 +400,19 @@ void doKey(int key) {
     case '.'://simulate joystick value
       setJoy();
       break;
+
     case 'D': //record dead position
-      if (param && pushed) {
-        setJoy();//goes to entered position
-      }
-      record(EyeState::Dead);
+      doSetpoint(true, EyeState::Dead);
       break;
     case 'd': //goto dead position
-      if (param) {
-        ui.tunee = param;
-      }
-
+      doSetpoint(false, EyeState::Dead);
       break;
+
     case 'A': //record alert position
+      doSetpoint(true, EyeState::Alert);
       break;
     case 'a': //goto alert position
+      doSetpoint(false, EyeState::Alert);
       break;
 
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
@@ -381,23 +422,28 @@ void doKey(int key) {
     case 'f':
       Console("\n prescale: ", pwm.getPrescale());
       break;
-    case 'w':
+
+    case 'w': //select eye of interest
       ui.tunee = param;
-      Console("\nPair ", ui.tunee);
+      Console("\nEye ", ui.tunee);
       break;
-    case 'x':
+
+    case 'e':
       tweak(0, param);
       break;
     case 's':
       tweak(1, param);
       break;
+
     case 'b':
       //      knob2range(0, param);
       break;
     case 't':
       //      knob2range(1, param);
       break;
-    case 'r':
+    case 'x': //pick axis, if values present then set its range.
+    case 'y':
+      ui.wm = key & 1;
       if (pushed) { //zero is not a reasonable range value so we can key off this
         setRange( take(pushed), param);
       }
@@ -427,6 +473,9 @@ void doKey(int key) {
       ui.rawecho = param;
       Console("\nraw echo:", ui.rawecho);
       break;
+    case 'I':
+      processinit();
+      break;
     case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
       Console("\npwm's are now set to their channel number");
@@ -441,14 +490,6 @@ void doKey(int key) {
   }
 }
 
-/** this data will eventually come from EEPROM.
-    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
-*/
-const char initdata[] = {
-
-  //channel.w.
-  "1wx400,200rs400,200r120,120D240,240A"
-};
 
 ////////////////////////////////////////////////////////////////
 
@@ -466,7 +507,9 @@ void setup() {
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
 
-  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder 1.005\n\n\n");
+  //running the init block:
+  //  processinit();
+  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: 8feb2019 19:09)\n\n\n");//todo: git hash insertion.
 }
 
 
