@@ -5,22 +5,19 @@
   So make that 6+1, where we might drive duplicate outputs for the one.
 
   TODO:
-  ) store calibration constants per stalk in eeprom.
+  ) store calibration constants per stalk in eeprom.  (putting into program source for now as stored command sequences)
   ) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
-  ) command parser to
-  )) set 'waving', 'alert' common states,
-  )) kill individual stalks.
-  )) resurrect (reset for next group)
-
+  
   NOTE WELL: The value ~0 is used to mark 'not a value'. If not checked then it is either -1 or 65535 aka 'all ones'.
+  NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
 
 #include "bitbanger.h" //early to replace Arduino's macros with real code
-#include "cheaptricks.h" //for changed()
 #include "minimath.h"  //for template max/min instead of macro
+#include "cheaptricks.h" //for changed()
 
-#include "stopwatch.h" //to time things
+//#include "stopwatch.h" //to time things
 
 #include "pinclass.h"
 //#include "digitalpin.h"
@@ -30,15 +27,15 @@
 #include "twinconsole.h"
 TwinConsole Console;
 
-#include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away which conveniently allows us to distinguish reset from power cycle.
+#include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm;
 
 //joystick to servo value:
-#include "analog.h" //deal with the difference in number of bits of analog info in, out, and simulated  
+#include "analog.h" //deals with the difference in number of bits of analog info in, out, and simulated  
 #include "linearmap.h" //simpler scaling component than Arduino map(), also syntactically cuter.
 
-#include "xypair.h"
+#include "xypair.h"  //the eyestalks are 2 dimensional
 
 //pin uses:
 //0,1 are rx,tx used by Serial1
@@ -78,7 +75,7 @@ struct Muscle {
     //#done
   }
 
-  /** easy creator, but comipler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
+  /** easy creator, but compiler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
   explicit Muscle(uint8_t which): Muscle(pwm, which) {}
 
   /** goto some position, as fraction of configured range. */
@@ -109,6 +106,15 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
 
 /** actuator to use */
 using EyeMuscle = Muscle ;
+//the following used too much ram, not all muscles needed a wiggler.
+//struct EyeMuscle : public Muscle {
+//  BiStable wiggler;
+//  /** easy creator, but compiler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
+//  explicit EyeMuscle(uint8_t which): Muscle(which),
+//  wiggler(100*which,100*which)
+//  {}
+//  using Muscle::operator =;
+//};
 
 struct EyeStalk : public XY<EyeMuscle> {
   EyeState es = ~0; //for behavior stuff, we will want to do things like "if not dead then"
@@ -148,7 +154,7 @@ void showJoy() {
   Console("\nJoy x: ", ~joy.X, "\ty: ", ~joy.Y);
 }
 
-// the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
+
 EyeStalk eyestalk[] = {//pwm channel numbers
   {0, 1},
   {2, 3},
@@ -159,15 +165,16 @@ EyeStalk eyestalk[] = {//pwm channel numbers
   {12, 13},
   {14, 15}
 };
-//pairing jaw and eyebrow so that we can borrow eyestalk tuning and testing code
+// the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
 
+//pairing jaw and eyebrow so that we can borrow eyestalk tuning and testing code
 EyeMuscle &brow(eyestalk[7].Y);
 EyeMuscle &jaw(eyestalk[7].X);
 
 //show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    Console("\nDev[",ei,"] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
+    Console("\nDev[", ei, "] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
   }
 }
 
@@ -283,44 +290,56 @@ void record(EyeState es) {
   }
 }
 
-///////////////////////////////////////////////////////////////
 
-/** this data will eventually come from EEPROM.
-    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+////////////////////////////////////////////////////////////////
+/*
+  wiggling:
+  use common oscillator for all muscles,
+  use computed amplitude for y vs x and
+  use different phases for each eye, roughly 1/n of cycle.
+  run logic cycle at 1/6 wiggle cycle, count to 6 and change the direction of that stalk on its cycle
 */
-const char initdata[] = {
+class Wiggler {
+  public:
+    const byte numstalks = 6; //might drop to 5
 
-  //channel.w.range.x.range.y.position.dead.position.alert
-  "1w999,9x999,9y0,0D20000,20000A"
-  "2w999,9x999,9y0,0D20000,20000A"
-  "3w999,9x999,9y0,0D20000,20000A"
-  "4w999,9x999,9y0,0D20000,20000A"
-  "5w999,9x999,9y0,0D20000,20000A"
-  "6w999,9x999,9y0,0D20000,20000A"
-  "0w999,9x999,9y0,0D20000,20000A" //big eye
-  "7w999,9x999,9y0,0D20000,20000A" //jawbrow
+    MonoStable timer;//let setup start us
+    byte stalker = numstalks;
+    unsigned wigamp;
 
-};
+    void operator()() {
+      if (timer.perCycle()) {
+        if (!--stalker) {
+          stalker = numstalks;
+        }
+        EyeStalk &eye(eyestalk[stalker]);
+        if (eye.es == EyeState::Seeking) {
+          eye.X = (~eye.X.pos > AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
+          eye.Y = AnalogValue::Half + random(wigamp);
+          Console("\nwig:", stalker, "\tx:", ~eye.X.pos, "\ty:", ~eye.Y.pos);
+        }
+      }
+    }
 
-void processinit() {
-  Console("\nInit block is ", sizeof(initdata), " bytes");
-  const char *ptr = initdata;
-  while (char c = *ptr++) {
-    doKey(int(c));
-  }
-  Console("\nInit block done.");
-}
+    void rate(unsigned ms) {
+      timer.set(ms / numstalks);
+    }
 
+    void yamp(unsigned amp) {
+      wigamp = amp;
+    }
+} wiggler;
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
-//settin up for 2 parameter commands
-unsigned pushed;
+//for 2 parameter commands:
+unsigned pushed=0;
 
 #include "linearrecognizer.h"
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
 void setJoy() {
+//	Console("\nsetJoy: ",pushed,',',param.accumulator);
   joy.X = take(pushed);
   joy.Y = param;
   joy2eye(joy);
@@ -329,13 +348,13 @@ void setJoy() {
 /** either record the given position as a the given state, or go into that state */
 void doSetpoint(boolean set, EyeState es ) {
   if (set) {
-    if (param && pushed) {
+    if ( ~param && pushed !=0) {
       setJoy();//goes to entered position
     }
     record(es);
     Console("\nRecorded ", ui.tunee, "\tsetpoint:", es, "\tx:", ~joy.X, "\ty:", ~joy.Y);
   } else {//goto dead position
-    if (param) {
+    if (~param) {
       ui.tunee = param;
     }
   }
@@ -366,7 +385,7 @@ void doKey(int key) {
         doarrow(0, 0);
         break;
       case '~'://a number appeared between escape prefix and the '~'
-        switch (param) {
+        switch (unsigned(param)) {
           case 3://del
           case 5://pageup
           case 6://page dn
@@ -415,6 +434,8 @@ void doKey(int key) {
   }
 
   switch (key) {
+    case '\t'://ignore tabs, makes param files easier to read.
+      break;
     case ','://push a parameter for 2 parameter commands.
       pushed = param;
       break;
@@ -447,7 +468,7 @@ void doKey(int key) {
     case 'Z': //reset scene
       allbe(EyeState::Seeking);
       break;
-    case 'z': //start wiggling
+    case 'z': //resume wiggling
       livebe(EyeState::Seeking);
       break;
 
@@ -472,10 +493,23 @@ void doKey(int key) {
     case 'x': //pick axis, if values present then set its range.
     case 'y':
       ui.wm = key & 1;
-      if (pushed) { //zero is not a reasonable range value so we can key off this
+      if (pushed) { //zero is not a reasonable range max value so we can key off this to idiot check entry.
         setRange( take(pushed), param);
       }
       break;
+    case 'H'://wiggle relative amplitude
+      if (~param) {
+        wiggler.yamp(param);
+        Console("\nyamp:", wiggler.wigamp);
+      }
+      break;
+    case 'h'://wiggle rate
+      if (~param) {
+        wiggler.rate(param);
+        Console("\nwig:", MilliTick(wiggler.timer));
+      }
+      break;
+
     case 'p':
       showJoy();
       break;
@@ -517,6 +551,34 @@ void doKey(int key) {
       break;
   }
 }
+///////////////////////////////////////////////////////////////
+
+/** this data will eventually come from EEPROM.
+    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+*/
+const char initdata[] = {
+
+  //channel.w.range.x.range.y.position.dead.position.alert
+  "1w	999,9x	998,8y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  "2w	999,9x	999,9y	0,0D	20000,20002A"
+  "3w	999,9x	999,9y	0,0D	20000,20003A"
+  "4w	999,9x	999,9y	0,0D	20000,20004A"
+  "5w	999,9x	999,9y	0,0D	20000,20005A"
+  "6w	999,9x	999,9y	0,0D	20000,20006A"
+  "0w	999,9x	999,9y	0,0D	20000,20000A" //big eye
+  "7w	999,9x	999,9y	0,0D	20000,20007A" //jawbrow
+  "2000h	123H"  //wiggler config rate then yamp
+  "Z"  //all be wiggling
+};
+
+void processinit() {
+  Console("\nInit block is ", sizeof(initdata), " bytes");
+  const char *ptr = initdata;
+  while (char c = *ptr++) {
+    doKey(int(c));
+  }
+  Console("\nInit block done.");
+}
 
 
 ////////////////////////////////////////////////////////////////
@@ -527,22 +589,23 @@ void setup() {
 
   Console.begin();
 
-  Wire.begin(); //must preceded scan!
+  Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-  scanI2C();
+//  scanI2C();
 
   Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
 
   //running the init block:
-  //  processinit();
+  processinit();
   Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: 9feb2019 11:17)\n\n\n");//todo: git hash insertion.
 }
 
 
 void loop() {
   if (MilliTicked) { //this is true once per millisecond.
+    wiggler();
     joy = joydev;//normalizes scale.
     if (ui.updateEyes) {
       joy2eye(joy);
