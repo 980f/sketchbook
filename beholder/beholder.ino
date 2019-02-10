@@ -12,7 +12,7 @@
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
-
+#define REVISIONMARKER "2019feb10-13:15"
 #include "bitbanger.h" //early to replace Arduino's macros with real code
 #include "minimath.h"  //for template max/min instead of macro
 #include "cheaptricks.h" //for changed()
@@ -630,7 +630,7 @@ void setup() {
 
   //running the init block:
   processinit();
-  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: 9feb2019 11:17)\n\n\n");//todo: git hash insertion.
+  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: " REVISIONMARKER ")\n\n\n");//todo: git hash insertion.
 }
 
 
