@@ -7,7 +7,7 @@
   TODO:
   ) store calibration constants per stalk in eeprom.  (putting into program source for now as stored command sequences)
   ) calibrator routine, pick a stalk , apply two pots to range, record 'center'.
-  
+
   NOTE WELL: The value ~0 is used to mark 'not a value'. If not checked then it is either -1 or 65535 aka 'all ones'.
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
@@ -104,6 +104,8 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
   Seeking // wiggling aimlessly
 };
 
+using Gaze = XY<AnalogValue>;
+
 /** actuator to use */
 using EyeMuscle = Muscle ;
 //the following used too much ram, not all muscles needed a wiggler.
@@ -123,9 +125,9 @@ struct EyeStalk : public XY<EyeMuscle> {
   /** set to a pair of values */
   using XY<EyeMuscle>:: operator =;
   /** position when related stalk is dead.*/
-  XY<AnalogValue> dead = {AnalogValue::Min, AnalogValue::Min}; //will tweak for each stalk, for effect
+  Gaze dead = {AnalogValue::Min, AnalogValue::Min}; //will tweak for each stalk, for effect
   /** position when related stalk is under attack.*/
-  XY<AnalogValue> alert = {AnalogValue::Max, AnalogValue::Max}; //will tweak for each stalk, for effect
+  Gaze alert = {AnalogValue::Max, AnalogValue::Max}; //will tweak for each stalk, for effect
 
   void be(EyeState es) {
     if (changed(this->es, es)) {
@@ -148,7 +150,7 @@ struct EyeStalk : public XY<EyeMuscle> {
 //application data
 
 //records recent joystick value
-XY<AnalogValue> joy(0, ~0);//weird init so we can detect 'never init'
+Gaze joy(0, ~0);//weird init so we can detect 'never init'
 
 void showJoy() {
   Console("\nJoy x: ", ~joy.X, "\ty: ", ~joy.Y);
@@ -171,6 +173,8 @@ EyeStalk eyestalk[] = {//pwm channel numbers
 EyeMuscle &brow(eyestalk[7].Y);
 EyeMuscle &jaw(eyestalk[7].X);
 
+#define Allstalk(ei) for (unsigned ei = 6; ei-- > 1;)
+
 //show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
@@ -190,6 +194,10 @@ struct UI {
   short tunee = 0;
   bool wm = 0; // which muscle when tuning half of a pair
 
+
+  bool doAll() const {
+    return tunee == 9;
+  }
   //muscle of interest
   Muscle &moi() const {
     if (tunee < countof(eyestalk)) {
@@ -213,14 +221,14 @@ struct UI {
 } ui;
 
 //all eyestalks in unison
-void joy2all(XY<AnalogValue> xy) {
-  for (unsigned ei = 6; ei-- > 1;) {//exclude big eyeball, brow and jaw
+void joy2all(Gaze xy) {
+  Allstalk(ei) {//exclude big eyeball, brow and jaw
     eyestalk[ei] = xy;
   }
 }
 
-void joy2eye(XY<AnalogValue> xy) {
-  if (ui.tunee == 9) { //do all
+void joy2eye(Gaze xy) {
+  if (ui.doAll()) { //do all
     joy2all(xy);
   } else {
     eyestalk[ui.tunee] = xy;
@@ -239,7 +247,7 @@ void tweak(bool plusone, unsigned value) {
   ui.wm = plusone;
   Muscle &muscle( ui.moi());
   muscle.test(value);
-  Console("\npwm[", muscle.hw.which, "]=", muscle.adc);
+  Console("\npwm[", muscle.hw.which, "]=", muscle.adc," from:",value);
 }
 
 void doarrow(bool plusone, bool upit) {
@@ -257,13 +265,29 @@ void knob2range(bool top, unsigned value) {
   }
 }
 
-void be(EyeState es) {
-  eyestalk[ui.tunee].be(es);
-}
-
 void allbe(EyeState es) {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
     eyestalk[ei].be(es);
+  }
+}
+
+
+void be(EyeState es) {
+  if (ui.doAll()) {
+    allbe(es);
+  } else {
+    eyestalk[ui.tunee].be(es);
+  }
+}
+
+void center() {
+  Gaze centerpoint(AnalogValue::Half, AnalogValue::Half);
+  if (ui.doAll()) {
+    Allstalk(ei) {
+      eyestalk[ei] = centerpoint;
+    }
+  } else {
+    eyestalk[ui.tunee] = centerpoint;
   }
 }
 
@@ -311,6 +335,9 @@ class Wiggler {
       if (timer.perCycle()) {
         if (!--stalker) {
           stalker = numstalks;
+          if (eyestalk[6].es == EyeState::Seeking) {
+            showRaw();
+          }
         }
         EyeStalk &eye(eyestalk[stalker]);
         if (eye.es == EyeState::Seeking) {
@@ -333,13 +360,13 @@ class Wiggler {
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
 //for 2 parameter commands:
-unsigned pushed=0;
+unsigned pushed = 0;
 
 #include "linearrecognizer.h"
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
 void setJoy() {
-//	Console("\nsetJoy: ",pushed,',',param.accumulator);
+  //	Console("\nsetJoy: ",pushed,',',param.accumulator);
   joy.X = take(pushed);
   joy.Y = param;
   joy2eye(joy);
@@ -348,7 +375,7 @@ void setJoy() {
 /** either record the given position as a the given state, or go into that state */
 void doSetpoint(boolean set, EyeState es ) {
   if (set) {
-    if ( ~param && pushed !=0) {
+    if ( ~param && pushed != 0) {
       setJoy();//goes to entered position
     }
     record(es);
@@ -457,6 +484,10 @@ void doKey(int key) {
       doSetpoint(false, EyeState::Alert);
       break;
 
+    case 'c': //center all entities but don't change state
+      center();
+      break;
+
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
       Console("\n Set prescale to: ", param);
       pwm.setPrescale(param, true);
@@ -559,15 +590,15 @@ void doKey(int key) {
 const char initdata[] = {
 
   //channel.w.range.x.range.y.position.dead.position.alert
-  "1w	999,9x	998,8y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "2w	999,9x	999,9y	0,0D	20000,20002A"
-  "3w	999,9x	999,9y	0,0D	20000,20003A"
-  "4w	999,9x	999,9y	0,0D	20000,20004A"
-  "5w	999,9x	999,9y	0,0D	20000,20005A"
-  "6w	999,9x	999,9y	0,0D	20000,20006A"
-  "0w	999,9x	999,9y	0,0D	20000,20000A" //big eye
-  "7w	999,9x	999,9y	0,0D	20000,20007A" //jawbrow
-  "2000h	123H"  //wiggler config rate then yamp
+  "1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  "2w	400,200x	400,200y	0,0D	20000,20002A"
+  "3w	400,200x	400,200y	0,0D	20000,20003A"
+  "4w	400,200x	400,200y	0,0D	20000,20004A"
+  "5w	400,200x	400,200y	0,0D	20000,20005A"
+  "6w	400,200x	400,200y	0,0D	20000,20006A"
+  "0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
+  "7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  "500h	24000H"  //wiggler config rate then yamp
   "Z"  //all be wiggling
 };
 
@@ -591,7 +622,7 @@ void setup() {
 
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-//  scanI2C();
+  //  scanI2C();
 
   Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
