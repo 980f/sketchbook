@@ -61,7 +61,7 @@ const XY<const AnalogInput> joydev(A2, A3);
 const XY<const AnalogInput> potdev(A0, A1);
 
 /** servo channel access and basic configuration such as range of travel */
-struct Muscle {
+struct Muscle: public Printable {
   unsigned adc;//debug value: last sent to hw
   AnalogValue pos;
   /** using adafruit 16 channel pwm controller
@@ -94,10 +94,15 @@ struct Muscle {
     }
   }
 
+  size_t printTo(Print& p) const {
+    return p.print(~pos);
+  }
+
 };
 
 /** each stalk is in one of these states */
 enum EyeState : uint8_t { //specing small type in case we shove it directly into eeprom
+  //#order matters as it is used as an array index, add new stuff to the end.
   Dead,   // as limp appearing as possible
   Alert,  // looking at *you*
   Seeking // wiggling aimlessly
@@ -106,16 +111,14 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
 using Gaze = XY<AnalogValue>;
 
 /** actuator to use */
-using EyeMuscle = Muscle ;
-//the following used too much ram, not all muscles needed a wiggler.
-//struct EyeMuscle : public Muscle {
-//  BiStable wiggler;
-//  /** easy creator, but compiler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
-//  explicit EyeMuscle(uint8_t which): Muscle(which),
-//  wiggler(100*which,100*which)
-//  {}
-//  using Muscle::operator =;
-//};
+using EyeMuscle = Muscle;
+
+/*init line:
+  "\n	1w	400,200x	400,200y	1,2D	20000,20001A"
+  .[X,Y].range.top,range.bottom [x,y]
+  ~pos[Dead,Alive].X, ~pos[Dead,Alive].Y
+*/
+
 
 struct EyeStalk : public XY<EyeMuscle> {
   EyeState es = ~0; //for behavior stuff, we will want to do things like "if not dead then"
@@ -359,7 +362,7 @@ class Wiggler {
 
 ///////////////////////////////////////////////////////////////
 //this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
-const char initblock[] =
+const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
   "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
@@ -377,9 +380,47 @@ const char initblock[] =
 */
 #include "eestream.h"
 
+/** pointer for reading from PROGMEM */
+using RomAddr = const PROGMEM char * ;
+struct RomStream  {
+
+  RomAddr addr;
+
+  RomStream(RomAddr addr): addr(addr) {}
+  //read a byte
+  char operator *() {
+    return pgm_read_byte(addr);
+  };
+
+  //increment pointer
+  RomStream &operator ++() {
+    ++addr;
+    return *this;
+  }
+
+  bool hasNext()const {
+    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
+  }
+
+  char next() {
+    return pgm_read_byte(addr++);//pgm_read_byte_near(signMessage 
+  }
+
+  //for diagnostic printouts only.
+  operator uint16_t()const {
+    return addr;
+  }
+
+  int operator -( RomAddr other) {
+    return addr - other;
+  }
+
+};
+
+
 class Initer {
-	public://made 'em all const, so read em and weep
-    const char * const initdata;
+  public://made 'em all const, so read em and weep
+    const RomAddr initdata;
     const void (*doKey)(int key);
     /** offset to block, used to reserve some space for other uses (although why would you?)*/
     const uint16_t start;
@@ -393,11 +434,11 @@ class Initer {
     /** restore developer settings */
     void restore(bool andsave = true) {
       Console("\nInit restore: ", initdata);
-      const char *ptr = initdata;
+      RomStream ptr(initdata);
       EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
 
 
-      while (char c = *ptr++) {
+      while (char c = ptr.next()) {
         (*doKey)(int(c));
         if (andsave) {
           if (eep.hasNext()) {
@@ -411,7 +452,6 @@ class Initer {
     /** generates commands to recreate the present state*/
     EEStream saver() {
       return EEStream(start);
-
     }
 
     void load() {
@@ -643,7 +683,19 @@ void doKey(int key) {
       Console("\nraw echo:", ui.rawecho);
       break;
     case 'I':
-      Init.restore(param == 42);
+      switch (param) {
+        case 0:
+          Init.load();
+          break;
+        case 42:
+          Init.restore(true);
+          break;
+        case 1:
+          Console("\nConfig save not yet implemented");
+          break;
+
+      }
+
       break;
     case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
@@ -671,7 +723,7 @@ void setup() {
 
   Console("\nsizeof initblock:", sizeof(initblock));
   Console("\ninitblock:", initblock);
-  Console("\ndoKey as argument:",Init.doKey);
+  //  Console("\ndoKey as argument:", Init.doKey);
 
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
