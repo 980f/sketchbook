@@ -27,6 +27,9 @@
 #include "twinconsole.h"
 TwinConsole Console;
 
+//marker for codespace strings, with newline prefixed
+#define FF(farg)  F( "\n" farg)
+
 #include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm;
@@ -155,7 +158,7 @@ struct EyeStalk : public XY<EyeMuscle> {
 Gaze joy(0, ~0);//weird init so we can detect 'never init'
 
 void showJoy() {
-  Console("\nJoy x: ", ~joy.X, "\ty: ", ~joy.Y);
+  Console(FF("Joy x: "), ~joy.X, "\ty: ", ~joy.Y);
 }
 
 
@@ -180,7 +183,7 @@ EyeMuscle &jaw(eyestalk[7].X);
 //show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    Console("\nDev[", ei, "] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
+    Console(FF("Dev["), ei, "] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
   }
 }
 
@@ -213,9 +216,9 @@ struct UI {
   void update(bool on) {
     if (changed(updateEyes, on)) {
       if (on) {
-        Console("\nEnabling joystick");
+        Console(FF("Enabling joystick"));
       } else {
-        Console("\nFreezing position");
+        Console(FF("Freezing position"));
       }
     }
   }
@@ -241,7 +244,7 @@ void joy2eye(Gaze xy) {
 void setRange(unsigned topper, unsigned lower) {
   Muscle &muscle( ui.moi());
   muscle.range = LinearMap(topper, lower);
-  Console("\nRange: ", muscle.range.top, "->",  muscle.range.bottom);
+  Console(FF("Range: "), muscle.range.top, "->",  muscle.range.bottom);
 }
 
 
@@ -249,7 +252,7 @@ void tweak(bool plusone, unsigned value) {
   ui.wm = plusone;
   Muscle &muscle( ui.moi());
   muscle.test(value);
-  Console("\npwm[", muscle.hw.which, "]=", muscle.adc, " from:", value);
+  Console(FF("pwm["), muscle.hw.which, "]=", muscle.adc, " from:", value);
 }
 
 void doarrow(bool plusone, bool upit) {
@@ -311,7 +314,7 @@ void record(EyeState es) {
     case Alert:
       eyestalk[ui.tunee].alert = joy;
     default:
-      //Console("\nBad eyestate in record",es);
+      //Console(FF("\nBad eyestate in record",es);
       break;
   }
 }
@@ -345,7 +348,7 @@ class Wiggler {
         if (eye.es == EyeState::Seeking) {
           eye.X = (~eye.X.pos > AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
           eye.Y = AnalogValue::Half + random(wigamp);
-          Console("\nwig:", stalker, "\tx:", ~eye.X.pos, "\ty:", ~eye.Y.pos);
+          Console(FF("wig:"), stalker, "\tx:", ~eye.X.pos, "\ty:", ~eye.Y.pos);
         }
       }
     }
@@ -381,29 +384,35 @@ const PROGMEM char initblock[] =
 #include "eestream.h"
 
 /** pointer for reading from PROGMEM */
-using RomAddr = const PROGMEM char * ;
+using RomAddr = const __FlashStringHelper *;
 struct RomStream  {
 
-  RomAddr addr;
-
-  RomStream(RomAddr addr): addr(addr) {}
-//  //read a byte
-//  char operator *() {
-//    return pgm_read_byte(addr);
-//  };
-//
-//  //increment pointer
-//  RomStream &operator ++() {
-//    ++addr;
-//    return *this;
-//  }
-//
-//  bool hasNext()const {
-//    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
-//  }
+  uint16_t addr;
+  static uint16_t from(RomAddr fshit) {
+    return reinterpret_cast<uint16_t>(fshit);
+  }
+  RomStream(RomAddr addr): addr(from(addr)) {}
+  //  //read a byte
+  //  char operator *() {
+  //    return pgm_read_byte(addr);
+  //  };
+  //
+  //  //increment pointer
+  //  RomStream &operator ++() {
+  //    ++addr;
+  //    return *this;
+  //  }
+  //
+  //  bool hasNext()const {
+  //    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
+  //  }
 
   char next() {
-    return pgm_read_byte(addr++);//pgm_read_byte_near(signMessage 
+    Console(FF("RSN:"), addr);
+    //  	return 0;
+    auto ch = pgm_read_byte_near(addr++); //pgm_read_byte_near(signMessage
+    Console("\t :", ch);
+    return ch;
   }
 
   //for diagnostic printouts only.
@@ -412,7 +421,7 @@ struct RomStream  {
   }
 
   int operator -( RomAddr other) {
-    return addr - other;
+    return addr - from(other);
   }
 
 };
@@ -420,31 +429,31 @@ struct RomStream  {
 
 class Initer {
   public://made 'em all const, so read em and weep
-    const RomAddr initdata;
+    RomAddr initdata;
     const void (*doKey)(int key);
     /** offset to block, used to reserve some space for other uses (although why would you?)*/
     const uint16_t start;
   public:
-    Initer(const char *initdata, uint16_t start = 0): initdata(initdata), start(start) {}
+    Initer(RomAddr initdata, uint16_t start = 0): initdata(initdata), start(start) {}
 
     void report(uint16_t bytecount) {
-      Console("\nInit block is ", bytecount, " bytes");
+      Console(FF("Init block is "), bytecount, " bytes");
     }
 
     /** restore developer settings */
     void restore(bool andsave = true) {
-      Console("\nInit restore: ", initdata);
+      Console(FF("Init restore: "));//, reinterpret_cast<const __FlashStringHelper *>(initdata));
       RomStream ptr(initdata);
-      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
-
-
+      ////      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
       while (char c = ptr.next()) {
-        (*doKey)(int(c));
-        if (andsave) {
-          if (eep.hasNext()) {
-            eep++ = c;
-          }
-        }
+        //        Console(c);
+        //        delay(1);
+        //        (*doKey)(int(c));
+        //        if (andsave) {
+        ////          if (eep.hasNext()) {
+        ////            eep++ = c;
+        ////          }
+        //        }
       }
       report(ptr - initdata);
     }
@@ -455,6 +464,7 @@ class Initer {
     }
 
     void load() {
+      Console(FF("Configuring from eeprom"));
       EEStream eep = saver();//guarantee overlap
       while (eep.hasNext()) {
         char c = eep.next();
@@ -470,7 +480,7 @@ class Initer {
 };
 
 void doKey(int key);
-Initer Init(initblock, doKey);
+Initer Init(RomAddr(initblock), doKey);
 
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
@@ -482,7 +492,7 @@ unsigned pushed = 0;
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
 void setJoy() {
-  //	Console("\nsetJoy: ",pushed,',',param.accumulator);
+  //	Console(FF("\nsetJoy: ",pushed,',',param.accumulator);
   joy.X = take(pushed);
   joy.Y = param;
   joy2eye(joy);
@@ -495,14 +505,14 @@ void doSetpoint(boolean set, EyeState es ) {
       setJoy();//goes to entered position
     }
     record(es);
-    Console("\nRecorded ", ui.tunee, "\tsetpoint:", es, "\tx:", ~joy.X, "\ty:", ~joy.Y);
+    Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tx:", ~joy.X, "\ty:", ~joy.Y);
   } else {//goto dead position
     if (~param) {
       ui.tunee = param;
     }
   }
   be(es);
-  Console("\nStalk ", ui.tunee, " to setpoint:", es);
+  Console(FF("Stalk "), ui.tunee, " to setpoint:", es);
 }
 
 
@@ -538,7 +548,7 @@ void doKey(int key) {
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
         if (!ansicoder[0](key)) {
-          Console("\nUnknown ansi [ code:", char(key), " param:", param);
+          Console(FF("Unknown ansi [ code:"), char(key), " param:", param);
         }
         break;
     }
@@ -548,16 +558,16 @@ void doKey(int key) {
   if (~ansicoder[1]) {//test and clear
     switch (key) {//ansi code
       case 'H':
-        Console("\nWell Hello!");
+        Console(FF("Well Hello!"));
         break;
       case 'F':
-        Console("\nGoodbye!");
+        Console(FF("Goodbye!"));
         break;
       case 'P'://F1..F4
       case 'Q':
       case 'R':
       case 'S':
-        Console("\nRomans:", key - 'P');
+        Console(FF("Romans:"), key - 'P');
         break;
       //      case 'D':
       //        break;
@@ -565,7 +575,7 @@ void doKey(int key) {
       default: //code not understood
         //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
         if (!ansicoder[1](key)) {
-          Console("\nUnknown ansi O code:", char(key), " param:", param);
+          Console(FF("Unknown ansi O code:"), char(key), " param:", param);
         }
         break;
     }
@@ -605,11 +615,11 @@ void doKey(int key) {
       break;
 
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
-      Console("\n Set prescale to: ", param);
+      Console(FF("Prescale set to: "), param);
       pwm.setPrescale(param, true);
     //#join
     case 'f':
-      Console("\n prescale: ", pwm.getPrescale());
+      Console(FF("prescale: "), pwm.getPrescale());
       break;
 
     case 'Z': //reset scene
@@ -621,7 +631,7 @@ void doKey(int key) {
 
     case 'w': //select eye of interest
       ui.tunee = param;
-      Console("\nEye ", ui.tunee);
+      Console(FF("Eye "), ui.tunee);
       break;
 
     case 'e'://set one muscle to absolute position
@@ -647,13 +657,13 @@ void doKey(int key) {
     case 'H'://wiggle relative amplitude
       if (~param) {
         wiggler.yamp(param);
-        Console("\nyamp:", wiggler.wigamp);
+        Console(FF("yamp:"), wiggler.wigamp);
       }
       break;
     case 'h'://wiggle rate
       if (~param) {
         wiggler.rate(param);
-        Console("\nwig:", MilliTick(wiggler.timer));
+        Console(FF("wig:"), MilliTick(wiggler.timer));
       }
       break;
 
@@ -680,33 +690,35 @@ void doKey(int key) {
       break;
     case '!'://debug function key input
       ui.rawecho = param;
-      Console("\nraw echo:", ui.rawecho);
+      Console(FF("raw echo:"), ui.rawecho);
       break;
     case 'I':
       switch (param) {
         case 0:
           Init.load();
           break;
+        case 1:
+          Init.restore(false);
+          break;
+        case 2:
+          Console(FF("Config save not yet implemented"));
+          break;
         case 42:
           Init.restore(true);
           break;
-        case 1:
-          Console("\nConfig save not yet implemented");
-          break;
-
       }
 
       break;
     case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
-      Console("\npwm's are now set to their channel number");
+      Console(FF("pwm's are now set to their channel number"));
       break;
     default:
-      Console("\nUnknown command:", key, ' ', char(key));
+      Console(FF("Unknown command:"), key, ' ', char(key));
       break;
     case '\n'://clear display via shoving some crlf's at it.
     case '\r':
-      Console("\n\n\n");
+      Console(FF("\n\n\n"));
       break;
   }
 }
@@ -719,23 +731,23 @@ void setup() {
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
   Console.begin();
+  Console(FF("!######################"));
 
-
-  Console("\nsizeof initblock:", sizeof(initblock));
-  Console("\ninitblock:", reinterpret_cast<const __FlashStringHelper *>(initblock));
-  //  Console("\ndoKey as argument:", Init.doKey);
+  Console(FF("sizeof initblock:"), sizeof(initblock));
+  Console(FF("initblock:"), reinterpret_cast<const __FlashStringHelper *>(initblock));
+  //  Console(FF("doKey as argument:"), Init.doKey);
 
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   //  scanI2C();
 
-  Console("\nConfiguring pwm eyestalk, divider =", 1 + pwm.fromHz(50));
+  Console(FF("Configuring pwm eyestalk, divider ="), 1 + pwm.fromHz(50));
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
   T6 = 0;
 
   //running the init block:
   Init.load();
-  Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: " REVISIONMARKER ")\n\n\n");//todo: git hash insertion.
+  Console(ui.amMonster ? FF("Behold") : FF("Where is"), F(" the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
 }
 
 
