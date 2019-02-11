@@ -12,7 +12,7 @@
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
-#define REVISIONMARKER "2019feb11-09:35"
+#define REVISIONMARKER "2019feb11-03:28"
 #include "bitbanger.h" //early to replace Arduino's macros with real code
 #include "minimath.h"  //for template max/min instead of macro
 #include "cheaptricks.h" //for changed()
@@ -383,15 +383,26 @@ const PROGMEM char initblock[] =
 */
 #include "eestream.h"
 
-/** pointer for reading from PROGMEM */
-using RomAddr = const __FlashStringHelper *;
+/** pointer for reading from PROGMEM
+  snipper from Print(__FSH):
+  PGM_P p = reinterpret_cast<PGM_P>(ifsh);
+  size_t n = 0;
+  while (1) {
+    unsigned char c = pgm_read_byte(p++);
+    if (c == 0) break;
+    if (write(c)) n++;
+    else break;
+  }
+  return n;
+*/
+//__FlashStringHelper is a marker, there is no class, it could have been!
+using RomAddr = const PROGMEM char *;
+
 struct RomStream  {
 
-  uint16_t addr;
-  static uint16_t from(RomAddr fshit) {
-    return reinterpret_cast<uint16_t>(fshit);
-  }
-  RomStream(RomAddr addr): addr(from(addr)) {}
+  RomAddr addr;
+
+  RomStream(RomAddr addr): addr(addr) {}
   //  //read a byte
   //  char operator *() {
   //    return pgm_read_byte(addr);
@@ -408,11 +419,7 @@ struct RomStream  {
   //  }
 
   char next() {
-    Console(FF("RSN:"), addr);
-    //  	return 0;
-    auto ch = pgm_read_byte_near(addr++); //pgm_read_byte_near(signMessage
-    Console("\t :", ch);
-    return ch;
+    return pgm_read_byte(addr++);
   }
 
   //for diagnostic printouts only.
@@ -421,20 +428,21 @@ struct RomStream  {
   }
 
   int operator -( RomAddr other) {
-    return addr - from(other);
+    return addr - other;
   }
 
 };
 
+using KeyHandler = void (*)(char key);
 
 class Initer {
   public://made 'em all const, so read em and weep
     RomAddr initdata;
-    const void (*doKey)(int key);
-    /** offset to block, used to reserve some space for other uses (although why would you?)*/
+    KeyHandler doKey;
+    /** offset to block in eeprom, used to reserve some space for other uses (although why would you?)*/
     const uint16_t start;
   public:
-    Initer(RomAddr initdata, uint16_t start = 0): initdata(initdata), start(start) {}
+    Initer(RomAddr initdata, KeyHandler doKey, uint16_t start = 0): initdata(initdata), doKey(doKey), start(start) {}
 
     void report(uint16_t bytecount) {
       Console(FF("Init block is "), bytecount, " bytes");
@@ -444,16 +452,16 @@ class Initer {
     void restore(bool andsave = true) {
       Console(FF("Init restore: "));//, reinterpret_cast<const __FlashStringHelper *>(initdata));
       RomStream ptr(initdata);
-      ////      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
+      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
       while (char c = ptr.next()) {
-        //        Console(c);
-        //        delay(1);
-        //        (*doKey)(int(c));
-        //        if (andsave) {
-        ////          if (eep.hasNext()) {
-        ////            eep++ = c;
-        ////          }
-        //        }
+        if (doKey) {//compiler silently converter fn pointer into unsigned.
+          (*doKey)(c);
+        }
+        if (andsave) {
+          if (eep.hasNext()) {
+            eep++ = c;
+          }
+        }
       }
       report(ptr - initdata);
     }
@@ -464,11 +472,12 @@ class Initer {
     }
 
     void load() {
-      Console(FF("Configuring from eeprom"));
+      Console(FF("Configuring from eeprom: "));
       EEStream eep = saver();//guarantee overlap
       while (eep.hasNext()) {
         char c = eep.next();
         if (c) {
+        	
           (*doKey)(c);
         } else {
           break;
@@ -479,7 +488,7 @@ class Initer {
 
 };
 
-void doKey(int key);
+void doKey(char key);
 Initer Init(RomAddr(initblock), doKey);
 
 ////////////////////////////////////////////////////////////////
@@ -517,7 +526,7 @@ void doSetpoint(boolean set, EyeState es ) {
 
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
-void doKey(int key) {
+void doKey(char key) {
   //test digits before ansi so that we can have a numerical parameter
   if (param(key)) { //part of a number, do no more
     return;
@@ -735,7 +744,7 @@ void setup() {
 
   Console(FF("sizeof initblock:"), sizeof(initblock));
   Console(FF("initblock:"), reinterpret_cast<const __FlashStringHelper *>(initblock));
-  //  Console(FF("doKey as argument:"), Init.doKey);
+
 
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
