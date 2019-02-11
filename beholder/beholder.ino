@@ -387,20 +387,20 @@ struct RomStream  {
   RomAddr addr;
 
   RomStream(RomAddr addr): addr(addr) {}
-  //read a byte
-  char operator *() {
-    return pgm_read_byte(addr);
-  };
-
-  //increment pointer
-  RomStream &operator ++() {
-    ++addr;
-    return *this;
-  }
-
-  bool hasNext()const {
-    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
-  }
+//  //read a byte
+//  char operator *() {
+//    return pgm_read_byte(addr);
+//  };
+//
+//  //increment pointer
+//  RomStream &operator ++() {
+//    ++addr;
+//    return *this;
+//  }
+//
+//  bool hasNext()const {
+//    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
+//  }
 
   char next() {
     return pgm_read_byte(addr++);//pgm_read_byte_near(signMessage 
@@ -722,7 +722,7 @@ void setup() {
 
 
   Console("\nsizeof initblock:", sizeof(initblock));
-  Console("\ninitblock:", initblock);
+  Console("\ninitblock:", reinterpret_cast<const __FlashStringHelper *>(initblock));
   //  Console("\ndoKey as argument:", Init.doKey);
 
   Wire.begin(); //must precede scan!
