@@ -25,6 +25,7 @@ ln -sf ../shared/pca9685.h pca9685.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
 ln -sf ../shared/promicro.board.h promicro.board.h
+ln -sf ../shared/rompointer.h rompointer.h
 ln -sf ../shared/scani2c.h scani2c.h
 ln -sf ../shared/softpwm.h softpwm.h
 ln -sf ../shared/stepper.cpp stepper.cpp

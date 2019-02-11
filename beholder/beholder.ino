@@ -368,107 +368,19 @@ class Wiggler {
 const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  //  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
-  //  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
-  //  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
-  //  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
-  //  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
-  //  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  //  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
-  //  "\n	500h	24000H"  //wiggler config rate then yamp
-  //  "\n	Z"  //all be wiggling
-  "\0"  //why no null?
+  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
+  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
+  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
+  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
+  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
+  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
+  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  "\n	500h	24000H"  //wiggler config rate then yamp
+  "\n	Z"  //all be wiggling
+//  "\0"  //why no null?
   ;
-/**
 
-*/
-#include "eestream.h"
-
-/** pointer for reading from PROGMEM
-*/
-
-using RomAddr = const PROGMEM char *;
-
-struct RomPointer  {
-  RomAddr addr;
-  RomPointer(RomAddr addr): addr(addr) {}
-
-  char operator *() {
-    return pgm_read_byte(addr);
-  };
-
-  RomPointer operator ++() {//# do NOT return a reference
-    RomPointer copyme = *this;
-    ++addr;
-    return copyme;
-  }
-
-  int operator -( RomAddr other) {
-    return addr - other;
-  }
-
-};
-
-using KeyHandler = void (*)(char key);
-
-class Initer {
-  public://made 'em all const, so read em and weep
-    RomAddr initdata;
-    KeyHandler doKey;
-    /** offset to block in eeprom, used to reserve some space for other uses (although why would you?)*/
-    const uint16_t start;
-  public:
-    Initer(RomAddr initdata, KeyHandler doKey, uint16_t start = 0): initdata(initdata), doKey(doKey), start(start) {}
-
-    void report(uint16_t bytecount) {
-      Console(FF("Init block is "), bytecount, " bytes");
-    }
-
-    /** restore developer settings */
-    void restore(bool andsave = true) {
-      Console(FF("Init restore: "));//, reinterpret_cast<const __FlashStringHelper *>(initdata));
-      RomPointer rp(initdata);
-      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
-      while (char c = *rp++) {
-        if (doKey) {//compiler silently converter fn pointer into unsigned.
-          (*doKey)(c);
-        }
-        if (andsave) {
-          if (eep) {
-            eep = c;//separate statements until we establish priority of overloaded operators. *eep= and eep= are ambiguous to this human.
-            ++eep;
-          }
-        }
-      }
-      if (andsave && eep) {//really should null to end of eeprom at least once. Perhaps on invocation of restore(true).
-        eep = 0;
-      }
-      report(rp - initdata);
-    }
-
-    /** generates commands to recreate the present state*/
-    EEStream saver() {
-      return EEStream(start);
-    }
-
-    void load() {
-      Console(FF("Configuring from eeprom: "));
-      EEStream eep = saver();//guarantee overlap
-      while (eep.hasNext()) {
-        char c = eep.next();
-        if (c < 0) {//uninit eeprom. If we ever get the eeprom to init correctly we will make this a terminator.
-          continue;
-        }
-        if (c) {
-          (*doKey)(c);
-        } else {
-          break;
-        }
-      }
-      report(eep.location() - start);
-    }
-
-};
+#include "initer.h"
 
 void doKey(char key);
 Initer Init(RomAddr(initblock), doKey);
