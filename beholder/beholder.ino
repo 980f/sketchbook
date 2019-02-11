@@ -12,7 +12,7 @@
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
-#define REVISIONMARKER "2019feb10-13:15"
+#define REVISIONMARKER "2019feb11-09:35"
 #include "bitbanger.h" //early to replace Arduino's macros with real code
 #include "minimath.h"  //for template max/min instead of macro
 #include "cheaptricks.h" //for changed()
@@ -59,7 +59,6 @@ const InputPin<15, LOW> browup;
 const XY<const AnalogInput> joydev(A2, A3);
 //pair of pots
 const XY<const AnalogInput> potdev(A0, A1);
-
 
 /** servo channel access and basic configuration such as range of travel */
 struct Muscle {
@@ -247,7 +246,7 @@ void tweak(bool plusone, unsigned value) {
   ui.wm = plusone;
   Muscle &muscle( ui.moi());
   muscle.test(value);
-  Console("\npwm[", muscle.hw.which, "]=", muscle.adc," from:",value);
+  Console("\npwm[", muscle.hw.which, "]=", muscle.adc, " from:", value);
 }
 
 void doarrow(bool plusone, bool upit) {
@@ -356,6 +355,83 @@ class Wiggler {
       wigamp = amp;
     }
 } wiggler;
+
+
+///////////////////////////////////////////////////////////////
+//this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+const char initblock[] =
+  //channel.w.range.x.range.y.position.dead.position.alert
+  "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
+  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
+  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
+  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
+  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
+  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
+  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  "\n	500h	24000H"  //wiggler config rate then yamp
+  "\n	Z"  //all be wiggling
+  ;
+/**
+
+*/
+#include "eestream.h"
+
+class Initer {
+	public://made 'em all const, so read em and weep
+    const char * const initdata;
+    const void (*doKey)(int key);
+    /** offset to block, used to reserve some space for other uses (although why would you?)*/
+    const uint16_t start;
+  public:
+    Initer(const char *initdata, uint16_t start = 0): initdata(initdata), start(start) {}
+
+    void report(uint16_t bytecount) {
+      Console("\nInit block is ", bytecount, " bytes");
+    }
+
+    /** restore developer settings */
+    void restore(bool andsave = true) {
+      Console("\nInit restore: ", initdata);
+      const char *ptr = initdata;
+      EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
+
+
+      while (char c = *ptr++) {
+        (*doKey)(int(c));
+        if (andsave) {
+          if (eep.hasNext()) {
+            eep++ = c;
+          }
+        }
+      }
+      report(ptr - initdata);
+    }
+
+    /** generates commands to recreate the present state*/
+    EEStream saver() {
+      return EEStream(start);
+
+    }
+
+    void load() {
+      EEStream eep = saver();//guarantee overlap
+      while (eep.hasNext()) {
+        char c = eep.next();
+        if (c) {
+          (*doKey)(c);
+        } else {
+          break;
+        }
+      }
+      report(eep.location() - start);
+    }
+
+};
+
+void doKey(int key);
+Initer Init(initblock, doKey);
+
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
@@ -567,7 +643,7 @@ void doKey(int key) {
       Console("\nraw echo:", ui.rawecho);
       break;
     case 'I':
-      processinit();
+      Init.restore(param == 42);
       break;
     case '@'://set each servo output to a value computed from its channel #
       pwm.idChannels(2, 15);
@@ -582,34 +658,6 @@ void doKey(int key) {
       break;
   }
 }
-///////////////////////////////////////////////////////////////
-
-/** this data will eventually come from EEPROM.
-    this code takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
-*/
-const char initdata[] = {
-
-  //channel.w.range.x.range.y.position.dead.position.alert
-  "1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "2w	400,200x	400,200y	0,0D	20000,20002A"
-  "3w	400,200x	400,200y	0,0D	20000,20003A"
-  "4w	400,200x	400,200y	0,0D	20000,20004A"
-  "5w	400,200x	400,200y	0,0D	20000,20005A"
-  "6w	400,200x	400,200y	0,0D	20000,20006A"
-  "0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  "7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
-  "500h	24000H"  //wiggler config rate then yamp
-  "Z"  //all be wiggling
-};
-
-void processinit() {
-  Console("\nInit block is ", sizeof(initdata), " bytes");
-  const char *ptr = initdata;
-  while (char c = *ptr++) {
-    doKey(int(c));
-  }
-  Console("\nInit block done.");
-}
 
 
 ////////////////////////////////////////////////////////////////
@@ -620,6 +668,11 @@ void setup() {
 
   Console.begin();
 
+
+  Console("\nsizeof initblock:", sizeof(initblock));
+  Console("\ninitblock:", initblock);
+  Console("\ndoKey as argument:",Init.doKey);
+
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
   //  scanI2C();
@@ -629,7 +682,7 @@ void setup() {
   T6 = 0;
 
   //running the init block:
-  processinit();
+  Init.load();
   Console("\n", ui.amMonster ? "Behold" : "Where is", " the Beholder (bin: " REVISIONMARKER ")\n\n\n");//todo: git hash insertion.
 }
 
