@@ -11,9 +11,10 @@ ln -sf ../shared/ezcpp/cheaptricks.cpp cheaptricks.cpp
 ln -sf ../shared/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf ../shared/ezcpp/cstr.h cstr.h
 ln -sf ../shared/digitalpin.h digitalpin.h
-ln -sf ../shared/eestream.h eestream.h
+ln -sf ../shared/eepointer.h eepointer.h
 ln -sf ../shared/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/ezcpp/index.h index.h
+ln -sf ../shared/initer.h initer.h
 ln -sf ../shared/lardls lardls
 ln -sf ../shared/linearmap.h linearmap.h
 ln -sf ../shared/linearrecognizer.h linearrecognizer.h
