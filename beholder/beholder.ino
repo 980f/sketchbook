@@ -368,15 +368,16 @@ class Wiggler {
 const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
-  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
-  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
-  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
-  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
-  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
-  "\n	500h	24000H"  //wiggler config rate then yamp
-  "\n	Z"  //all be wiggling
+  //  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
+  //  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
+  //  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
+  //  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
+  //  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
+  //  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
+  //  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  //  "\n	500h	24000H"  //wiggler config rate then yamp
+  //  "\n	Z"  //all be wiggling
+  "\0"  //why no null?
   ;
 /**
 
@@ -384,47 +385,22 @@ const PROGMEM char initblock[] =
 #include "eestream.h"
 
 /** pointer for reading from PROGMEM
-  snipper from Print(__FSH):
-  PGM_P p = reinterpret_cast<PGM_P>(ifsh);
-  size_t n = 0;
-  while (1) {
-    unsigned char c = pgm_read_byte(p++);
-    if (c == 0) break;
-    if (write(c)) n++;
-    else break;
-  }
-  return n;
 */
-//__FlashStringHelper is a marker, there is no class, it could have been!
+
 using RomAddr = const PROGMEM char *;
 
-struct RomStream  {
-
+struct RomPointer  {
   RomAddr addr;
+  RomPointer(RomAddr addr): addr(addr) {}
 
-  RomStream(RomAddr addr): addr(addr) {}
-  //  //read a byte
-  //  char operator *() {
-  //    return pgm_read_byte(addr);
-  //  };
-  //
-  //  //increment pointer
-  //  RomStream &operator ++() {
-  //    ++addr;
-  //    return *this;
-  //  }
-  //
-  //  bool hasNext()const {
-  //    return addr <= 0x7FFF; //todo:1 replace this atmega32U4 specific value with a symbol or at lest ifdef on CPU. Really would like this to be limited to Arduino constant space, exclude bootloader code and such.
-  //  }
+  char operator *() {
+    return pgm_read_byte(addr);
+  };
 
-  char next() {
-    return pgm_read_byte(addr++);
-  }
-
-  //for diagnostic printouts only.
-  operator uint16_t()const {
-    return addr;
+  RomPointer operator ++() {//# do NOT return a reference
+    RomPointer copyme = *this;
+    ++addr;
+    return copyme;
   }
 
   int operator -( RomAddr other) {
@@ -451,19 +427,23 @@ class Initer {
     /** restore developer settings */
     void restore(bool andsave = true) {
       Console(FF("Init restore: "));//, reinterpret_cast<const __FlashStringHelper *>(initdata));
-      RomStream ptr(initdata);
+      RomPointer rp(initdata);
       EEStream eep = saver(); //create even if we aren't going to use, creation is cheap
-      while (char c = ptr.next()) {
+      while (char c = *rp++) {
         if (doKey) {//compiler silently converter fn pointer into unsigned.
           (*doKey)(c);
         }
         if (andsave) {
-          if (eep.hasNext()) {
-            eep++ = c;
+          if (eep) {
+            eep = c;//separate statements until we establish priority of overloaded operators. *eep= and eep= are ambiguous to this human.
+            ++eep;
           }
         }
       }
-      report(ptr - initdata);
+      if (andsave && eep) {//really should null to end of eeprom at least once. Perhaps on invocation of restore(true).
+        eep = 0;
+      }
+      report(rp - initdata);
     }
 
     /** generates commands to recreate the present state*/
@@ -476,8 +456,10 @@ class Initer {
       EEStream eep = saver();//guarantee overlap
       while (eep.hasNext()) {
         char c = eep.next();
+        if (c < 0) {//uninit eeprom. If we ever get the eeprom to init correctly we will make this a terminator.
+          continue;
+        }
         if (c) {
-        	
           (*doKey)(c);
         } else {
           break;
@@ -527,6 +509,9 @@ void doSetpoint(boolean set, EyeState es ) {
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
 void doKey(char key) {
+  if (key == 0) { //ignore nulls, might be used for line pacing.
+    return;
+  }
   //test digits before ansi so that we can have a numerical parameter
   if (param(key)) { //part of a number, do no more
     return;
@@ -723,7 +708,7 @@ void doKey(char key) {
       Console(FF("pwm's are now set to their channel number"));
       break;
     default:
-      Console(FF("Unknown command:"), key, ' ', char(key));
+      Console(FF("Unknown command:"), key, ' ', int(key));
       break;
     case '\n'://clear display via shoving some crlf's at it.
     case '\r':
