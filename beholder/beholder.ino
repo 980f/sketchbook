@@ -19,15 +19,15 @@
 const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
-  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
-  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
-  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
-  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
+  "\n	2w	400,200x	400,200y	2,3D	20000,20002A"
+  "\n	3w	400,200x	400,200y	3,2D	20000,20003A"
+  "\n	4w	400,200x	400,200y	4,5D	20000,20004A"
+  "\n	5w	400,200x	400,200y	5,2D	20000,20005A"
+  "\n	6w	400,200x	400,200y	6,9D	20000,20006A"
   "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  "\n	7w	400,200x	400,200y	7,6D	20000,20007A" //jawbrow
   "\n	500h	24000H"  //wiggler config rate then yamp
-  "\n	Z"  //all be wiggling
+  //  "\n	Z"  //all be wiggling
   ;
 #include "initer.h"
 void doKey(char key);
@@ -173,6 +173,20 @@ struct EyeStalk : public XY<EyeMuscle> {
           break;
       }
     }
+  }
+  // range.x.range.y.position.dead.position.alert
+  //  	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  size_t printTo(Print& p) const {
+    return
+      p.print('\t') +
+      p.print(X.range) + p.print('x')
+      + p.print('\t') +
+      p.print(Y.range) + p.print('y')
+      + p.print('\t') +
+      p.print(dead) + p.print('D')
+      + p.print('\t') +
+      p.print(alert) + p.print('A')
+      ;
   }
 
 };
@@ -381,6 +395,10 @@ class Wiggler {
       timer.set(ms / numstalks);
     }
 
+    MilliTick hparam()const {
+      return MilliTick(timer);
+    }
+
     void yamp(unsigned amp) {
       wigamp = amp;
     }
@@ -419,6 +437,18 @@ void doSetpoint(boolean set, EyeState es ) {
   Console(FF("Stalk "), ui.tunee, " to setpoint:", es);
 }
 
+unsigned showConfig(Print &p) {
+  unsigned size = 0;
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+    //	"\n	1w"
+    size +=
+      p.print("\n\t") + p.print(ei) + p.print('w') + p.print(eyestalk[ei]);
+  }
+  //more to come:
+  //    "\n	500h	24000H"  //wiggler config rate then yamp
+  size +=
+    p.print("\n\t") + p.print(wiggler.hparam()) + p.print("h\t") + p.print(wiggler.wigamp) + p.print('H') ;
+}
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
 void doKey(char key) {
@@ -608,6 +638,7 @@ void doKey(char key) {
           break;
         case 2:
           Console(FF("Config save not yet implemented"));
+          showConfig(Console.uart.raw);
           break;
         case 42:
           Init.restore(true);
