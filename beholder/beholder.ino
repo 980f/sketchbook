@@ -440,14 +440,17 @@ void doSetpoint(boolean set, EyeState es ) {
 unsigned showConfig(Print &p) {
   unsigned size = 0;
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
-    //	"\n	1w"
+    //	"\n	1w"  plus string from eyestalk
     size +=
       p.print("\n\t") + p.print(ei) + p.print('w') + p.print(eyestalk[ei]);
   }
-  //more to come:
   //    "\n	500h	24000H"  //wiggler config rate then yamp
   size +=
     p.print("\n\t") + p.print(wiggler.hparam()) + p.print("h\t") + p.print(wiggler.wigamp) + p.print('H') ;
+}
+
+unsigned showConfig(Print &&p) {
+  showConfig(p);
 }
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
@@ -477,7 +480,7 @@ void doKey(char key) {
       case '~'://a number appeared between escape prefix and the '~'
         switch (unsigned(param)) {
           case 3://del
-          case 5://pageup
+          case 5://page up
           case 6://page dn
             break;
         }
@@ -628,27 +631,28 @@ void doKey(char key) {
       ui.rawecho = param;
       Console(FF("raw echo:"), ui.rawecho);
       break;
+    case 'i':
+      showConfig(Console.uart.raw);
+      break;
     case 'I':
       switch (param) {
-        case 0:
+        case 0://load from eeprom
           Init.load();
           break;
-        case 1:
+        case 1://load from program
           Init.restore(false);
           break;
-        case 2:
-          Console(FF("Config save not yet implemented"));
-          showConfig(Console.uart.raw);
+        case 2://generate
+          showConfig(Init.saver());
           break;
-        case 42:
+        case 42://load from program and write to eeprom
           Init.restore(true);
           break;
       }
-
       break;
     case '@'://set each servo output to a value computed from its channel #
-      pwm.idChannels(2, 15);
-      Console(FF("pwm's are now set to their channel number"));
+      pwm.idChannels(0, 15);
+      Console(FF("pwm IDs sent"));
       break;
     default:
       Console(FF("Unknown command:"), key, ' ', int(key));
@@ -680,7 +684,9 @@ void setup() {
   unsigned cfgsize = Init.load();
   Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
   Console(ui.amMonster ? FF("Behold") : FF("Where is"), F(" the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
-
+  if (ui.amMonster) {//conditional on which end of link for debug.
+    doKey('Z');//be wiggling upon a power upset.
+  }
   T6 = 0;
 }
 
