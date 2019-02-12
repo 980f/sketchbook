@@ -13,6 +13,28 @@
 
 */
 #define REVISIONMARKER "2019feb11-03:28"
+
+///////////////////////////////////////////////////////////////
+//this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
+const PROGMEM char initblock[] =
+  //channel.w.range.x.range.y.position.dead.position.alert
+  "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
+  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
+  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
+  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
+  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
+  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
+  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
+  "\n	500h	24000H"  //wiggler config rate then yamp
+  "\n	Z"  //all be wiggling
+  ;
+#include "initer.h"
+void doKey(char key);
+Initer Init(RomAddr(initblock), doKey);
+
+/////////////////////////////////////////////////////////////
+
 #include "bitbanger.h" //early to replace Arduino's macros with real code
 #include "minimath.h"  //for template max/min instead of macro
 #include "cheaptricks.h" //for changed()
@@ -27,18 +49,13 @@
 #include "twinconsole.h"
 TwinConsole Console;
 
-//marker for codespace strings, with newline prefixed
+//marker for codespace strings, with newline prefixed. With this or the Arduino provided F() constr strings take up ram as well as rom.
 #define FF(farg)  F( "\n" farg)
 
 #include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm;
 
-//joystick to servo value:
-#include "analog.h" //deals with the difference in number of bits of analog info in, out, and simulated  
-#include "linearmap.h" //simpler scaling component than Arduino map(), also syntactically cuter.
-
-#include "xypair.h"  //the eyestalks are 2 dimensional
 
 //pin uses:
 //0,1 are rx,tx used by Serial1
@@ -58,6 +75,14 @@ const InputPin<14, LOW> jawopen;
 const InputPin<15, LOW> browup;
 
 //A0,A1,A2,A3 used for joystick and pots.
+
+
+//joystick to servo value:
+#include "analog.h" //deals with the difference in number of bits of analog info in, out, and simulated  
+#include "linearmap.h" //simpler scaling component than Arduino map(), also syntactically cuter.
+
+#include "xypair.h"  //the eyestalks are 2 dimensional
+
 //joystick device
 const XY<const AnalogInput> joydev(A2, A3);
 //pair of pots
@@ -111,6 +136,7 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
   Seeking // wiggling aimlessly
 };
 
+/** A 2D coordinate value. */
 using Gaze = XY<AnalogValue>;
 
 /** actuator to use */
@@ -151,14 +177,11 @@ struct EyeStalk : public XY<EyeMuscle> {
 
 };
 
-
-//application data
-
 //records recent joystick value
 Gaze joy(0, ~0);//weird init so we can detect 'never init'
 
 void showJoy() {
-  Console(FF("Joy x: "), ~joy.X, "\ty: ", ~joy.Y);
+  Console(FF("Joy x: "), joy);
 }
 
 
@@ -174,16 +197,17 @@ EyeStalk eyestalk[] = {//pwm channel numbers
 };
 // the big eye is coded as eyestalk[0] so that we can share tuning and testing code.
 
-//pairing jaw and eyebrow so that we can borrow eyestalk tuning and testing code
+//pairing jaw and eyebrow as eyestalk[7] so that we can borrow eyestalk tuning and testing code
 EyeMuscle &brow(eyestalk[7].Y);
 EyeMuscle &jaw(eyestalk[7].X);
 
+//iterator over actual stalks:
 #define Allstalk(ei) for (unsigned ei = 6; ei-- > 1;)
 
 //show all pwm outputs
 void showRaw() {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {
-    Console(FF("Dev["), ei, "] x: ", eyestalk[ei].X.adc, "\ty: ", eyestalk[ei].Y.adc);
+    Console(FF("Dev["), ei, "] ", eyestalk[ei].X.adc, ",", eyestalk[ei].Y.adc);
   }
 }
 
@@ -244,7 +268,7 @@ void joy2eye(Gaze xy) {
 void setRange(unsigned topper, unsigned lower) {
   Muscle &muscle( ui.moi());
   muscle.range = LinearMap(topper, lower);
-  Console(FF("Range: "), muscle.range.top, "->",  muscle.range.bottom);
+  Console(FF("Range: "), muscle.range);
 }
 
 
@@ -348,7 +372,7 @@ class Wiggler {
         if (eye.es == EyeState::Seeking) {
           eye.X = (~eye.X.pos > AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
           eye.Y = AnalogValue::Half + random(wigamp);
-          Console(FF("wig:"), stalker, "\tx:", ~eye.X.pos, "\ty:", ~eye.Y.pos);
+          Console(FF("wig:"), stalker, "\t", eye);
         }
       }
     }
@@ -363,28 +387,6 @@ class Wiggler {
 } wiggler;
 
 
-///////////////////////////////////////////////////////////////
-//this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
-const PROGMEM char initblock[] =
-  //channel.w.range.x.range.y.position.dead.position.alert
-  "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "\n	2w	400,200x	400,200y	0,0D	20000,20002A"
-  "\n	3w	400,200x	400,200y	0,0D	20000,20003A"
-  "\n	4w	400,200x	400,200y	0,0D	20000,20004A"
-  "\n	5w	400,200x	400,200y	0,0D	20000,20005A"
-  "\n	6w	400,200x	400,200y	0,0D	20000,20006A"
-  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  "\n	7w	400,200x	400,200y	0,0D	20000,20007A" //jawbrow
-  "\n	500h	24000H"  //wiggler config rate then yamp
-  "\n	Z"  //all be wiggling
-//  "\0"  //why no null?
-  ;
-
-#include "initer.h"
-
-void doKey(char key);
-Initer Init(RomAddr(initblock), doKey);
-
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
@@ -395,7 +397,6 @@ unsigned pushed = 0;
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"};
 
 void setJoy() {
-  //	Console(FF("\nsetJoy: ",pushed,',',param.accumulator);
   joy.X = take(pushed);
   joy.Y = param;
   joy2eye(joy);
@@ -408,7 +409,7 @@ void doSetpoint(boolean set, EyeState es ) {
       setJoy();//goes to entered position
     }
     record(es);
-    Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tx:", ~joy.X, "\ty:", ~joy.Y);
+    Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\t:", joy);
   } else {//goto dead position
     if (~param) {
       ui.tunee = param;
@@ -488,7 +489,7 @@ void doKey(char key) {
     return;
   }
 
-  if (ansicoder[1](key) | ansicoder[0](key)) {//# must check all, return if any.
+  if (ansicoder[1](key) | ansicoder[0](key)) {//# | not ||, must check all, return if any.
     return; //part of a prefix
   }
 
@@ -583,7 +584,6 @@ void doKey(char key) {
       joy2eye(joy);
       showJoy();
       showRaw();
-      //      showMrange();
       break;
     case 'l'://disconnect eyes from joystick
       ui.update(false);
@@ -632,6 +632,7 @@ void doKey(char key) {
 
 ////////////////////////////////////////////////////////////////
 
+
 void setup() {
   T6 = 1;
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
@@ -639,21 +640,17 @@ void setup() {
   Console.begin();
   Console(FF("!######################"));
 
-  Console(FF("sizeof initblock:"), sizeof(initblock));
-  Console(FF("initblock:"), reinterpret_cast<const __FlashStringHelper *>(initblock));
-
-
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-  //  scanI2C();
 
   Console(FF("Configuring pwm eyestalk, divider ="), 1 + pwm.fromHz(50));
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
-  T6 = 0;
 
-  //running the init block:
-  Init.load();
+  unsigned cfgsize = Init.load();
+  Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
   Console(ui.amMonster ? FF("Behold") : FF("Where is"), F(" the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
+
+  T6 = 0;
 }
 
 
