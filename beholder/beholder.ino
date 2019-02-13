@@ -49,6 +49,11 @@ Initer Init(RomAddr(initblock), doKey);
 #include "twinconsole.h"
 TwinConsole Console;
 
+/** streams kept separate for remote controller, where we do cross the streams. */
+#include "easyconsole.h"
+EasyConsole<decltype(Serial)> Local(Serial);
+EasyConsole<decltype(Serial1)> Remote(Serial1);
+
 //marker for codespace strings, with newline prefixed. With this or the Arduino provided F() constr strings take up ram as well as rom.
 #define FF(farg)  F( "\n" farg)
 
@@ -672,26 +677,23 @@ void setup() {
   T6 = 1;
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
-  Console.begin();
-  Console(FF("!######################"));
-
   Wire.begin(); //must precede scan!
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-
-  Console(FF("Configuring pwm eyestalk, divider ="), 1 + pwm.fromHz(50));
   ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
 
   unsigned cfgsize = Init.load();
-  Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
-  Console(ui.amMonster ? FF("Behold") : FF("Where is"), F(" the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
   if (ui.amMonster) {//conditional on which end of link for debug.
+    Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
+    Console(FF("Behold the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
     doKey('Z');//be wiggling upon a power upset.
+  } else {
+    Remote(FF("Remote Control.Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
   }
   T6 = 0;
 }
 
 
-void loop() {
+void loopMonster() {
   if (MilliTicked) { //this is true once per millisecond.
     wiggler();
     joy = joydev;//normalizes scale.
@@ -708,5 +710,38 @@ void loop() {
       Console("\tKey: ", key, ' ', char(key));
     }
     doKey(key) ;
+  }
+}
+
+void loopController() {
+  if (MilliTicked) { //this is true once per millisecond.
+    joy = joydev;//normalizes scale.
+    //    if (ui.updateEyes) {
+    //      joy2eye(joy);
+    //    }
+    brow = (browup ? AnalogValue::Max : AnalogValue::Min);
+    jaw = (jawopen ? AnalogValue::Max : AnalogValue::Min);
+  }
+
+  int key = Local.getKey();
+  if (key >= 0) {
+    if (ui.rawecho) {
+      Local("\tKey: ", key, ' ', char(key));
+    }
+    //    doKey(key);
+    Remote.conn.write(key);//relay to monster input.
+  }
+
+  int trace = Remote.getKey();
+  if (trace >= 0) { //relay monster output
+    Local.conn.write(trace);
+  }
+}
+
+void loop() {
+  if (ui.amMonster) {
+    loopMonster();
+  } else {
+    loopController();
   }
 }
