@@ -15,7 +15,7 @@ Each application must have its own directory of the same name as the .ino file i
 Each app directory then links to only the files it needs from the shared directory as arduino insists on compiling everything it finds with the .ino. bash script arduous helps with making the links. This only works on an OS with file links, windows file links use mklink so you may wish to write and arduous.cmd using that.
 
 The shared directory might someday be a git submodule, until then from sketchbook:
-* git clone https://github.com/980f/arduinio.git shared
+* git clone https://github.com/980f/arduino.git shared
 * cd shared
 * git clone https://github.com/980f/ezcpp
 
