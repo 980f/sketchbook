@@ -12,12 +12,13 @@
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
-#define REVISIONMARKER "2019feb11-03:28"
+#define REVISIONMARKER "2019feb14-21:37"
 
 ///////////////////////////////////////////////////////////////
 //this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
 const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
+  ":" //enable tuning commands
   "\n	1w	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
   "\n	2w	400,200x	400,200y	2,3D	20000,20002A"
   "\n	3w	400,200x	400,200y	3,2D	20000,20003A"
@@ -27,10 +28,9 @@ const PROGMEM char initblock[] =
   "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
   "\n	7w	400,200x	400,200y	7,6D	20000,20007A" //jawbrow
   "\n	500h	24000H"  //wiggler config rate then yamp
-  //  "\n	Z"  //all be wiggling
   ;
 #include "initer.h"
-void doKey(char key);
+void doKey(byte key);
 Initer Init(RomAddr(initblock), doKey);
 
 /////////////////////////////////////////////////////////////
@@ -73,7 +73,9 @@ const OutputPin<6, LOW> T6;
 const OutputPin<9, LOW> T9;
 const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
-const OutputPin<16, LOW> T16;
+
+//jumper this to select program mode: if jumpered low then is connected to UI and sends commands to device which actually runs the beast.
+const InputPin<16, HIGH> BeMonster;
 
 //digital inputs to control eyebrow and jaw:
 const InputPin<14, LOW> jawopen;
@@ -179,6 +181,15 @@ struct EyeStalk : public XY<EyeMuscle> {
       }
     }
   }
+
+  Gaze pos() {
+    return Gaze(X.pos, Y.pos);
+  }
+
+  void resend() {
+    *this = pos();
+  }
+
   // range.x.range.y.position.dead.position.alert
   //  	400,200x	400,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
   size_t printTo(Print& p) const {
@@ -195,6 +206,7 @@ struct EyeStalk : public XY<EyeMuscle> {
   }
 
 };
+
 
 //records recent joystick value
 Gaze joy(0, ~0);//weird init so we can detect 'never init'
@@ -232,20 +244,23 @@ void showRaw() {
 
 //UI state
 struct UI {
-  bool updateEyes = true; //enable joystick actions
   bool amMonster = false; //detects which end of link
+  bool updateEyes = true; //enable joystick actions
+  bool tuning = false; //allow configuration adjustments
+  //channel being tuned
+  short tunee = 0;
+  // which muscle when tuning half of a pair
+  bool wm = 0;
 
   //full keystroke echo, added for figuring out non-ascii keys.
   bool rawecho = false;
 
-  //channel being tuned
-  short tunee = 0;
-  bool wm = 0; // which muscle when tuning half of a pair
 
-
+  /** @returns whether 'all' is the selected eyestalk */
   bool doAll() const {
     return tunee == 9;
   }
+
   //muscle of interest
   Muscle &moi() const {
     if (tunee < countof(eyestalk)) {
@@ -285,31 +300,39 @@ void joy2eye(Gaze xy) {
 
 
 void setRange(unsigned topper, unsigned lower) {
-  Muscle &muscle( ui.moi());
-  muscle.range = LinearMap(topper, lower);
-  Console(FF("Range: "), muscle.range);
+  if (ui.tuning) {
+    Muscle &muscle( ui.moi());
+    muscle.range = LinearMap(topper, lower);
+    Console(FF("Range: "), muscle.range);
+  }
 }
 
 
 void tweak(bool plusone, unsigned value) {
-  ui.wm = plusone;
-  Muscle &muscle( ui.moi());
-  muscle.test(value);
-  Console(FF("pwm["), muscle.hw.which, "]=", muscle.adc, " from:", value);
+  if (ui.tuning) {
+    ui.wm = plusone;
+    Muscle &muscle( ui.moi());
+    muscle.test(value);
+    Console(FF("pwm["), muscle.hw.which, "]=", muscle.adc, " from:", value);
+  }
 }
 
 void doarrow(bool plusone, bool upit) {
-  ui.wm = plusone;
-  Muscle &muscle( ui.moi());
-  tweak(plusone, muscle.adc + upit ? 10 : -10);
+  if (ui.tuning) {
+    ui.wm = plusone;
+    Muscle &muscle( ui.moi());
+    tweak(plusone, muscle.adc + upit ? 10 : -10);
+  }
 }
 
 void knob2range(bool top, unsigned value) {
-  Muscle &muscle( ui.moi());
-  if (top) {
-    muscle.range.top = value;
-  } else {
-    muscle.range.bottom = value;
+  if (ui.tuning) {
+    Muscle &muscle( ui.moi());
+    if (top) {
+      muscle.range.top = value;
+    } else {
+      muscle.range.bottom = value;
+    }
   }
 }
 
@@ -339,6 +362,12 @@ void center() {
   }
 }
 
+void resendAll() {//naming this resend triggers an Arduino error, gets confused as to whether this is a simple function or a member of eyestalk. Weird.
+  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+    eyestalk[ei].resend();
+  }
+}
+
 void livebe(EyeState es) {
   for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
     EyeStalk &eye(eyestalk[ei]);
@@ -350,15 +379,17 @@ void livebe(EyeState es) {
 
 /** we always go to the position to record, then record it. So we can reuse the position request variable as the value to save*/
 void record(EyeState es) {
-  switch (es) {
-    case Dead:
-      eyestalk[ui.tunee].dead = joy;
-      break;
-    case Alert:
-      eyestalk[ui.tunee].alert = joy;
-    default:
-      //Console(FF("\nBad eyestate in record",es);
-      break;
+  if (ui.tuning) {
+    switch (es) {
+      case Dead:
+        eyestalk[ui.tunee].dead = joy;
+        break;
+      case Alert:
+        eyestalk[ui.tunee].alert = joy;
+      default:
+        //Console(FF("\nBad eyestate in record",es);
+        break;
+    }
   }
 }
 
@@ -411,6 +442,10 @@ class Wiggler {
 
 
 ////////////////////////////////////////////////////////////////
+//
+// Command Interpreter
+//
+////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"
 UnsignedRecognizer param;
 //for 2 parameter commands:
@@ -427,7 +462,7 @@ void setJoy() {
 
 /** either record the given position as a the given state, or go into that state */
 void doSetpoint(boolean set, EyeState es ) {
-  if (set) {
+  if (set && ui.tuning) {
     if ( ~param && pushed != 0) {
       setJoy();//goes to entered position
     }
@@ -459,7 +494,7 @@ unsigned showConfig(Print &&p) {
 }
 
 /** made this key switch a function so that we can return when we have consumed the key versus some tortured 'exit if' */
-void doKey(char key) {
+void doKey(byte key) {
   if (key == 0) { //ignore nulls, might be used for line pacing.
     return;
   }
@@ -531,7 +566,7 @@ void doKey(char key) {
     return; //part of a prefix
   }
 
-  switch (key) {
+  switch (key) {//used: aAbcdDefFhHiIjlopstwxyzZ  @ *!,.
     case '\t'://ignore tabs, makes param files easier to read.
       break;
     case ','://push a parameter for 2 parameter commands.
@@ -540,7 +575,12 @@ void doKey(char key) {
     case '.'://simulate joystick value
       setJoy();
       break;
-
+    case 'n'://by sending a value instead of a boolean the remote can impement 'half-open' and the like.
+      jaw = AnalogValue(param);
+      break;
+    case 'm':
+      brow = AnalogValue(param);
+      break;
     case 'D': //record dead position
       doSetpoint(true, EyeState::Dead);
       break;
@@ -559,6 +599,10 @@ void doKey(char key) {
       center();
       break;
 
+    case 'r'://resend,recover from pwm board power glitch.
+      resendAll();
+      break;
+
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
       Console(FF("Prescale set to: "), param);
       pwm.setPrescale(param, true);
@@ -567,16 +611,25 @@ void doKey(char key) {
       Console(FF("prescale: "), pwm.getPrescale());
       break;
 
+    case 27://escape is easier to hit then shiftZ
     case 'Z': //reset scene
       allbe(EyeState::Seeking);
+      ui.tunee = 0;
+      ui.tuning = false;
       break;
     case 'z': //resume wiggling
       livebe(EyeState::Seeking);
+      ui.tunee = 0; //in case we make alert connect the joystick to the one stalk.
+      ui.tuning = false;
       break;
 
     case 'w': //select eye of interest
       ui.tunee = param;
       Console(FF("Eye "), ui.tunee);
+      break;
+
+    case ':':
+      ui.tuning = true;
       break;
 
     case 'e'://set one muscle to absolute position
@@ -670,24 +723,44 @@ void doKey(char key) {
 }
 
 
-////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////
+//
+//  SETUP          AND          LOOP          //
+//
+////////////////////////////////////////////////
+//whether board was detected at startup. Should periodically check again so that wiggling a cable cn fix it.
+bool pwmPresent = false;
+//cache buttons, read only once per loop in case we add debouncing to read routine.
+bool browUp;
+bool jawOpen;
+
+/** @returns whether pwm just got noticed */
+bool pwmOnline() {
+  if (!pwmPresent) {
+    if (changed(pwmPresent, pwm.begin(4, 50))) { //4:totempole drive.
+      return true;
+    }
+  }
+  return false;
+}
 
 
 void setup() {
   T6 = 1;
   pinMode(0, INPUT_PULLUP); //RX is picking up TX on empty cable.
 
-  Wire.begin(); //must precede scan!
+  Wire.begin(); //not trusting pwm begin to remember to do this.
   Wire.setClock(400000);//pca9685 device can go 1MHz, but 32U4 cannot.
-  ui.amMonster = pwm.begin(4, 50); //4:totempole drive.
+  pwmOnline();//for powerup message
 
   unsigned cfgsize = Init.load();
+  ui.amMonster = BeMonster;
   if (ui.amMonster) {//conditional on which end of link for debug.
     Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
-    Console(FF("Behold the Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
+    Console(pwmPresent ? FF("Behold") : FF("Where is"), FF(" the Beholder (bin: " REVISIONMARKER ")\n\n\n")); //todo: git hash insertion.
     doKey('Z');//be wiggling upon a power upset.
   } else {
-    Remote(FF("Remote Control.Beholder (bin: " REVISIONMARKER ")\n\n\n"));//todo: git hash insertion.
+    Remote(FF("Remote Control of"), FF(" the Beholder (bin: " REVISIONMARKER ")\n\n\n")); //todo: git hash insertion.
   }
   T6 = 0;
 }
@@ -702,10 +775,15 @@ void loopMonster() {
     }
     brow = (browup ? AnalogValue::Max : AnalogValue::Min);
     jaw = (jawopen ? AnalogValue::Max : AnalogValue::Min);
+
+    if (pwmOnline()) {//then just discovered pwm chip after an absence.
+      //send desired state to all channels.
+      resendAll();
+    }
   }
 
-  int key = Console.getKey();
-  if (key >= 0) {
+  byte key = Console.getKey();
+  if (key > 0) {
     if (ui.rawecho) {
       Console("\tKey: ", key, ' ', char(key));
     }
@@ -713,18 +791,24 @@ void loopMonster() {
   }
 }
 
+
+
 void loopController() {
   if (MilliTicked) { //this is true once per millisecond.
-    joy = joydev;//normalizes scale.
-    //    if (ui.updateEyes) {
-    //      joy2eye(joy);
-    //    }
-    brow = (browup ? AnalogValue::Max : AnalogValue::Min);
-    jaw = (jawopen ? AnalogValue::Max : AnalogValue::Min);
+    joy = joydev;
+    if (ui.updateEyes) {
+      Remote(joy, '.');
+    }
+    if (changed(browUp, browup)) {
+      Remote((browUp ? AnalogValue::Max : AnalogValue::Min), 'm');
+    }
+    if (changed(jawOpen , jawopen )) {
+      Remote((jawOpen  ? AnalogValue::Max : AnalogValue::Min), 'n');
+    }
   }
 
   int key = Local.getKey();
-  if (key >= 0) {
+  if (key > 0) {
     if (ui.rawecho) {
       Local("\tKey: ", key, ' ', char(key));
     }
@@ -733,12 +817,19 @@ void loopController() {
   }
 
   int trace = Remote.getKey();
-  if (trace >= 0) { //relay monster output
+  if (trace > 0) { //relay monster output
     Local.conn.write(trace);
   }
 }
 
 void loop() {
+  if (changed(ui.amMonster, BeMonster)) {//then jumper is glitchy. We want to know about that.
+    if (ui.amMonster) {
+      Console(FF("!# I am the BEHOLDER!"));
+    } else {
+      Local(FF("!# I am the CONTROLLER!"));
+    }
+  }
   if (ui.amMonster) {
     loopMonster();
   } else {
