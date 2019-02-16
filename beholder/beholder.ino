@@ -39,8 +39,6 @@ Initer Init(RomAddr(initblock), doKey);
 #include "minimath.h"  //for template max/min instead of macro
 #include "cheaptricks.h" //for changed()
 
-//#include "stopwatch.h" //to time things
-
 #include "pinclass.h"
 //#include "digitalpin.h"
 #include "millievent.h"
@@ -160,7 +158,7 @@ struct Muscle: public Printable {
 
   /** move to one extreme or the other */
   void flail(bool max) {
-    operator = ( AnalogValue (max ? AnalogValue::Max : AnalogValue::Min));
+    operator = ( AnalogValue (max ? AnalogValue::Max : AnalogValue::Min, 15));
   }
 
   /** access pwm and set it to a raw value, within range of this muscle.*/
@@ -271,11 +269,12 @@ EyeMuscle &brow(eyestalk[7].Y);
 EyeMuscle &jaw(eyestalk[7].X);
 
 //iterator over actual stalks:
-#define Allstalk(ei) for (unsigned ei = 6; ei-- > 1;)
+#define Allstalk(ei) for (unsigned ei = 6; ei>0;--ei)
+#define AllGizmos(ei) for (unsigned ei = countof(eyestalk); ei-- > 0;)
 
 //show all pwm outputs
 void showRaw() {
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {
+  AllGizmos(ei) {
     Console(FF("Dev["), ei, "] ", eyestalk[ei].X.adc, ",", eyestalk[ei].Y.adc);
   }
 }
@@ -379,7 +378,7 @@ void knob2range(bool top, unsigned value) {
 
 /** set state of all mechanisms */
 void allbe(EyeState es) {
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+  AllGizmos(ei) {//all sets
     eyestalk[ei].be(es);
   }
 }
@@ -407,14 +406,14 @@ void center() {
 
 /** refresh hardware registers with values they shouldhave in them, useful if pwm chip glitches. */
 void resendAll() {//naming this resend triggers an Arduino error, gets confused as to whether this is a simple function or a member of eyestalk. Weird.
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+  AllGizmos(ei) {
     eyestalk[ei].resend();
   }
 }
 
 /** changes state of mechanisms which are dead */
 void livebe(EyeState es) {
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+  AllGizmos(ei) {
     EyeStalk &eye(eyestalk[ei]);
     if (eye.es != EyeState::Dead) {
       eye.be(es);
@@ -465,7 +464,7 @@ class Wiggler {
         }
         EyeStalk &eye(eyestalk[stalker]);
         if (eye.es == EyeState::Seeking) {
-          eye.X = (~eye.X.pos > AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
+          eye.X = (~eye.X.pos >= AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
           eye.Y = AnalogValue::Half + random(wigamp);
           Console(FF("wig:"), stalker, "\t", eye);
         }
@@ -508,12 +507,19 @@ void setJoy() {
   joy2eye(joy);
 }
 
+void showshit(const char *where) {
+  Console('\n', where, pushed, ",", param.accumulator);
+}
+
 /** either record the given position as a the given state, or go into that state */
 void doSetpoint(boolean set, EyeState es ) {
   if (set && ui.tuning) {
     if (haveTwoParams()) {
-      record(es, Gaze(take(pushed), param));
+      showshit("dsp1:");
+      record(es, Gaze(take(pushed), unsigned(param)));
+      showshit("dsp2:");
     } else {
+      Console(FF("Recording present position"));
       record(es, joy);
     }
     Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tas:", ui.stalk().pos(es));
@@ -523,13 +529,13 @@ void doSetpoint(boolean set, EyeState es ) {
     }
   }
   be(es);
-  Console(FF("Stalk "), ui.tunee, " to setpoint:", es);
+  Console(FF("Stalk "), ui.tunee, " to setpoint:", es, '@', ui.stalk().pos());
 }
 
 /** emit present configuration to given printer, the eeprom is a printer so this is how configuration is saved. */
 unsigned showConfig(Print &p) {
   unsigned size = 0;
-  for (unsigned ei = countof(eyestalk); ei-- > 0;) {//all sets
+  AllGizmos(ei) { //all sets
     //	"\n	1w"  plus string from eyestalk
     size +=
       p.print("\n\t") + p.print(ei) + p.print('w') + p.print(eyestalk[ei]);
@@ -738,9 +744,9 @@ void doKey(byte key) {
       showRaw();
       break;
     case ' ':
-      joy2eye(joy);
       joy.show();
       showRaw();
+      doKey('i');
       break;
     case 'l'://disconnect eyes from joystick
       ui.update(false);
