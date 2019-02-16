@@ -20,13 +20,13 @@ const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   ":" //enable tuning commands
   "\n	1w	400,200x	410,200y	11,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  //  "\n	2w	400,200x	420,200y	22,3D	20000,20002A"
-  //  "\n	3w	400,200x	430,200y	33,2D	20000,20003A"
-  //  "\n	4w	400,200x	440,200y	44,5D	20000,20004A"
-  //  "\n	5w	400,200x	450,200y	55,2D	20000,20005A"
-  //  "\n	6w	400,200x	460,200y	66,9D	20000,20006A"
-  //  "\n	0w	400,200x	400,200y	99,0D	20000,20000A" //big eye
-  //  "\n	7w	400,200x	470,200y	77,6D	20000,20007A" //jawbrow
+  "\n	2w	400,200x	420,200y	22,3D	20000,20002A"
+  "\n	3w	400,200x	430,200y	33,2D	20000,20003A"
+  "\n	4w	400,200x	440,200y	44,5D	20000,20004A"
+  "\n	5w	400,200x	450,200y	55,2D	20000,20005A"
+  "\n	6w	400,200x	460,200y	66,9D	20000,20006A"
+  "\n	0w	400,200x	400,200y	99,0D	20000,20000A" //big eye
+  "\n	7w	400,200x	470,200y	77,6D	20000,20007A" //jawbrow
   "\n	500h	24000H"  //wiggler config rate then yamp
   ;
 #include "initer.h"
@@ -498,26 +498,22 @@ bool haveTwoParams() {
   return ~param && pushed != 0;
 }
 
+#define GazeParam Gaze(take(pushed), unsigned(param))
+
 #include "linearrecognizer.h" //simple state machine for recognizing fixed sequences of bytes.
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"}; //empirically discoverd on piTop.
 
 /** read joystick and send to eye */
 void setJoy() {
-  joy.pos = Gaze(take(pushed), param);
+  joy.pos = GazeParam;
   joy2eye(joy);
-}
-
-void showshit(const char *where) {
-  Console('\n', where, pushed, ",", param.accumulator);
 }
 
 /** either record the given position as a the given state, or go into that state */
 void doSetpoint(boolean set, EyeState es ) {
   if (set && ui.tuning) {
     if (haveTwoParams()) {
-      showshit("dsp1:");
-      record(es, Gaze(take(pushed), unsigned(param)));
-      showshit("dsp2:");
+      record(es, GazeParam);
     } else {
       Console(FF("Recording present position"));
       record(es, joy);
@@ -719,7 +715,7 @@ void doKey(byte key) {
       break;
     case 'x': //pick axis, if values present then set its range.
     case 'y':
-      ui.wm = key & 1;
+      ui.wm = ~key & 1;
       if (haveTwoParams()) {
         setRange( take(pushed), param);
       }
