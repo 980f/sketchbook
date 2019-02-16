@@ -19,14 +19,14 @@
 const PROGMEM char initblock[] =
   //channel.w.range.x.range.y.position.dead.position.alert
   ":" //enable tuning commands
-  "\n	1w	400,200x	410,200y	1,2D	20000,20001A"  //using ls digit as tracer for program debug.
-  "\n	2w	400,200x	420,200y	2,3D	20000,20002A"
-  "\n	3w	400,200x	430,200y	3,2D	20000,20003A"
-  "\n	4w	400,200x	440,200y	4,5D	20000,20004A"
-  "\n	5w	400,200x	450,200y	5,2D	20000,20005A"
-  "\n	6w	400,200x	460,200y	6,9D	20000,20006A"
-  "\n	0w	400,200x	400,200y	0,0D	20000,20000A" //big eye
-  "\n	7w	400,200x	470,200y	7,6D	20000,20007A" //jawbrow
+  "\n	1w	400,200x	410,200y	11,2D	20000,20001A"  //using ls digit as tracer for program debug.
+  //  "\n	2w	400,200x	420,200y	22,3D	20000,20002A"
+  //  "\n	3w	400,200x	430,200y	33,2D	20000,20003A"
+  //  "\n	4w	400,200x	440,200y	44,5D	20000,20004A"
+  //  "\n	5w	400,200x	450,200y	55,2D	20000,20005A"
+  //  "\n	6w	400,200x	460,200y	66,9D	20000,20006A"
+  //  "\n	0w	400,200x	400,200y	99,0D	20000,20000A" //big eye
+  //  "\n	7w	400,200x	470,200y	77,6D	20000,20007A" //jawbrow
   "\n	500h	24000H"  //wiggler config rate then yamp
   ;
 #include "initer.h"
@@ -219,8 +219,17 @@ struct EyeStalk : public XY<EyeMuscle> {
   }
 
   /** @returns coordinat eye is presently set to.*/
-  Gaze pos() {
-    return Gaze(X.pos, Y.pos);
+  Gaze pos(EyeState es = Seeking) {
+    switch (es) {
+      case Dead:
+        return dead;
+        break;
+      case Alert:
+        return alert;
+        break;
+      default:
+        return Gaze(X.pos, Y.pos);
+    }
   }
 
   /** calling this 'refresh' pissed off Arduino, the autoheader logic failed. */
@@ -296,6 +305,10 @@ struct UI {
     tunee = which % countof(eyestalk);
   }
 
+  EyeStalk &stalk() {
+    return eyestalk[tunee];
+  }
+
   /** enable or disable running stalks from joystick */
   void update(bool on) {
     if (changed(updateEyes, on)) {
@@ -320,7 +333,7 @@ void joy2eye(Gaze xy) {
   if (ui.all) {
     joy2all(xy);
   } else {
-    eyestalk[ui.tunee] = xy;
+    ui.stalk() = xy;
   }
 }
 
@@ -376,7 +389,7 @@ void be(EyeState es) {
   if (ui.all) {
     allbe(es);
   } else {
-    eyestalk[ui.tunee].be(es);
+    ui.stalk().be(es);
   }
 }
 
@@ -388,7 +401,7 @@ void center() {
       eyestalk[ei] = centerpoint;
     }
   } else {
-    eyestalk[ui.tunee] = centerpoint;
+    ui.stalk() = centerpoint;
   }
 }
 
@@ -409,15 +422,15 @@ void livebe(EyeState es) {
   }
 }
 
-/** we always go to the position to record, then record it. So we can reuse the position request variable as the value to save*/
-void record(EyeState es) {
+/** record a direction to gaze in. */
+void record(EyeState es, Gaze gaze) {
   if (ui.tuning) {
     switch (es) {
       case Dead:
-        eyestalk[ui.tunee].dead = joy;
+        ui.stalk().dead = gaze;
         break;
       case Alert:
-        eyestalk[ui.tunee].alert = joy;
+        ui.stalk().alert = gaze;
       default:
         //Console(FF("\nBad eyestate in record",es);
         break;
@@ -499,13 +512,14 @@ void setJoy() {
 void doSetpoint(boolean set, EyeState es ) {
   if (set && ui.tuning) {
     if (haveTwoParams()) {
-      setJoy();//goes to entered position
+      record(es, Gaze(take(pushed), param));
+    } else {
+      record(es, joy);
     }
-    record(es);
-    Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\t:", joy);
+    Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tas:", ui.stalk().pos(es));
   } else {//goto dead position
     if (~param) {
-      ui.tunee = param;
+      ui.selectStalk(param);
     }
   }
   be(es);
@@ -614,8 +628,7 @@ void doKey(byte key) {
       break;
     case ','://push a parameter for 2 parameter commands.
       pushed = param;
-      Console("\tPushed:", pushed);
-      
+      Console("\tPushed:", pushed, " 0x", HEXLY(pushed));
       break;
 
     case '.'://simulate joystick value
@@ -667,12 +680,12 @@ void doKey(byte key) {
     case 27://escape is easier to hit then shiftZ
     case 'Z': //reset scene
       allbe(EyeState::Seeking);
-      ui.tunee = 0;
+      ui.selectStalk(0);
       ui.tuning = false;
       break;
     case 'z': //resume wiggling
       livebe(EyeState::Seeking);
-      ui.tunee = 0; //in case we make alert connect the joystick to the one stalk.
+      ui.selectStalk(0);//in case we make alert connect the joystick to the one stalk.
       ui.tuning = false;
       break;
 
@@ -765,8 +778,8 @@ void doKey(byte key) {
             Console.write(c);
           }
           break;
-        case 4:
-          for (RomPointer rp(Init.initdata); ;) {
+        case 4://rom->monitor
+          for (RomPointer rp(Init.initdata); ;) {//abusing for loop to get brackets.
             byte c = *rp++;
             if (!c) {
               break;
@@ -775,6 +788,12 @@ void doKey(byte key) {
           } break;
         case 42://load from program and write to eeprom
           Init.restore(true);
+          break;
+        case 86: //erase eeprom
+          for (EEPointer eep = Init.saver(); eep.hasNext();) { //don't run off the end of existence
+            eep.next() = 0;
+          }
+          Console(FF("Config erased"));
           break;
       }
       break;
@@ -857,6 +876,9 @@ void setup() {
 
   unsigned cfgsize = Init.load();
   ui.amMonster = BeMonster;
+
+  ui.updateEyes = false;//joystick spews if not attached.
+
   if (ui.amMonster) {//conditional on which end of link for debug.
     Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
     Console(pwmPresent ? FF("Behold") : FF("Where is"), RevisionMessage);
@@ -870,7 +892,9 @@ void setup() {
 
 void loopMonster() {
   if (MilliTicked) { //this is true once per millisecond.
-    wiggler();
+    if (ui.updateEyes) { //may need its own kill.
+      wiggler();
+    }
 
     if (joy() && ui.updateEyes) {
       joy2eye(joy);
