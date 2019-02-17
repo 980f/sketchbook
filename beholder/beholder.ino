@@ -73,7 +73,8 @@ const OutputPin<10, LOW> T10;
 //we are doing these in geographic order, which after 10 is non-sequential
 
 //jumper this to select program mode: if jumpered low then is connected to UI and sends commands to device which actually runs the beast.
-const InputPin<16, HIGH> BeMonster;
+//will use a command instead, the pin is not stable without a jumper.
+//const InputPin<16, HIGH> BeMonster;
 
 //digital inputs to control eyebrow and jaw:
 const InputPin<14, LOW> jawopen;
@@ -281,7 +282,7 @@ void showRaw() {
 
 //UI state
 struct UI {
-  bool amMonster = false; //detects which end of link
+  bool amMonster = true;  //indicates which end of link, default to monster as that is the one that matters.
   bool updateEyes = true; //enable joystick actions
   bool tuning = false;    //allow configuration adjustments
   bool wm = 0;            //which muscle when tuning half of a pair
@@ -315,6 +316,17 @@ struct UI {
         Console(FF("Enabling joystick"));
       } else {
         Console(FF("Freezing position"));
+      }
+    }
+  }
+
+  /** @param on means this unit is remote controlling the monster, else it is the monster*/
+  void leash(bool on) {
+    if (changed(amMonster, !on)) {
+      if (amMonster) {
+        Console(FF("!# I am the BEHOLDER!"));
+      } else {
+        Local(FF("!# I am the CONTROLLER!"));
       }
     }
   }
@@ -555,7 +567,7 @@ void doKey(byte key) {
   if (param(key)) { //part of a number, do no more
     return;
   }
-
+  //see if part of an escape sequence.
   switch (ansicoder[0] <= key) {
     case 1:
       switch (key) {//ansi code
@@ -585,13 +597,11 @@ void doKey(byte key) {
           break;
       }//switch on code
     //#join
-    case 0:
-      Console("esc[)");
+    case 0://is some part of escape sequence. bool(seq) true if perfect end.
       return;
     default:
       break;
   }
-
 
   switch (ansicoder[1] <= key) {
     case 1:
@@ -617,13 +627,10 @@ void doKey(byte key) {
           break;
       }
     case 0:
-      Console("escO");
       return;
     default:
       break;
   }
-
-
 
   switch (key) {//used: aAbcdDefFhHiIjlMmNnoprstwxyzZ  :@ *!,.   tab cr newline
     case '\t'://ignore tabs, makes param files easier to read.
@@ -696,8 +703,22 @@ void doKey(byte key) {
       Console(FF("Eye "), ui.tunee);
       break;
 
-    case ':':
-      ui.tuning = true;
+    case ':'://UI state management
+      switch (param) {
+        case 0://0 or none means
+          ui.leash(false);
+          break;
+        case 1: //be remote control
+          ui.leash(true);
+          break;
+        case 2: //enable extended function set, especially configuration editing
+          ui.tuning = true;
+          Console(FF("Tuning enabled, Z to disable"));
+          break;
+        default:
+          Console(FF("Bad ':' command"));
+          break;
+      }
       break;
 
     case 'e'://set one muscle to absolute position
@@ -763,7 +784,7 @@ void doKey(byte key) {
       showConfig(Console.usb.raw);
       Console("#!}");//
       break;
-    case 'I':
+    case 'I'://configuration management
       switch (param) {
         case 0://eeprom-> working
           Init.load();
@@ -771,16 +792,13 @@ void doKey(byte key) {
         case 1://rom -> working
           Init.restore(false);
           break;
-        case 2://working ->eprom
-          showConfig(Init.saver());
-          break;
-        case 3://eeprom ->monitor
+        case 2://eeprom ->monitor
           for (EEPointer eep = Init.saver(); eep;) { //don't run off the end of existence
             byte c = *eep++;
             Console.write(c);
           }
           break;
-        case 4://rom->monitor
+        case 3://rom->monitor
           for (RomPointer rp(Init.initdata); ;) {//abusing for loop to get brackets.
             byte c = *rp++;
             if (!c) {
@@ -788,6 +806,9 @@ void doKey(byte key) {
             }
             Console.write(c);
           } break;
+        case 4://working ->eeprom
+          showConfig(Init.saver());
+          break;
         case 42://load from program and write to eeprom
           Init.restore(true);
           break;
@@ -877,17 +898,12 @@ void setup() {
   pwmOnline();//for powerup message
 
   unsigned cfgsize = Init.load();
-  ui.amMonster = BeMonster;
 
   ui.updateEyes = false;//joystick spews if not attached.
 
-  if (ui.amMonster) {//conditional on which end of link for debug.
-    Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
-    Console(pwmPresent ? FF("Behold") : FF("Where is"), RevisionMessage);
-    doKey('Z');//be wiggling upon a power upset.
-  } else {
-    Remote(FF("Remote Control of"), RevisionMessage);
-  }
+  Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
+  Console(pwmPresent ? FF("Behold") : FF("Where is"), RevisionMessage);
+  doKey('Z');//be wiggling upon a power upset.
   T6 = 0;
 }
 
@@ -952,14 +968,6 @@ void loopController() {
 }
 
 void loop() {
-  if (changed(ui.amMonster, BeMonster)) {//then jumper is glitchy. We want to know about that.
-    if (ui.amMonster) {
-      Console(FF("!# I am the BEHOLDER!"));
-    } else {
-      Local(FF("!# I am the CONTROLLER!"));
-    }
-  }
-
   if (ui.amMonster) {
     loopMonster();
   } else {
