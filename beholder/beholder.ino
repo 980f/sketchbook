@@ -52,9 +52,6 @@ TwinConsole Console;
 EasyConsole<decltype(Serial)> Local(Serial);
 EasyConsole<decltype(Serial1)> Remote(Serial1);
 
-//marker for codespace strings, with newline prefixed. With this or the Arduino provided F() constr strings take up ram as well as rom.
-#define FF(farg)  F( "\n" farg)
-
 #include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
 PCA9685 pwm; //default address and bus
@@ -156,6 +153,7 @@ struct Muscle: public Printable {
   /** goto some position, as fraction of configured range. */
   void operator =(AnalogValue pos) {
     if (changed(adc, range(this->pos = pos))) {
+      //      Console(FF("Muscle "),hw.which," to ",pos);
       hw = adc;
     }
   }
@@ -309,6 +307,7 @@ struct UI {
   }
 
   EyeStalk &stalk() {
+    //    Console(FF("Stalk:"),tunee);
     return eyestalk[tunee];
   }
 
@@ -474,14 +473,14 @@ class Wiggler {
         if (!--stalker) {
           stalker = numstalks;
           if (eyestalk[6].es == EyeState::Seeking) {
-            showRaw();
+            //            showRaw();
           }
         }
         EyeStalk &eye(eyestalk[stalker]);
         if (eye.es == EyeState::Seeking) {
           eye.X = (~eye.X.pos >= AnalogValue::Half) ? AnalogValue::Min : AnalogValue::Max;
           eye.Y = AnalogValue::Half + random(wigamp);
-          Console(FF("wig:"), stalker, "\t", eye);
+          //          Console(FF("wig:"), stalker, "\t", eye);
         }
       }
     }
@@ -554,11 +553,12 @@ unsigned showConfig(Print &p) {
   //    "\n	500h	24000H"  //wiggler config rate then yamp
   size +=
     p.print("\n\t") + p.print(wiggler.hparam()) + p.print("h\t") + p.print(wiggler.wigamp) + p.print('H') ;
+  return size;
 }
 
 /** compiler needed some help, @see other showConfig()*/
 unsigned showConfig(Print &&p) {
-  showConfig(p);
+  return showConfig(p);
 }
 
 /** command processor */
@@ -640,7 +640,7 @@ void doKey(byte key) {
       break;
     case ','://push a parameter for 2 parameter commands.
       pushed = param;
-      Console("\tPushed:", pushed, " 0x", HEXLY(pushed));
+      //      Console("\tPushed:", pushed, " 0x", HEXLY(pushed));
       break;
 
     case '.'://simulate joystick value
@@ -766,7 +766,6 @@ void doKey(byte key) {
     case ' ':
       joy.show();
       showRaw();
-      doKey('i');
       break;
     case 'l'://disconnect eyes from joystick
       ui.update(false);
@@ -810,7 +809,7 @@ void doKey(byte key) {
             Console.write(c);
           } break;
         case 4://working ->eeprom
-          showConfig(Init.saver());
+          EEPROM[showConfig(Init.saver())] = 0;
           break;
         case 42://load from program and write to eeprom
           Init.restore(true);
