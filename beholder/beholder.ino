@@ -57,7 +57,8 @@ EasyConsole<decltype(Serial1)> Remote(Serial1);
 
 #include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
-PCA9685 pwm;
+PCA9685 pwm; //default address and bus
+PCA9685 shadow(0x41);//can conditionalize this if we figure out how to not burn up boards.
 
 ////////////////////////////////////////////////////////
 //pin uses:
@@ -147,7 +148,9 @@ struct Muscle: public Printable {
     //#done
   }
 
-  /** easy creator, but compiler wants to create copies for assignment and gets confused with operator = without the 'explicit' */
+  /** easy creator, but compiler wants to create copies for assignment and gets confused with operator = without the 'explicit'
+      with multiple controller pwm becomes pwm[] and we split the channel to pick one here. The rest of the program won't know which chip is in use.
+  */
   explicit Muscle(uint8_t which): Muscle(pwm, which) {}
 
   /** goto some position, as fraction of configured range. */
@@ -877,6 +880,7 @@ bool pwmPresent = false;
 
 /** @returns whether pwm just got noticed */
 bool pwmOnline() {
+  pwm.shadow = &shadow;//must do this before first pwm.begin or carefully also invoke 'shadow.begin(...)'. We would do the latter if inverting outputs for differential drive.
   if (!pwmPresent) {
     if (changed(pwmPresent, pwm.begin(4, 50))) { //4:totempole drive.
       return true;
