@@ -49,8 +49,8 @@ TwinConsole Console;
 
 /** streams kept separate for remote controller, where we do cross the streams. */
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> Local(Serial);
-EasyConsole<decltype(Serial1)> Remote(Serial1);
+EasyConsole<decltype(Serial)> Local(Serial);//usb
+EasyConsole<decltype(Serial1)> Remote(Serial1);//hw serial
 
 #include "scani2c.h" //diagnostic scan for devices. the pc9685 shows up as 64 and 112 on power up, I make the 112 go away in setup() which conveniently allows us to distinguish reset from power cycle.
 #include "pca9685.h" //the 16 channel servo  controller
@@ -86,12 +86,12 @@ const InputPin<15, LOW> browup;
 
 #include "xypair.h"  //the eyestalks are 2 dimensional
 /** A 2D coordinate value. */
-using Gaze =XY<AnalogValue>;
+using Gaze = XY<AnalogValue>;
 
 //joystick device
 struct Joystick {
   const XY<const AnalogInput> dev;
-    //records recent joystick value
+  //records recent joystick value
   Gaze pos;
 
   Joystick(byte xpin, byte ypin): dev(xpin, ypin), pos(0, 0) {}
@@ -324,8 +324,8 @@ struct UI {
   }
 
   /** @param on means this unit is remote controlling the monster, else it is the monster*/
-  void leash(bool on) {
-    if (changed(amMonster, !on)) {
+  void unleash(bool off) {
+    if (changed(amMonster, off)) {
       if (amMonster) {
         Console(FF("!# I am the BEHOLDER!"));
       } else {
@@ -506,15 +506,10 @@ class Wiggler {
 //
 ////////////////////////////////////////////////////////////////
 #include "unsignedrecognizer.h"  //recognize numbers but doesn't deal with +/-
-UnsignedRecognizer param;
+UnsignedRecognizer numberparser;
 //for 2 parameter commands, gets value from param.
+unsigned arg = 0;
 unsigned pushed = 0;
-
-//bool haveTwoParams() {
-//  return ~param && pushed != 0;
-//}
-
-//#define GazeParam Gaze(take(pushed), unsigned(param))
 
 #include "linearrecognizer.h" //simple state machine for recognizing fixed sequences of bytes.
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"}; //empirically discoverd on piTop.
@@ -536,8 +531,8 @@ void doSetpoint(boolean set, EyeState es, const Gaze &gaze) {
     }
     Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tas:", ui.stalk().pos(es));
   } else {//goto dead position
-    if (~param) {
-      ui.selectStalk(param);
+    if (arg) {//was too easy to hit d without a selection and kill the big eye. If we aren't worred then we can drop this 'if'. 
+      ui.selectStalk(arg);
     }
   }
   be(es);
@@ -569,12 +564,12 @@ void doKey(byte key) {
     return;
   }
   //test digits before ansi so that we can have a numerical parameter for those.
-  if (param(key)) { //part of a number, do no more
+  if (numberparser(key)) { //part of a number, do no more
     return;
   }
-  unsigned arg = param; //read and clear, regardless of whether used.
+  arg = numberparser; //read and clear, regardless of whether used.
   Gaze gaze(take(pushed), (arg));
-  
+
   //see if part of an escape sequence.
   switch (ansicoder[0] <= key) {
     case 1:
@@ -707,17 +702,17 @@ void doKey(byte key) {
       break;
 
     case 'w': //select eye of interest
-      ui.selectStalk(param);
+      ui.selectStalk(arg);
       Console(FF("Eye "), ui.tunee);
       break;
 
     case ':'://UI state management
       switch (arg) {
-        case 0://0 or none means
-          ui.leash(false);
+        case 0://0 or none means "you are the monster"
+          ui.unleash(true);
           break;
         case 1: //be remote control
-          ui.leash(true);
+          ui.unleash(false);
           break;
         case 2: //enable extended function set, especially configuration editing
           ui.tuning = true;
@@ -751,14 +746,14 @@ void doKey(byte key) {
       }
       break;
     case 'H'://wiggle relative amplitude
-      if (~param) {
-        wiggler.yamp(param);
+      if (arg) {
+        wiggler.yamp(arg);
         Console(FF("yamp: "), wiggler.wigamp);
       }
       break;
     case 'h'://wiggle rate
-      if (~param) {
-        wiggler.rate(param);
+      if (arg) {
+        wiggler.rate(arg);
         Console(FF("wig: "), MilliTick(wiggler.timer));
       }
       break;
@@ -783,7 +778,7 @@ void doKey(byte key) {
       scanI2C();
       break;
     case '!'://debug function key input
-      ui.rawecho = param;
+      ui.rawecho = arg;
       Console(FF("raw echo: "), ui.rawecho);
       break;
     case 'i'://working ->monitor
@@ -793,7 +788,7 @@ void doKey(byte key) {
       Console("#!}");//
       break;
     case 'I'://configuration management
-      switch (param) {
+      switch (arg) {
         case 0://eeprom-> working
           Init.load();
           break;
@@ -941,7 +936,7 @@ void loopMonster() {
   byte key = Console.getKey();
   if (key > 0) {
     if (ui.rawecho) {
-      Console("\tKey: ", key, ' ', char(key), '\t', param.accumulator);
+      Console("\tKey: ", key, ' ', char(key), '\t', numberparser.accumulator);
     }
     doKey(key) ;
   }
@@ -964,7 +959,11 @@ void loopController() {
   int key = Local.getKey();
   if (key > 0) {
     if (ui.rawecho) {
-      Local("\tKey: ", key, ' ', char(key), '\t', param.accumulator);
+      Local("\tKey: ", key, ' ', char(key), '\t', numberparser.accumulator);
+    }
+    //we need a single key to get us back into 'not controller' mode.
+    if(key==22){//^V
+    	ui.unleash(true);
     }
     Remote.conn.write(key);//relay to monster input.
   }
