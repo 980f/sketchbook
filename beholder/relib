@@ -1,4 +1,5 @@
 ## recreate links to library sources
+ln -sf ../shared/acm acm
 ln -sf ../shared/analog.h analog.h
 ln -sf ../shared/arduous arduous
 ln -sf ../shared/ezcpp/bitbanger.h bitbanger.h
@@ -36,6 +37,7 @@ ln -sf ../shared/stopwatch.cpp stopwatch.cpp
 ln -sf ../shared/stopwatch.h stopwatch.h
 ln -sf ../shared/ezcpp/textkey.h textkey.h
 ln -sf ../shared/twinconsole.h twinconsole.h
+ln -sf ../shared/ucon ucon
 ln -sf ../shared/unsignedrecognizer.h unsignedrecognizer.h
 ln -sf ../shared/wirewrapper.h wirewrapper.h
 ln -sf ../shared/xypair.h xypair.h
