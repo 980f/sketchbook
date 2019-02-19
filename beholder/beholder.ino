@@ -86,16 +86,15 @@ const InputPin<15, LOW> browup;
 
 #include "xypair.h"  //the eyestalks are 2 dimensional
 /** A 2D coordinate value. */
-using Gaze = XY<AnalogValue>;
+using Gaze =XY<AnalogValue>;
 
 //joystick device
 struct Joystick {
   const XY<const AnalogInput> dev;
+    //records recent joystick value
+  Gaze pos;
 
-  Joystick(byte xpin, byte ypin): dev(xpin, ypin), pos(0, ~0) {}
-
-  //records recent joystick value
-  Gaze pos;//weird init so we can detect 'never init'
+  Joystick(byte xpin, byte ypin): dev(xpin, ypin), pos(0, 0) {}
 
   operator Gaze() const {
     return pos;
@@ -185,7 +184,8 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
   //#order matters as it is used as an array index, add new stuff to the end.
   Dead,   // as limp appearing as possible
   Alert,  // looking at *you*
-  Seeking // wiggling aimlessly
+  Seeking, // wiggling aimlessly
+
 };
 
 
@@ -193,7 +193,8 @@ enum EyeState : uint8_t { //specing small type in case we shove it directly into
 using EyeMuscle = Muscle;
 
 struct EyeStalk : public XY<EyeMuscle> {
-  EyeState es = ~0; //for behavior stuff, we will want to do things like "if not dead then"
+  //for behavior stuff, we will want to do things like "if not dead then"
+  EyeState es = Dead; //init to dead so beast is quiet until we are sure it is configured.
   EyeStalk (short xw, short yw): XY<EyeMuscle>(xw, yw) {}
 
   /** set to a pair of values */
@@ -302,7 +303,7 @@ struct UI {
   }
 
   void selectStalk(unsigned which) {
-    all = (which == ~0);
+    all = (which == ~0U);
     tunee = which % countof(eyestalk);
   }
 
@@ -508,26 +509,27 @@ class Wiggler {
 UnsignedRecognizer param;
 //for 2 parameter commands, gets value from param.
 unsigned pushed = 0;
-bool haveTwoParams() {
-  return ~param && pushed != 0;
-}
 
-#define GazeParam Gaze(take(pushed), unsigned(param))
+//bool haveTwoParams() {
+//  return ~param && pushed != 0;
+//}
+
+//#define GazeParam Gaze(take(pushed), unsigned(param))
 
 #include "linearrecognizer.h" //simple state machine for recognizing fixed sequences of bytes.
 LinearRecognizer ansicoder[2] = {"\e[", "\eO"}; //empirically discoverd on piTop.
 
 /** read joystick and send to eye */
-void setJoy() {
-  joy.pos = GazeParam;
+void setJoy(const Gaze &gaze) {
+  joy.pos = gaze;
   joy2eye(joy);
 }
 
 /** either record the given position as a the given state, or go into that state */
-void doSetpoint(boolean set, EyeState es ) {
+void doSetpoint(boolean set, EyeState es, const Gaze &gaze) {
   if (set && ui.tuning) {
-    if (haveTwoParams()) {
-      record(es, GazeParam);
+    if (!gaze.both(0)) {
+      record(es, gaze);
     } else {
       Console(FF("Recording present position"));
       record(es, joy);
@@ -570,6 +572,9 @@ void doKey(byte key) {
   if (param(key)) { //part of a number, do no more
     return;
   }
+  unsigned arg = param; //read and clear, regardless of whether used.
+  Gaze gaze(take(pushed), (arg));
+  
   //see if part of an escape sequence.
   switch (ansicoder[0] <= key) {
     case 1:
@@ -587,7 +592,7 @@ void doKey(byte key) {
           doarrow(0, 0);
           break;
         case '~'://a number appeared between escape prefix and the '~'
-          switch (unsigned(param)) {
+          switch (arg) {
             case 3://del
             case 5://page up
             case 6://page dn
@@ -596,7 +601,7 @@ void doKey(byte key) {
           break;
         default: //code not understood
           //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
-          Console(FF("Unknown ansi [ code:"), char(key), " param:", param);
+          Console(FF("Unknown ansi [ code:"), char(key), " arg:", arg);
           break;
       }//switch on code
     //#join
@@ -626,7 +631,7 @@ void doKey(byte key) {
 
         default: //code not understood
           //don't treat unknown code as a raw one. esc [ x is not to be treated as just an x with the exception of esc itself
-          Console(FF("Unknown ansi O code: "), char(key), " param: ", param);
+          Console(FF("Unknown ansi O code: "), char(key), " arg: ", arg);
           break;
       }
     case 0:
@@ -639,38 +644,38 @@ void doKey(byte key) {
     case '\t'://ignore tabs, makes param files easier to read.
       break;
     case ','://push a parameter for 2 parameter commands.
-      pushed = param;
+      pushed = arg;
       //      Console("\tPushed:", pushed, " 0x", HEXLY(pushed));
       break;
 
     case '.'://simulate joystick value
-      setJoy();
+      setJoy(gaze);
       break;
     case 'n'://by sending a value instead of a boolean the remote can implement 'half-open' and the like.
-      jaw = AnalogValue(param);
+      jaw = AnalogValue(arg);
       break;
     case 'N':
-      jaw.flail(param);
+      jaw.flail(arg);
       break;
     case 'm':
-      brow = AnalogValue(param);
+      brow = AnalogValue(arg);
       break;
     case 'M':
-      brow.flail(param);
+      brow.flail(arg);
       break;
 
     case 'D': //record dead position
-      doSetpoint(true, EyeState::Dead);
+      doSetpoint(true, EyeState::Dead, gaze);
       break;
     case 'd': //goto dead position
-      doSetpoint(false, EyeState::Dead);
+      doSetpoint(false, EyeState::Dead, gaze);
       break;
 
     case 'A': //record alert position
-      doSetpoint(true, EyeState::Alert);
+      doSetpoint(true, EyeState::Alert, gaze);
       break;
     case 'a': //goto alert position
-      doSetpoint(false, EyeState::Alert);
+      doSetpoint(false, EyeState::Alert, gaze);
       break;
 
     case 'c': //center all entities but don't change state
@@ -682,8 +687,8 @@ void doKey(byte key) {
       break;
 
     case 'F'://set pwm frequency parameter, 122 for 50Hz.
-      Console(FF("Prescale set to: "), param);
-      pwm.setPrescale(param, true);
+      Console(FF("Setting prescale to: "), arg);
+      pwm.setPrescale(arg, true);
     //#join
     case 'f':
       Console(FF("prescale: "), pwm.getPrescale());
@@ -707,7 +712,7 @@ void doKey(byte key) {
       break;
 
     case ':'://UI state management
-      switch (param) {
+      switch (arg) {
         case 0://0 or none means
           ui.leash(false);
           break;
@@ -719,29 +724,30 @@ void doKey(byte key) {
           Console(FF("Tuning enabled, Z to disable"));
           break;
         default:
-          Console(FF("Bad ':' command"));
+          Console(FF("Bad ':' command "), arg);
           break;
       }
+
       break;
 
     case 'e'://set one muscle to absolute position
-      tweak(0, param);
+      tweak(0, arg);
       break;
     case 's'://set other muscle to absolute position
-      tweak(1, param);
+      tweak(1, arg);
       break;
 
     case 'b'://set lower end of range for most recently touched muscle
-      knob2range(0, param);
+      knob2range(0, arg);
       break;
     case 't'://set higher end of range for most recently touched muscle
-      knob2range(1, param);
+      knob2range(1, arg);
       break;
     case 'x': //pick axis, if values present then set its range.
     case 'y':
       ui.wm = ~key & 1;
-      if (haveTwoParams()) {
-        setRange( take(pushed), param);
+      if (!gaze.both(0)) {
+        setRange( ~gaze.X, ~gaze.Y);
       }
       break;
     case 'H'://wiggle relative amplitude
@@ -935,7 +941,7 @@ void loopMonster() {
   byte key = Console.getKey();
   if (key > 0) {
     if (ui.rawecho) {
-      Console("\tKey: ", key, ' ', char(key));
+      Console("\tKey: ", key, ' ', char(key), '\t', param.accumulator);
     }
     doKey(key) ;
   }
@@ -958,7 +964,7 @@ void loopController() {
   int key = Local.getKey();
   if (key > 0) {
     if (ui.rawecho) {
-      Local("\tKey: ", key, ' ', char(key));
+      Local("\tKey: ", key, ' ', char(key), '\t', param.accumulator);
     }
     Remote.conn.write(key);//relay to monster input.
   }
