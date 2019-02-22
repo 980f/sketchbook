@@ -12,7 +12,7 @@
   NOTE WELL: Using a preceding ~ on some psuedo variables is used to deal with otherwise ambiguous cast overloads. Sorry.
 
 */
-#define REVISIONMARKER "2019feb15-14:33"
+#define REVISIONMARKER "2019feb21-21:14"
 
 ///////////////////////////////////////////////////////////////
 //this chunk takes advantage of the c compiler concatenating adjacent quote delimited strings into one string.
@@ -844,9 +844,10 @@ struct Hotspare {
   bool recording = false;
   EEPrinter writer;
   Hotspare (): marker("#!") {}
+  /** extract configuration block report from trace and apply it locally */
   void operator()(byte trace) {
     switch (marker <= trace) {
-      case 1:
+      case 1://char after marker
         switch (trace) {
           case '{':
             //start eeprom write sequencer
@@ -963,15 +964,16 @@ void loopController() {
     }
     //we need a single key to get us back into 'not controller' mode.
     if(key==22){//^V
-    	ui.unleash(true);
+    	ui.unleash(true);//start processing commands locally, useful in case you accidentally configure to be remote, and to verify configuration capture.
+    } else {
+    	Remote.conn.write(key);//relay to monster input.
     }
-    Remote.conn.write(key);//relay to monster input.
   }
 
   int trace = Remote.getKey();
   if (trace > 0) { //relay monster output
-    Local.conn.write(trace);
-    hs(trace);
+    Local.conn.write(trace);//to human via USB serial adapter
+    hs(trace);//records configuration listing into local eeprom. 
   }
 }
 
