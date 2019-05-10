@@ -1,0 +1,354 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <title>beholder</title>
+    <meta name="author" content="Andy Heilveil">
+  </head>
+  <body>
+    <h2>beholder operating instructions</h2>
+    <p>&nbsp;2019feb09</p>
+    <p>From either the USB serial or through the hardware serial port one
+      presses keys. <br>
+      For operations which take a number the number precedes the letter.<br>
+      For two parameter operations separate the numbers with a comma.<br>
+      Spaces are a command, don't put spaces within other commands.</p>
+    <p>The devices are numbered:</p>
+    <table border="1">
+      <tbody>
+        <tr>
+          <th style=" background-color: white;">digit</th>
+          <th style=" background-color: white;">device</th>
+          <th style=" background-color: white;">notes</th>
+        </tr>
+        <tr>
+          <td>0</td>
+          <td>big eye</td>
+          <td>The big central eye. Normally this will be under joystick control
+            but can also be driven by keys</td>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td>a stalk</td>
+          <td rowspan="6" colspan="1">The eyestalks can be individually
+            controlled, but for some operations are operated together.<br>
+            They have 3 states: Dead,Alert,Seeking.<br>
+            Seeking enables random wiggling, the others have related positions.</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>a stalk</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>a stalk</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>a stalk</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>a stalk</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>a stalk</td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td>jaw and eyebrow</td>
+          <td>these are paired for configuration access but have their own
+            operating commands.<br>
+            jaw is X muscle, brow is Y muscle.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Each device has two servos, referred to in the source code as muscles.<br>
+      Each muscle has a configured range of motion which is defined in units of
+      raw servo commands, which are 0..4095. The operating range seems to max
+      out around 600 or so. We use 0 as an internal signal and the servo won't
+      like to go that low anyway as it might filter out such a short pulse.</p>
+    <p>The servo cycle time defaults to 50Hz.</p>
+    <table width="100%" border="1">
+      <tbody>
+        <tr>
+          <th style=" background-color: white;">letter</th>
+          <th style=" background-color: white;">action</th>
+          <th style=" background-color: white;">param</th>
+          <th style=" background-color: white;">2nd param</th>
+          <th style=" background-color: white;"><br>
+          </th>
+        </tr>
+        <tr>
+          <td><strong>F</strong></td>
+          <td>set servo frequency</td>
+          <td>PCA9685 value, 122 for 50Hz.</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>f</strong></td>
+          <td>report servo frequency</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>w</strong></td>
+          <td>select the eyestalk for the following commands (w for 'which')</td>
+          <td>see device table, use 9 for 'all' when that is allowed<br>
+            invalid values will be treated as '7'</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>.</td>
+          <td>"goto" move eyestalk to given coordinates</td>
+          <td rowspan="1" colspan="2">1..32767 for min to max of range, two
+            value required, comma separated</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>h</td>
+          <td>set wiggle rate</td>
+          <td>milliseconds between reversals</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>D</td>
+          <td>record position as place to go to when dead</td>
+          <td rowspan="1" colspan="2">see '.', if no values given then present
+            location is used</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>d</strong></td>
+          <td>go to 'dead' position<br>
+            <em>(state change working, position setting untested)</em></td>
+          <td>[pick stalk]</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>A</td>
+          <td>record position as place to go to when 'Alert'</td>
+          <td rowspan="1" colspan="2">see '.', if no values given then present
+            location is used</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>a</td>
+          <td>go to 'Alert' position</td>
+          <td>[pick stalk]</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Z</strong></td>
+          <td>set all devices to 'Seeking', ie start of scene</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>z</td>
+          <td>set devices which are not Dead to Seeking, between attacks</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>e</td>
+          <td>set X muscle to a position, value will be coerced into range ...</td>
+          <td>servo coordinate</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>s</td>
+          <td>set Y muscle to a position, ... defined by b,t.</td>
+          <td>servo coordinate</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>left arrow</td>
+          <td>set X muscle to a value +10 of current value</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>right arrow</td>
+          <td>set X muscle to a value -10 of current value</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>up arrow</td>
+          <td>set Y muscle to a value +10 of current value</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>down arrow</td>
+          <td>set Y muscle to a value -10 of current value</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>b</td>
+          <td>set last operated muscle's range minimum</td>
+          <td>servo coordinate</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>t</td>
+          <td>set last operated muscle's range maximum</td>
+          <td>servo coordinate</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>o</strong></td>
+          <td>connect joystick to pre-selected stalk</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>l</strong></td>
+          <td>disconnect joystick</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>x</td>
+          <td rowspan="2" colspan="1">set range of selected muscle of current
+            device</td>
+          <td rowspan="2" colspan="1">MAX servo coordinate</td>
+          <td rowspan="2" colspan="1">MIN servo coordinate</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>y</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>I</strong></td>
+          <td>rerun init sequence from program embedded version, <br>
+            sets ranges etc of each device.</td>
+          <td>0: rerun eeprom <br>
+            1: run rom<br>
+            <em>2: write present to eeprom (NYI)</em><br>
+            42: run rom and write to eeprom</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>p,j,space</td>
+          <td>reports on various program internals, changes frequently</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>*</td>
+          <td>scan for I2C devices, should report 64 for PCA9685</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>@</td>
+          <td>set each servo output to a value that is a function of which
+            channel it is. This is bad if servo's are attached!</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>newline<br>
+            return</td>
+          <td>print out some blank lines.</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p><br>
+    </p>
+  </body>
+</html>

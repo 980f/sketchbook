@@ -86,9 +86,6 @@ void setup() {
     cred.save(CredAddress);
     dbg("\nSaved credentials at ",CredAddress);
     keepip.save();
-  } else {
-//    cred.load(CredAddress);
-    keepip.load();
   }
 
   net.begin(cred);
