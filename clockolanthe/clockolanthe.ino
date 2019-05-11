@@ -150,22 +150,30 @@ void loop() {
       if (cmd.doKey(key)) {
         switch (key) {
           case 'p'://go to position
-            spinit = assigncmp(target,cmd.arg);//assigns cmd.arg to target, returns  -1,0, or 1.
-            break;        
+            dbg("\nGoing to:", cmd.arg);
+            spinit = assigncmp(target, cmd.arg); //assigns cmd.arg to target, returns  -1,0, or 1.
+            break;
           case 'v'://set stepping rate to use
+            dbg("\nSetting step:", cmd.arg);
             upspeed(cmd.arg);
             break;
           case 'x'://stop stepping
+            dbg("\nStopping.");
             spinit = 0;
             break;
           case 'r'://run in reverse
+            dbg("\nRun Reverse.");
             spinit = -1;
             target = positioner + 1;
             break;
           case 'f'://run forward
+            dbg("\nRun Forward.");
             spinit = 1;
             target = positioner - 1;
             break;
+          default:
+            dbg("\nIgnored:", key, cmd.arg, cmd.pushed);
+
         }
       }
     }
