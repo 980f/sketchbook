@@ -26,7 +26,7 @@ const PROGMEM char initblock[] =
   "\n	5w	400,200x	450,200y	55,2D	20000,20005A"
   "\n	6w	400,200x	460,200y	66,9D	20000,20006A"
   "\n	0w	400,200x	400,200y	99,0D	20000,20000A" //big eye
-  "\n	7w	400,200x	470,200y	77,6D	20000,20007A" //jawbrow
+  "\n	7w	400,100x	400,100y	77,6D	20000,20007A" //jawbrow
   "\n	500h	24000H"  //wiggler config rate then yamp
   ;
 #include "initer.h"
@@ -531,7 +531,7 @@ void doSetpoint(boolean set, EyeState es, const Gaze &gaze) {
     }
     Console(FF("Recorded "), ui.tunee, "\tsetpoint:", es, "\tas:", ui.stalk().pos(es));
   } else {//goto dead position
-    if (arg) {//was too easy to hit d without a selection and kill the big eye. If we aren't worred then we can drop this 'if'. 
+    if (arg) {//was too easy to hit d without a selection and kill the big eye. If we aren't worred then we can drop this 'if'.
       ui.selectStalk(arg);
     }
   }
@@ -689,7 +689,9 @@ void doKey(byte key) {
       Console(FF("prescale: "), pwm.getPrescale());
       break;
 
-    case 27://escape is easier to hit then shiftZ
+    case 22://^V
+      ui.unleash(true);//ID the link
+      break;
     case 'Z': //reset scene
       allbe(EyeState::Seeking);
       ui.selectStalk(0);
@@ -762,7 +764,10 @@ void doKey(byte key) {
       joy.show();
       break;
     case 'j':
-      showRaw();
+      jaw.flail(1);
+      break;
+    case 'k':
+      jaw.flail(0);
       break;
     case ' ':
       joy.show();
@@ -903,7 +908,7 @@ void setup() {
   pwmOnline();//for powerup message
 
   unsigned cfgsize = Init.load();
-
+  eyestalk[7].X.range.bottom = 100;
   ui.updateEyes = false;//joystick spews if not attached.
 
   Console(FF("Init block is "), cfgsize, " bytes");//process config from eeprom
@@ -963,17 +968,17 @@ void loopController() {
       Local("\tKey: ", key, ' ', char(key), '\t', numberparser.accumulator);
     }
     //we need a single key to get us back into 'not controller' mode.
-    if(key==22){//^V
-    	ui.unleash(true);//start processing commands locally, useful in case you accidentally configure to be remote, and to verify configuration capture.
+    if (key == 22) { //^V
+      ui.unleash(true);//start processing commands locally, useful in case you accidentally configure to be remote, and to verify configuration capture.
     } else {
-    	Remote.conn.write(key);//relay to monster input.
+      Remote.conn.write(key);//relay to monster input.
     }
   }
 
   int trace = Remote.getKey();
   if (trace > 0) { //relay monster output
     Local.conn.write(trace);//to human via USB serial adapter
-    hs(trace);//records configuration listing into local eeprom. 
+    hs(trace);//records configuration listing into local eeprom.
   }
 }
 
