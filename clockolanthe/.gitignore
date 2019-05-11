@@ -4,8 +4,14 @@ bitbanger.h
 boolish.cpp
 boolish.h
 chainprinter.h
+char.cpp
+char.h
 cheaptricks.h
+cstr.cpp
+cstr.h
+easyconsole.h
 eztypes.h
+index.h
 lardls
 millievent.h
 minimath.h
@@ -13,3 +19,6 @@ pinclass.h
 pinuser.h
 stepper.cpp
 stepper.h
+textkey.cpp
+textkey.h
+unsignedrecognizer.h

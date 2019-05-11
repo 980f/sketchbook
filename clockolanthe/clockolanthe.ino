@@ -5,8 +5,8 @@
 #include "stepper.h"
 Stepper positioner;
 
-#include "chainprinter.h"
-ChainPrinter dbg(Serial);
+#include "easyconsole.h"
+EasyConsole<decltype(Serial)> dbg(Serial);
 
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
@@ -19,11 +19,13 @@ unsigned speedstep = 100;
 //spin enable and direction
 int spinit = 0;
 
-//OutputPin<2> led;
+unsigned target = ~0U;
 
 void step() {
   positioner += spinit;
-  //	led=(positioner.step&3) == 3;
+  if (target == positioner) {
+    spinit = 0;
+  }
 }
 
 
@@ -65,15 +67,7 @@ bool stepCLI(char key) {
       --positioner;
       dbg("\nPhases:", xph0, xph1, xph2, xph3);
       break;
-    case 'x'://stop stepping
-      spinit = 0;
-      break;
-    case 'r'://run in reverse
-      spinit = -1;
-      break;
-    case 'f'://run forward
-      spinit = 1;
-      break;
+
     case 'u':
       speedstep -= 10;
       break;
@@ -91,15 +85,89 @@ bool stepCLI(char key) {
   return true;
 }
 
+
+/**
+  Command Line Interpreter, Reverse Polish input
+
+
+  If you have a 2-arg function
+  then the prior arg is take(pushed)
+*/
+#include "unsignedrecognizer.h"  //recognize numbers but doesn't deal with +/-
+
+
+class CLIRP {
+    UnsignedRecognizer numberparser;
+    //for 2 parameter commands, gets value from param.
+  public://until we get template to work.
+    unsigned arg = 0;
+    unsigned pushed = 0;
+  public:
+    /** command processor */
+    bool doKey(byte key) {
+      if (key == 0) { //ignore nulls, might be used for line pacing.
+        return false;
+      }
+      //test digits before ansi so that we can have a numerical parameter for those.
+      if (numberparser(key)) { //part of a number, do no more
+        return false;
+      }
+      arg = numberparser; //read and clear, regardless of whether used.
+
+      switch (key) {//used: aAbcdDefFhHiIjlMmNnoprstwxyzZ  :@ *!,.   tab cr newline
+        case '\t'://ignore tabs, makes param files easier to read.
+          return false;
+        case ','://push a parameter for 2 parameter commands.
+          pushed = arg;//by not using take() here 1234,X will behave like 1234,1234X
+          return false;
+      }
+      return true;//we did NOT handle it, you look at it.
+    }
+
+    template <typename Ret> Ret call(Ret (*fn)(unsigned, unsigned)) {
+      (*fn)(take(pushed), arg);
+    }
+
+    template <typename Ret> Ret call(Ret (*fn)(unsigned)) {
+      pushed = 0; //forget unused arg.
+      (*fn)(arg);
+    }
+
+};
+
+CLIRP cmd;
+/////////////////////////////////////
+
+
 void setup() {
   Serial.begin(115200);
-
+  upspeed(10);//try 100Hz for mental math.
 }
 
 void loop() {
   if (MilliTicked) {
-    while (Serial.available() > 0) { //only checking every milli to save power
-      stepCLI(Serial.read());
+    while (auto key = dbg.getKey()) { //only checking every milli to save power
+      if (cmd.doKey(key)) {
+        switch (key) {
+          case 'p'://go to position
+            spinit = assigncmp(target,cmd.arg);//assigns cmd.arg to target, returns  -1,0, or 1.
+            break;        
+          case 'v'://set stepping rate to use
+            upspeed(cmd.arg);
+            break;
+          case 'x'://stop stepping
+            spinit = 0;
+            break;
+          case 'r'://run in reverse
+            spinit = -1;
+            target = positioner + 1;
+            break;
+          case 'f'://run forward
+            spinit = 1;
+            target = positioner - 1;
+            break;
+        }
+      }
     }
     if (ticker.perCycle()) {
       step();

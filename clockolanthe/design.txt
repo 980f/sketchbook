@@ -1,0 +1,36 @@
+clockolanthe:
+
+Big Ben clockface, with wifi programmable hands.
+
+2nd Act starts at 5 a.m. or some similar time. 
+
+Clock should progress at real time, which means we need to know the steps per revolution and the gearing ration from stepper to hands.
+
+Direct drive, 200 steps per rev:
+60 minutes/200 steps = 18 seconds per step. Acceleration will not be an issue.
+
+For hour hand we need:
+12 hours/200 steps = 216 seconds per step, = minute hand * 12. (just checking).
+
+At such a rate precise timing is not needed so we will not use hardware timers, just software with a catchup.
+
+For slewing we still want to be slow enough to not worry about acceleration.
+20 seconds for a complete revolution would be:
+20 s/200= 100ms/step.
+
+-------------------
+remote control:
+
+) move h|m +|- 1
+) declare zero
+) run at real time
+) goto starting position
+) record present location as starting position (if we have index)
+if we have time and a trigger:
+) step back precomputed jump (for encore)
+
+
+------------------
+httpserver:
+
+
