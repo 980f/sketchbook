@@ -1,0 +1,15 @@
+## recreate links to library sources
+ln -sf ../shared/arduous arduous
+ln -sf ../shared/ezcpp/bitbanger.cpp bitbanger.cpp
+ln -sf ../shared/ezcpp/bitbanger.h bitbanger.h
+ln -sf ../shared/ezcpp/boolish.cpp boolish.cpp
+ln -sf ../shared/ezcpp/boolish.h boolish.h
+ln -sf ../shared/chainprinter.h chainprinter.h
+ln -sf ../shared/ezcpp/cheaptricks.h cheaptricks.h
+ln -sf ../shared/ezcpp/eztypes.h eztypes.h
+ln -sf ../shared/lardls lardls
+ln -sf ../shared/ezcpp/minimath.h minimath.h
+ln -sf ../shared/pinclass.h pinclass.h
+ln -sf ../shared/pinuser.h pinuser.h
+ln -sf ../shared/stepper.cpp stepper.cpp
+ln -sf ../shared/stepper.h stepper.h
