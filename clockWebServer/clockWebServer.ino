@@ -1,31 +1,8 @@
 /*
-   Copyright (c) 2015, Majenko Technologies
-   All rights reserved.
-
-   Redistribution and use in source and binary forms, with or without modification,
-   are permitted provided that the following conditions are met:
-
- * * Redistributions of source code must retain the above copyright notice, this
-     list of conditions and the following disclaimer.
-
- * * Redistributions in binary form must reproduce the above copyright notice, this
-     list of conditions and the following disclaimer in the documentation and/or
-     other materials provided with the distribution.
-
- * * Neither the name of Majenko Technologies nor the names of its
-     contributors may be used to endorse or promote products derived from
-     this software without specific prior written permission.
-
-   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-   ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-   DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-   ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-   (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-   LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-   ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+   web server which passes along commands via serial to clock controller. 
+   Someday will merge and run directly on an ESP module of some kind, but those were pin tight for this application.
+   Works on an ESP-01 with 512K (uses around ~320k).
+   
 */
 
 #include <ESP8266WiFi.h>
@@ -38,7 +15,6 @@ const char * const password = "brigadoon-will-be-back-soon";
 
 ESP8266WebServer server(8192);
 
-
 struct HMS {
   int sec;
   int min;
@@ -48,15 +24,43 @@ struct HMS {
     long tick = millis();
     sec = (tick / 1000) % 60;
     min = (tick / (60 * 1000)) % 60;
-    hr =  (tick / (60 * 60 * 1000)) %12;
+    hr =  (tick / (60 * 60 * 1000)) % 12;
+    if(!hr){
+    	hr=12;
+    }
   }
 };
 
+#include <stdarg.h>
+struct Sprinter {
+  int guard = 0;
+  int tail = 0;
+  char *buffer;
+  Sprinter(char * buffer, size_t length): guard(length), buffer(buffer) {}
+
+  char * printf(const char *format, ...) {
+    va_list args;
+    va_start (args, format);
+    tail += vsnprintf(buffer + tail, guard - tail, format, args);
+    va_end (args);
+    return buffer;//to inline print and use.
+  }
+
+};
+
 //
-//used %3d for the angle specs as the width of the control equals the width of the biggest field we might print and as such we can use the sizeof(...) to allocate ram to render the page into
 const char pagetemplate[] =
   "<html><head><meta http-equiv='refresh' content='13'/><title>login</title></head><body>"
-  "<h1>Big Bender</h1><p>%02d:%02d:%02d</p> "
+  "<h1>Big Bender</h1 "
+"<form> <span>Set:</span> <input name='h' value='%2d' type='number'> <span>:</span> <input name='m' value='%02d' type='number'> <button name='s' type='submit'> Set Clock </button><br>"
+"<button name='z' type=submit'> Zero. </button><br>"
+"<span>Nudge:</span>"
+"<button name='p' type=submit' value='-100'> -100 </button>"
+"<button name='p' type=submit' value='-10'>-10 </button>"
+"<button name='p' type=submit' value='10'> 10 </button>"
+"<button name='p' type=submit' value='100'> 100 </button>"
+"</form><br>"
+//analog clock display, doesn't track entry.
   "<svg xmlns='http://www.w3.org/2000/svg' id='clock' width='250' height='250'  viewBox='0 0 250 250' >  <title>dial it up</title>"
   "<circle id='face' cx='125' cy='125' r='100' style='fill: white; stroke: black'/>"
   "<g id='ticks' transform='translate(125,125)'>"
@@ -79,32 +83,30 @@ const char pagetemplate[] =
   "<path id='minute' d='M125,125 L125,45' transform='rotate(%3d, 125, 125)'/>"
   "<path id='second' d='M125,125 L125,30' transform='rotate(%3d, 125, 125)' style='stroke: red; stroke-width: 2px' />"
   "</g>"
-  
+
   "<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
   "</svg></body></html>";
-//
+
+//used %3d for the angle specs as the width of the control equals the width of the biggest field we might print and as such we can use the sizeof(...) to allocate ram to render the page into.
 static char workspace[sizeof(pagetemplate) ];
 
-void handleRoot() {
+void slash() {
   HMS c;
-  snprintf(workspace, sizeof(workspace) - 1, pagetemplate , c.hr, c.min, c.sec, c.hr * 30, c.min * 6, c.sec * 6); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
-  server.send(200, "text/html", workspace);
+  Sprinter p(workspace, sizeof(workspace) - 1);
+  p.printf(pagetemplate , c.hr, c.min, c.hr * 30, c.min * 6, c.sec * 6); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
+  
+  server.send(200, "text/html", p.buffer);
 }
 
-void handleNotFound() {
-  String message = "Item Not Found\n\n";
-  message += "URI: ";
-  message += server.uri();
-  message += "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
-  message += "\nArguments: ";
-  message += server.args();
-  message += "\n";
+void showRequest() {
+  Sprinter p(workspace, sizeof(workspace) - 1);
+  p.printf("%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
 
-  for (uint8_t i = 0; i < server.args(); i++) {
-    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  for (unsigned i = server.args(); i-- > 0;) {
+    p.printf( "\n\t%s:%s ", server.argName(i).c_str() , server.arg(i).c_str() );
   }
-  server.send(404, "text/plain", message);
+  Serial.println(p.buffer);//for now track web activity
+//  server.send(404, "text/plain", "Sorry Dave, I can't do that");
 }
 
 void onConnection() {
@@ -118,13 +120,10 @@ void onConnection() {
     Serial.println("MDNS responder started");
   }
 
-  server.on("/", handleRoot);
-  server.on("/inline", []() {
-    server.send(200, "text/plain", "simple text response");
-  });
-  server.onNotFound(handleNotFound);
+  server.on("/", slash);
+  server.onNotFound(showRequest);
   server.begin();
-  Serial.println("HTTP server started");
+  Serial.println("Big Ben is at your service.");
 }
 
 void setup(void) {
