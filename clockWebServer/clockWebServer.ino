@@ -48,47 +48,47 @@ struct HMS {
     long tick = millis();
     sec = (tick / 1000) % 60;
     min = (tick / (60 * 1000)) % 60;
-    hr =  (tick / (60 * 60 * 1000));
+    hr =  (tick / (60 * 60 * 1000)) %12;
   }
 };
 
+//
+//used %3d for the angle specs as the width of the control equals the width of the biggest field we might print and as such we can use the sizeof(...) to allocate ram to render the page into
+const char pagetemplate[] =
+  "<html><head><meta http-equiv='refresh' content='13'/><title>login</title></head><body>"
+  "<h1>Big Bender</h1><p>%02d:%02d:%02d</p> "
+  "<svg xmlns='http://www.w3.org/2000/svg' id='clock' width='250' height='250'  viewBox='0 0 250 250' >  <title>dial it up</title>"
+  "<circle id='face' cx='125' cy='125' r='100' style='fill: white; stroke: black'/>"
+  "<g id='ticks' transform='translate(125,125)'>"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(30)'  />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(60)'  />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(90)'  />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(120)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(150)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(180)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(210)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(240)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(270)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(300)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(330)' />"
+  "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(360)' />"
+  "</g>"
 
-//used %3d for the spec as it happens to be the width of the biggest field we might print and as such we cna use the sizeof(clockface) to allocate ram to render the svg into
-const char clockface[] = "<svg xmlns='http://www.w3.org/2000/svg' id='clock' width='250' height='250'  viewBox='0 0 250 250' >  <title>SVG Analog Clock</title>"
-                         "<circle id='face' cx='125' cy='125' r='100' style='fill: white; stroke: black'/>"
-                         "<g id='ticks' transform='translate(125,125)'>"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(30)'  />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(60)'  />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(90)'  />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(120)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(150)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(180)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(210)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(240)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(270)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(300)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(330)' />"
-                         "<path d='M95,0 L100,-5 L100,5 Z' transform='rotate(360)' />"
-                         "</g>"
-
-                         "<g id='hands' style='stroke: black;  stroke-width: 5px; stroke-linecap: round;'>"
-                         "<path id='hour'   d='M125,125 L125,75' transform='rotate(%3d, 125, 125)'/>"
-                         "<path id='minute' d='M125,125 L125,45' transform='rotate(%3d, 125, 125)'/>"
-                         "<path id='second' d='M125,125 L125,30' transform='rotate(%3d, 125, 125)' style='stroke: red; stroke-width: 2px' />"
-                         "</g>"
-                         "<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
-                         "</svg>";
-
-static char workspace[sizeof(clockface) + 1];
-
-#define ClockKey "/clockimage.svg"
+  "<g id='hands' style='stroke: black;  stroke-width: 5px; stroke-linecap: round;'>"
+  "<path id='hour'   d='M125,125 L125,75' transform='rotate(%3d, 125, 125)'/>"
+  "<path id='minute' d='M125,125 L125,45' transform='rotate(%3d, 125, 125)'/>"
+  "<path id='second' d='M125,125 L125,30' transform='rotate(%3d, 125, 125)' style='stroke: red; stroke-width: 2px' />"
+  "</g>"
+  
+  "<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
+  "</svg></body></html>";
+//
+static char workspace[sizeof(pagetemplate) ];
 
 void handleRoot() {
-  char temp[400];
   HMS c;
-  snprintf(workspace, sizeof(workspace) - 1, clockface, c.hr*30, c.min*6, c.sec*6);//6 degrees per second and minute, 360/60, 360/12 = 30 for hour
-  snprintf(temp, sizeof(temp) - 1, "<html><head><meta http-equiv='refresh' content='13'/><title>login</title></head><body><h1>Big Bender</h1><p>Uptime: %02d:%02d:%02d</p> <img src='" ClockKey "' /></body></html>", c.hr, c.min, c.sec);
-  server.send(200, "text/html", temp);
+  snprintf(workspace, sizeof(workspace) - 1, pagetemplate , c.hr, c.min, c.sec, c.hr * 30, c.min * 6, c.sec * 6); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
+  server.send(200, "text/html", workspace);
 }
 
 void handleNotFound() {
@@ -104,7 +104,6 @@ void handleNotFound() {
   for (uint8_t i = 0; i < server.args(); i++) {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
-
   server.send(404, "text/plain", message);
 }
 
@@ -120,7 +119,6 @@ void onConnection() {
   }
 
   server.on("/", handleRoot);
-  server.on(ClockKey, [](){ server.send(200, "image/svg+xml", workspace);});
   server.on("/inline", []() {
     server.send(200, "text/plain", "simple text response");
   });
@@ -134,7 +132,6 @@ void setup(void) {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.println("");
-
 }
 
 bool connected = false;
