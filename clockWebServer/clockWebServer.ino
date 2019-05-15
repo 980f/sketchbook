@@ -1,8 +1,8 @@
 /*
-   web server which passes along commands via serial to clock controller. 
+   web server which passes along commands via serial to clock controller.
    Someday will merge and run directly on an ESP module of some kind, but those were pin tight for this application.
    Works on an ESP-01 with 512K (uses around ~320k).
-   
+
 */
 
 #include <ESP8266WiFi.h>
@@ -25,8 +25,8 @@ struct HMS {
     sec = (tick / 1000) % 60;
     min = (tick / (60 * 1000)) % 60;
     hr =  (tick / (60 * 60 * 1000)) % 12;
-    if(!hr){
-    	hr=12;
+    if (!hr) {
+      hr = 12;
     }
   }
 };
@@ -52,15 +52,15 @@ struct Sprinter {
 const char pagetemplate[] =
   "<html><head><meta http-equiv='refresh' content='13'/><title>login</title></head><body>"
   "<h1>Big Bender</h1 "
-"<form> <span>Set:</span> <input name='h' value='%2d' type='number'> <span>:</span> <input name='m' value='%02d' type='number'> <button name='s' type='submit'> Set Clock </button><br>"
-"<button name='z' type=submit'> Zero. </button><br>"
-"<span>Nudge:</span>"
-"<button name='p' type=submit' value='-100'> -100 </button>"
-"<button name='p' type=submit' value='-10'>-10 </button>"
-"<button name='p' type=submit' value='10'> 10 </button>"
-"<button name='p' type=submit' value='100'> 100 </button>"
-"</form><br>"
-//analog clock display, doesn't track entry.
+  "<form> <span>Set:</span> <input name='h' value='%2d' type='number'> <span>:</span> <input name='m' value='%02d' type='number'> <button name='s' type='submit'> Set Clock </button><br>"
+  "<button name='z' type=submit'> Zero. </button><br>"
+  "<span>Nudge:</span>"
+  "<button name='p' type=submit' value='-100'> -100 </button>"
+  "<button name='p' type=submit' value='-10'>-10 </button>"
+  "<button name='p' type=submit' value='10'> 10 </button>"
+  "<button name='p' type=submit' value='100'> 100 </button>"
+  "</form><br>"
+  //analog clock display, doesn't track entry.
   "<svg xmlns='http://www.w3.org/2000/svg' id='clock' width='250' height='250'  viewBox='0 0 250 250' >  <title>dial it up</title>"
   "<circle id='face' cx='125' cy='125' r='100' style='fill: white; stroke: black'/>"
   "<g id='ticks' transform='translate(125,125)'>"
@@ -88,25 +88,33 @@ const char pagetemplate[] =
   "</svg></body></html>";
 
 //used %3d for the angle specs as the width of the control equals the width of the biggest field we might print and as such we can use the sizeof(...) to allocate ram to render the page into.
-static char workspace[sizeof(pagetemplate) ];
+static char workspace[4096];//2k is biggest so far.
 
+#define WORKSPACE Sprinter p(workspace, sizeof(workspace))
 void slash() {
   HMS c;
-  Sprinter p(workspace, sizeof(workspace) - 1);
+  WORKSPACE;
   p.printf(pagetemplate , c.hr, c.min, c.hr * 30, c.min * 6, c.sec * 6); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
-  
+
+  server.send(200, "text/html", p.buffer);
+}
+
+void uptime() {
+  HMS c;
+  WORKSPACE;
+  p.printf(pagetemplate , c.hr, c.min, c.hr * 30, c.min * 6, c.sec * 6); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
   server.send(200, "text/html", p.buffer);
 }
 
 void showRequest() {
-  Sprinter p(workspace, sizeof(workspace) - 1);
+  WORKSPACE;
   p.printf("%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
 
   for (unsigned i = server.args(); i-- > 0;) {
     p.printf( "\n\t%s:%s ", server.argName(i).c_str() , server.arg(i).c_str() );
   }
   Serial.println(p.buffer);//for now track web activity
-//  server.send(404, "text/plain", "Sorry Dave, I can't do that");
+  //  server.send(404, "text/plain", "Sorry Dave, I can't do that");
 }
 
 void onConnection() {
@@ -124,13 +132,15 @@ void onConnection() {
   server.onNotFound(showRequest);
   server.begin();
   Serial.println("Big Ben is at your service.");
+  Serial.print("Max page size:");
+  Serial.println(sizeof(pagetemplate));
 }
 
 void setup(void) {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  Serial.println("");
+
 }
 
 bool connected = false;
