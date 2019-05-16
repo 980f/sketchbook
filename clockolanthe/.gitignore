@@ -11,10 +11,12 @@ cstr.cpp
 cstr.h
 easyconsole.h
 eztypes.h
+hook.h
 index.h
 lardls
 millievent.h
 minimath.h
+pcf8575.h
 pinclass.h
 pinuser.h
 stepper.cpp

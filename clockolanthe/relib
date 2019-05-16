@@ -12,13 +12,14 @@ ln -sf ../shared/ezcpp/cstr.cpp cstr.cpp
 ln -sf ../shared/ezcpp/cstr.h cstr.h
 ln -sf ../shared/easyconsole.h easyconsole.h
 ln -sf ../shared/ezcpp/eztypes.h eztypes.h
+ln -sf ../shared/ezcpp/hook.h hook.h
 ln -sf ../shared/ezcpp/index.h index.h
 ln -sf ../shared/lardls lardls
 ln -sf ../shared/millievent.h millievent.h
 ln -sf ../shared/ezcpp/minimath.h minimath.h
+ln -sf ../shared/pcf8575.h pcf8575.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
-ln -sf ../shared/stepper.cpp stepper.cpp
 ln -sf ../shared/stepper.h stepper.h
 ln -sf ../shared/ezcpp/textkey.cpp textkey.cpp
 ln -sf ../shared/ezcpp/textkey.h textkey.h
