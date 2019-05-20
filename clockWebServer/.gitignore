@@ -9,5 +9,8 @@ easyconsole.h
 eztypes.h
 index.h
 lardls
+limitedpointer.h
 minimath.h
+sprinter.cpp
+sprinter.h
 textkey.h
