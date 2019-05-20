@@ -9,98 +9,38 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-
+#include "eztypes.h"//countof
 #include "easyconsole.h"
 EasyConsole<decltype(Serial)> dbg(Serial);
 
+struct Login {
+  const char * const ssid = "honeypot";
+  const char * const password = "brigadoon-will-be-back-soon";
+  Login(const char * const ssid , const char * const password ): ssid(ssid), password(password) {}
 
-const char * const ssid = "honeypot";
-const char * const password = "brigadoon-will-be-back-soon";
+};
+
+
+Login known[] = {
+  {"honeypot", "brigadoon-will-be-back-soon"},
+  {"Verizon-MiFi7730L-7D50", "5532f44d"},
+};
+#include "limitedpointer.h"
+LimitedPointer<Login> logins(known,countof(known));
+
+Login *dnserver=nullptr;
 
 const char * const ourname = "bigbender";
 ESP8266WebServer server(1859);
 
-struct HMS {
-  int hour;
-  int minute;
-  int sec;
-  int mils;
+#include "hms.h"
 
-  HMS(long tick) {
-    mils = tick % 1000;
-    sec = (tick / 1000) % 60;
-    minute = (tick / (60 * 1000)) % 60;
-    hour =  (tick / (60 * 60 * 1000)) % 12;
-    if (hour == 0) {
-      hour = 12;
-    }
-  }
-};
-
-HMS bigben(0);
-HMS desired(0);
 bool updateDesired = false;
 
-#include "char.h"
-
-void setTimeFrom(const char *value) {
-  int *field = &desired.hour;
-  while (char c = *value++) {
-    Char see(c);
-    if (!see.appliedDigit(*field)) {
-      if (see == ':') {
-        field = &desired.minute;
-      } else {
-        dbg("Bad hh:mm> ", value);
-        //and try to survive it
-      }
-    }
-  }
-
-}
-
-#include <stdarg.h>
-struct Sprinter {
-  const int guard;
-  char * const buffer;
-
-  int tail;
-  Sprinter &rewind() {
-    tail = 0;
-    return *this;
-  }
-
-  Sprinter(char * buffer, size_t length): guard(length), buffer(buffer) {
-    rewind();
-  }
-
-  char * printf(const char *format, ...) {
-    va_list args;
-    va_start (args, format);
-    tail += vsnprintf(buffer + tail, guard - tail, format, args);
-    va_end (args);
-    return buffer;//to inline print as an argument
-  }
-
-  operator char *() {
-    return buffer;
-  }
-
-  //diagnostic:
-  static int mostused;
-  ~Sprinter() {
-    if (mostused < tail) {
-      mostused = tail;
-    }
-  }
-};
-int Sprinter::mostused = 0;
-
-//
+//////////////////////////////////////////////////////////////////////////////
 const char headbody[] =
   "\n<html><head><meta http-equiv='refresh' content='%d'/><title>BigBen</title></head><body>"
-  "<h1>Big Bender</h1 ";
-
+  "<h1>Big Bender</h1> ";
 
 //using single letter arg names to allow use of switch()
 const char form[] =
@@ -144,30 +84,37 @@ const char clockdisplay[] =
   "\n<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
   "</svg>";
 
+  ;;
+  
+
+
 const char enddocument[] = "\n</body></html>";
 
 static char workspace[4096];//2k is biggest so far. Choosing "eeprom" page size for the ESP-01.
+#include "sprinter.h"
 Sprinter p(workspace, sizeof(workspace));
+;;;;;
+HMS bigben(0);
+HMS desired(0);
 
-#define WORKSPACE p.rewind()
-
-
-void showtime(const HMS &ck) {
+void showclock(HMS &ck) {
   p.printf(clockdisplay, ck.hour * 30, ck.minute * 6, ck.sec * 6, ck.hour , ck.minute, ck.sec ); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
 }
+
+#define WORKSPACE p.rewind()
 
 void elapsed() {
   HMS c(millis());
   WORKSPACE;
   p.printf(headbody, 13); //refresh rate
-  showtime(c);
+  showclock(c);
   p.printf(enddocument);
   server.send(200, "text/html", p.buffer);
 }
 
 
-void diagRequest(){
-	WORKSPACE;
+void diagRequest() {
+  WORKSPACE;
   p.printf("%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
   for (unsigned i = server.args(); i-- > 0;) {
     p.printf( "\n\t%s:%s ", server.argName(i).c_str() , server.arg(i).c_str() );
@@ -186,14 +133,14 @@ void ackIgnore() {
 }
 
 void slash() {
- bool dumpem=server.args()==0;
+  bool dumpem = server.args() == 0;
   for (unsigned i = server.args(); i-- > 0;) {
     const char *value = server.arg(i).c_str(); //you MUST not persist this outside of the function call
     char key = server.argName(i)[0];//single letter names
 
     switch (key) {
       case 'h': //set time of remote from hh:mm (24H)
-        setTimeFrom(value);
+        desired.setTimeFrom(value);
         dbg("\nDesired time recorded locally");
         break;
       case 's'://publish time to clock
@@ -206,27 +153,27 @@ void slash() {
       case 'p'://pulse the stepper
         dbg('!', value);
         break;
-        default:
-        dumpem=true;
+      default:
+        dumpem = true;
         break;
     }
   }
-	if(dumpem){
-		diagRequest();
-		dbg(p.buffer);	
-	}
+  if (dumpem) {
+    diagRequest();
+    dbg(p.buffer);
+  }
   HMS c(millis());//will be clock's last report
   WORKSPACE;
   p.printf(headbody, 13); //refresh rate
   p.printf(form);//no args yet, time widget ignores given value.
-	 showtime(c);
+  showclock(c);
   p.printf(enddocument);
   server.send(200, "text/html", p.buffer);
 }
 
 
 void onConnection() {
-  dbg("\nConnected to ", ssid);
+  dbg("\nConnected to ", dnserver->ssid);
   dbg("\nIP address: ", WiFi.localIP());
 
   if (MDNS.begin(ourname)) {
@@ -245,10 +192,15 @@ void onConnection() {
   dbg("\nBig Ben is at your service.\n");
 }
 
+
+void login() {
+  dnserver=&logins.next();
+  WiFi.begin(dnserver->ssid, dnserver->password);
+}
+
 void setup(void) {
   dbg.begin(115200);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
 }
 
 bool connected = false;
@@ -262,6 +214,7 @@ void loop(void) {
     server.handleClient();
     MDNS.update();
   } else {
+    login();
     if (WiFi.status() != WL_CONNECTED) {
       delay(500);//todo: milltick, will want to poll serial port while waiting for wifi, to be ready to run on contact.
       dbg(".");
