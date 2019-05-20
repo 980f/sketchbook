@@ -97,9 +97,7 @@ Sprinter p(workspace, sizeof(workspace));
 HMS bigben(0);
 HMS desired(0);
 
-void showclock(HMS &ck) {
-  p.printf(clockdisplay, ck.hour * 30, ck.minute * 6, ck.sec * 6, ck.hour , ck.minute, ck.sec ); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
-}
+void showclock(const HMS &ck);
 
 #define WORKSPACE p.rewind()
 
@@ -195,12 +193,14 @@ void onConnection() {
 
 void login() {
   dnserver=&logins.next();
+  dbg("\t trying ",dnserver->ssid,' ',dnserver->password);
   WiFi.begin(dnserver->ssid, dnserver->password);
 }
 
 void setup(void) {
   dbg.begin(115200);
   WiFi.mode(WIFI_STA);
+  login();
 }
 
 bool connected = false;
@@ -214,7 +214,7 @@ void loop(void) {
     server.handleClient();
     MDNS.update();
   } else {
-    login();
+//    login();
     if (WiFi.status() != WL_CONNECTED) {
       delay(500);//todo: milltick, will want to poll serial port while waiting for wifi, to be ready to run on contact.
       dbg(".");
@@ -230,4 +230,8 @@ void loop(void) {
       }
     }
   }
+}
+
+void showclock(const HMS &ck) {//moving this here lets it compile, if inline where declared we get a spurious compiler error. Need to get a newer compiler than 4.8.2!
+  p.printf(clockdisplay, ck.hour * 30, ck.minute * 6, ck.sec * 6, ck.hour , ck.minute, ck.sec ); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
 }
