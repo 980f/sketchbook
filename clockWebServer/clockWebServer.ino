@@ -13,22 +13,25 @@
 #include "easyconsole.h"
 EasyConsole<decltype(Serial)> dbg(Serial);
 
+#include "millievent.h" //login timing
+
 struct Login {
-  const char * const ssid = "honeypot";
-  const char * const password = "brigadoon-will-be-back-soon";
-  Login(const char * const ssid , const char * const password ): ssid(ssid), password(password) {}
+  const char * const ssid;;
+  const char * const password;
+  unsigned timeout;
+  Login(const char * const ssid , const char * const password, unsigned timeout = 5000 ): ssid(ssid), password(password), timeout(timeout) {}
 
 };
 
 
 Login known[] = {
-  {"honeypot", "brigadoon-will-be-back-soon"},
-  {"Verizon-MiFi7730L-7D50", "5532f44d"},
+  {"honeypot", "brigadoon-will-be-back-soon", 4500},
+  {"Verizon-MiFi7730L-7D50", "5532f44d", 9000},
 };
 #include "limitedpointer.h"
-LimitedPointer<Login> logins(known,countof(known));
+LimitedPointer<Login> logins(known, countof(known));
 
-Login *dnserver=nullptr;
+Login *dnserver = nullptr;
 
 const char * const ourname = "bigbender";
 ESP8266WebServer server(1859);
@@ -84,8 +87,8 @@ const char clockdisplay[] =
   "\n<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
   "</svg>";
 
-  ;;
-  
+;;
+
 
 
 const char enddocument[] = "\n</body></html>";
@@ -113,7 +116,7 @@ void elapsed() {
 
 void diagRequest() {
   WORKSPACE;
-  p.printf("%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
+  p.printf("\n%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
   for (unsigned i = server.args(); i-- > 0;) {
     p.printf( "\n\t%s:%s ", server.argName(i).c_str() , server.arg(i).c_str() );
   }
@@ -190,13 +193,17 @@ void onConnection() {
   dbg("\nBig Ben is at your service.\n");
 }
 
+MonoStable timedOut;
+MonoStable pollStatus(500);//inherited value from some examples.
 
 void login() {
-  dnserver=&logins.next();
-  dbg("\t trying ",dnserver->ssid,' ',dnserver->password);
+  dnserver = &logins.next();
+  dbg("\nTrying ", dnserver->ssid, ' ', dnserver->password);
   WiFi.begin(dnserver->ssid, dnserver->password);
+  timedOut = dnserver->timeout;
 }
 
+/////////////////////////////////////////////////////////
 void setup(void) {
   dbg.begin(115200);
   WiFi.mode(WIFI_STA);
@@ -204,32 +211,36 @@ void setup(void) {
 }
 
 bool connected = false;
-long checkConnection = 0;
-
 int msglen = 0;
 bool commanding;
 
 void loop(void) {
-  if (connected) {
-    server.handleClient();
-    MDNS.update();
-  } else {
-//    login();
-    if (WiFi.status() != WL_CONNECTED) {
-      delay(500);//todo: milltick, will want to poll serial port while waiting for wifi, to be ready to run on contact.
-      dbg(".");
+  if (MilliTicked) {//todo: sleep a bit if not.
+    if (connected) {
+      server.handleClient();
+      MDNS.update();
     } else {
-      connected = true;
-      onConnection();
-    }
-  }
-  if (byte ch = dbg.getKey()) {
-    if (ch == '!') {
-      if (msglen == 0) {
-
+      if (pollStatus.perCycle()) {
+        if (WiFi.status() != WL_CONNECTED) {
+          dbg(".");
+          if(timedOut){
+          	login();//start over.
+          }
+        } else {
+          connected = true;
+          onConnection();
+        }
       }
     }
   }
+  if (byte ch = dbg.getKey()) {//stuff from motor driver
+    if (ch == '!') {
+      if (msglen == 0) {
+				
+      }
+    }
+  }
+
 }
 
 void showclock(const HMS &ck) {//moving this here lets it compile, if inline where declared we get a spurious compiler error. Need to get a newer compiler than 4.8.2!
