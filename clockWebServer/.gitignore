@@ -10,7 +10,10 @@ eztypes.h
 index.h
 lardls
 limitedpointer.h
+millievent.h
 minimath.h
 sprinter.cpp
 sprinter.h
+stopwatch.cpp
+stopwatch.h
 textkey.h
