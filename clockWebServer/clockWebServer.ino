@@ -35,6 +35,13 @@ Login *dnserver = nullptr;
 
 const char * const ourname = "bigbender";
 ESP8266WebServer server(1859);
+#include "stopwatch.h"  //to see how fast we dare poll.
+
+//will roll() with each event.
+StopWatch since;
+void timestamp(const char *event) {
+  dbg("\n", event, ':', double(since.roll()));
+}
 
 #include "hms.h"
 
@@ -44,6 +51,8 @@ bool updateDesired = false;
 const char headbody[] =
   "\n<html><head><meta http-equiv='refresh' content='%d'/><title>BigBen</title></head><body>"
   "<h1>Big Bender</h1> ";
+
+unsigned refreshRate = 2;
 
 //using single letter arg names to allow use of switch()
 const char form[] =
@@ -57,6 +66,7 @@ const char form[] =
   "<button name='p' type=submit' value='1'> 1 </button>"
   "<button name='p' type=submit' value='10'> 10 </button>"
   "<button name='p' type=submit' value='100'> 100 </button>"
+  "\n<br><input name='u' type='number' value=%d> \n<button type='submit'> Submit</button><br>"
   "\n</form><br>";
 
 const char clockdisplay[] =
@@ -107,7 +117,7 @@ void showclock(const HMS &ck);
 void elapsed() {
   HMS c(millis());
   WORKSPACE;
-  p.printf(headbody, 13); //refresh rate
+  p.printf(headbody, refreshRate); //refresh rate
   showclock(c);
   p.printf(enddocument);
   server.send(200, "text/html", p.buffer);
@@ -134,6 +144,7 @@ void ackIgnore() {
 }
 
 void slash() {
+  timestamp("Begin main page");
   bool dumpem = server.args() == 0;
   for (unsigned i = server.args(); i-- > 0;) {
     const char *value = server.arg(i).c_str(); //you MUST not persist this outside of the function call
@@ -154,6 +165,10 @@ void slash() {
       case 'p'://pulse the stepper
         dbg('!', value);
         break;
+      case 'u':
+        refreshRate = atoi(value);
+        dbg("setting page refresh rate to ",refreshRate);
+        break;
       default:
         dumpem = true;
         break;
@@ -165,11 +180,12 @@ void slash() {
   }
   HMS c(millis());//will be clock's last report
   WORKSPACE;
-  p.printf(headbody, 13); //refresh rate
-  p.printf(form);//no args yet, time widget ignores given value.
+  p.printf(headbody, refreshRate);
+  p.printf(form, refreshRate);
   showclock(c);
   p.printf(enddocument);
   server.send(200, "text/html", p.buffer);
+  timestamp("End main page");
 }
 
 
@@ -208,6 +224,7 @@ void setup(void) {
   dbg.begin(115200);
   WiFi.mode(WIFI_STA);
   login();
+  since.start();
 }
 
 bool connected = false;
@@ -223,11 +240,12 @@ void loop(void) {
       if (pollStatus.perCycle()) {
         if (WiFi.status() != WL_CONNECTED) {
           dbg(".");
-          if(timedOut){
-          	login();//start over.
+          if (timedOut) {
+            login();//start over.
           }
         } else {
           connected = true;
+          timestamp("Connected after ");
           onConnection();
         }
       }
@@ -236,7 +254,7 @@ void loop(void) {
   if (byte ch = dbg.getKey()) {//stuff from motor driver
     if (ch == '!') {
       if (msglen == 0) {
-				
+
       }
     }
   }
