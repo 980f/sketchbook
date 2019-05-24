@@ -197,11 +197,69 @@ class CLIRP {
 
 CLIRP cmd;
 ClockHand *hand = &minuteHand; //for tweaking one at a time
-/////////////////////////////////////
 
 void reportHand(const ClockHand&hand, const char *which) {
-  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, "Step=", hand.mechanism);
+  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
 }
+
+void doui() {
+  while (auto key = dbg.getKey()) { //only checking every milli to save power
+    if (cmd.doKey(key)) {
+      switch (key) {
+        case ' '://report status
+          reportHand(hourHand, "Hour");
+          reportHand(minuteHand, "Minute");
+
+          break;
+        case 'h'://go to position
+          dbg("\nHour going to:", cmd.arg);
+          hourHand.setTarget(cmd.arg);//todo scale to 12 hours!
+          break;
+
+        case 'm'://go to position
+          dbg("\nMinute going to:", cmd.arg);
+          minuteHand.setTarget(cmd.arg);//todo scale to 60 minutes!
+          break;
+
+        case 'v'://set stepping rate to use
+          dbg("\nSetting step:", cmd.arg);
+          upspeedBoth(cmd.arg);
+          break;
+
+        case 'x'://stop stepping of both
+          dbg("\nStopping.");
+          freezeBoth();
+          break;
+
+        case 'H':
+          dbg("\nfocussing on Hour hand");
+          hand = &hourHand;
+          break;
+        case 'M':
+          dbg("\nfocussing on minute hand");
+          hand = &minuteHand;
+          break;
+
+        case 'R'://free run in reverse
+          dbg("\nRun Reverse.");
+          hand->freerun = -1;
+          break;
+        case 'F'://run forward
+          dbg("\nRun Forward.");
+          hand->freerun = +1;
+          break;
+        case 'X'://stop just the one
+          hand->freeze();
+          break;
+        default:
+          dbg("\nIgnored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
+          break;
+      }
+    }//end command
+  }
+}
+
+/////////////////////////////////////
 
 void setup() {
   Serial.begin(115200);
@@ -211,59 +269,8 @@ void setup() {
 
 void loop() {
   if (MilliTicked) {
-    while (auto key = dbg.getKey()) { //only checking every milli to save power
-      if (cmd.doKey(key)) {
-        switch (key) {
-          case ' '://report status
-            reportHand(hourHand, "Hour");
-            reportHand(minuteHand, "Minute");
-
-            break;
-          case 'h'://go to position
-            dbg("\nHour going to:", cmd.arg);
-            hourHand.setTarget(cmd.arg);//todo scale to 12 hours!
-            break;
-
-          case 'm'://go to position
-            dbg("\nMinute going to:", cmd.arg);
-            minuteHand.setTarget(cmd.arg);//todo scale to 60 minutes!
-            break;
-
-          case 'v'://set stepping rate to use
-            dbg("\nSetting step:", cmd.arg);
-            upspeedBoth(cmd.arg);
-            break;
-
-          case 'x'://stop stepping of both
-            dbg("\nStopping.");
-            freezeBoth();
-            break;
-
-          case 'H':
-            hand = &hourHand;
-            break;
-          case 'M':
-            hand = &minuteHand;
-            break;
-
-          case 'R'://free run in reverse
-            dbg("\nRun Reverse.");
-            hand->freerun = -1;
-            break;
-          case 'F'://run forward
-            dbg("\nRun Forward.");
-            hand->freerun = +1;
-            break;
-          case 'X'://stop just the one
-            hand->freeze();
-            break;
-          default:
-            dbg("\nIgnored:", key, cmd.arg, cmd.pushed);
-            break;
-        }
-      }//end command
-      minuteHand.onTick();
-      hourHand.onTick();
-    }
+    minuteHand.onTick();
+    hourHand.onTick();
+    doui();
   }
 }
