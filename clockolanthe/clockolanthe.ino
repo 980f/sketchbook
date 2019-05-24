@@ -40,6 +40,10 @@ class ClockHand {
       enabled = false;
     }
 
+    bool needsPower(){
+      return enabled||freerun!=0;
+    }
+
     void setTarget(int target) {
       if (changed(this->target, target)) {
         enabled = target != mechanism;
@@ -273,13 +277,14 @@ void doui() {
 void setup() {
   Serial.begin(115200);
   upspeedBoth(5);//below around 3 the speed didn't change, might be erratic.
-
 }
 
 void loop() {
   if (MilliTicked) {
     minuteHand.onTick();
     hourHand.onTick();
+    
     doui();
+    stepperPower= hourHand.needsPower() || minuteHand.needsPower();
   }
 }
