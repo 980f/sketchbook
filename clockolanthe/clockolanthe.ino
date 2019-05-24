@@ -101,7 +101,7 @@ OutputPin<6> myp;
 OutputPin<4> myn;
 
 int stepForTime(unsigned time,unsigned base){
-  return rate(time * 2048 ,base);
+  return rate(long(time) * 2048 ,base);
 }
 
 bool greylsb(byte step){
@@ -249,7 +249,7 @@ void doui() {
           minuteHand.setTarget(cmd.arg);
           break;
 
-        case 'z'://declare preseent position is noon
+        case 'Z'://declare preseent position is noon
           dbg("\n marking noon");
           minuteHand.setReference(0);
           hourHand.setReference(0);
