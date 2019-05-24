@@ -33,6 +33,12 @@ class ClockHand {
 
     bool enabled = false;
     int target = ~0U;
+    int freerun = 0;
+
+    void freeze() {
+      freerun = 0;
+      enabled = false;
+    }
 
     void setTarget(int target) {
       if (changed(this->target, target)) {
@@ -48,10 +54,14 @@ class ClockHand {
     MonoStable ticker;//start up dead
 
     void onTick() {
-      if (enabled && ticker.perCycle()) {
-        mechanism += (target - mechanism);
-        if (target == mechanism) {
-          enabled = 0;
+      if (ticker.perCycle()) {
+        if (freerun) {
+          mechanism += freerun;
+        } else if (enabled) {
+          mechanism += (target - mechanism);//automatic 'signof' under the hood in Stepper class
+          if (target == mechanism) {
+            enabled = 0;
+          }
         }
       }
     }
@@ -125,9 +135,14 @@ ClockHand hourHand;
 bool stepperPower;
 #endif
 
-void upspeed(unsigned msperstep) {
+void upspeedBoth(unsigned msperstep) {
   minuteHand.upspeed(msperstep);
   hourHand.upspeed(msperstep);
+}
+
+void freezeBoth() {
+  minuteHand.freeze();
+  hourHand.freeze();
 }
 
 
@@ -181,6 +196,7 @@ class CLIRP {
 };
 
 CLIRP cmd;
+ClockHand *hand = &minuteHand; //for tweaking one at a time
 /////////////////////////////////////
 
 void reportHand(const ClockHand&hand, const char *which) {
@@ -189,7 +205,7 @@ void reportHand(const ClockHand&hand, const char *which) {
 
 void setup() {
   Serial.begin(115200);
-  upspeed(10);//try 100Hz for mental math.
+  upspeedBoth(10);//try 100Hz for mental math.
 
 }
 
@@ -215,24 +231,31 @@ void loop() {
 
           case 'v'://set stepping rate to use
             dbg("\nSetting step:", cmd.arg);
-            upspeed(cmd.arg);
+            upspeedBoth(cmd.arg);
             break;
 
-          case 'x'://stop stepping
+          case 'x'://stop stepping of both
             dbg("\nStopping.");
-            hourHand.enabled = 0;
-            minuteHand.enabled = 0;
+            freezeBoth();
             break;
 
+          case 'H':
+            hand = &hourHand;
+            break;
+          case 'M':
+            hand = &minuteHand;
+            break;
 
-          case 'r'://free run in reverse
+          case 'R'://free run in reverse
             dbg("\nRun Reverse.");
-            minuteHand.setTarget(0);
+            hand->freerun = -1;
             break;
-          case 'f'://run forward
+          case 'F'://run forward
             dbg("\nRun Forward.");
-            spinit = 1;
-            target = mechanism - 1;
+            hand->freerun = +1;
+            break;
+          case 'X'://stop just the one
+            hand->freeze();
             break;
           default:
             dbg("\nIgnored:", key, cmd.arg, cmd.pushed);
