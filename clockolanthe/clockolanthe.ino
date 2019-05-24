@@ -87,8 +87,8 @@ OutputPin<6> myp;
 OutputPin<7> myn;
 
 ClockHand minuteHand([](byte step) {
-  bool x = step & 1 != 0;
-  bool y = step & 2 != 0;
+  bool x = (step & 1) != 0;
+  bool y = (step & 2) != 0;
   mxp = x;
   mxn = !x;
   myp = y;
@@ -101,8 +101,8 @@ OutputPin<10> hyp;
 OutputPin<16> hyn;
 
 ClockHand hourHand([](byte step) {
-  bool x = step & 1 != 0;
-  bool y = step & 2 != 0;
+  bool x = (step & 1) != 0;
+  bool y = (step & 2) != 0;
   hxp = x;
   hxn = !x;
   hyp = y;
@@ -125,9 +125,9 @@ ClockHand hourHand;
 bool stepperPower;
 #endif
 
-void upspeed(unsigned msperstep){
-	minuteHand.upspeed(msperstep);
-	hourHand.upspeed(msperstep);
+void upspeed(unsigned msperstep) {
+  minuteHand.upspeed(msperstep);
+  hourHand.upspeed(msperstep);
 }
 
 
@@ -225,15 +225,15 @@ void loop() {
             break;
 
 
-          //          case 'r'://free run in reverse
-          //            dbg("\nRun Reverse.");
-          //            minuteHand.setTarget(0);
-          //            break;
-          //          case 'f'://run forward
-          //            dbg("\nRun Forward.");
-          //            spinit = 1;
-          //            target = mechanism - 1;
-          //            break;
+          case 'r'://free run in reverse
+            dbg("\nRun Reverse.");
+            minuteHand.setTarget(0);
+            break;
+          case 'f'://run forward
+            dbg("\nRun Forward.");
+            spinit = 1;
+            target = mechanism - 1;
+            break;
           default:
             dbg("\nIgnored:", key, cmd.arg, cmd.pushed);
             break;
