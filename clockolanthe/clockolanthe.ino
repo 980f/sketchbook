@@ -90,10 +90,10 @@ class ClockHand {
 
 #if UsingLeonardo
 #include "pinclass.h"
-//D4..D7
+//D4..D7  order chosen for wiring convenience
 OutputPin<4> mxp;
-OutputPin<5> mxn;
-OutputPin<6> myp;
+OutputPin<6> mxn;
+OutputPin<5> myp;
 OutputPin<7> myn;
 
 bool greylsb(byte step){
@@ -115,8 +115,8 @@ ClockHand minuteHand([](byte step) {
 });
 
 OutputPin<8> hxp;
-OutputPin<9> hxn;
-OutputPin<10> hyp;
+OutputPin<10> hxn;
+OutputPin<9> hyp;
 OutputPin<16> hyn;
 
 ClockHand hourHand([](byte step) {
@@ -272,7 +272,7 @@ void doui() {
 
 void setup() {
   Serial.begin(115200);
-  upspeedBoth(10);//try 100Hz for mental math.
+  upspeedBoth(5);//below around 3 the speed didn't change, might be erratic.
 
 }
 
