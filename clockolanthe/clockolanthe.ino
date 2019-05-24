@@ -95,10 +95,14 @@ class ClockHand {
 #if UsingLeonardo
 #include "pinclass.h"
 //D4..D7  order chosen for wiring convenience
-OutputPin<4> mxp;
-OutputPin<6> mxn;
-OutputPin<5> myp;
-OutputPin<7> myn;
+OutputPin<7> mxp;
+OutputPin<5> mxn;
+OutputPin<6> myp;
+OutputPin<4> myn;
+
+int stepForTime(unsigned time,unsigned base){
+  return rate(time * 2048 ,base);
+}
 
 bool greylsb(byte step){
   byte phase=step&3;
@@ -118,10 +122,10 @@ ClockHand minuteHand([](byte step) {
   myn = !y;
 });
 
-OutputPin<8> hxp;
-OutputPin<10> hxn;
-OutputPin<9> hyp;
-OutputPin<16> hyn;
+OutputPin<9> hxp;
+OutputPin<16> hxn;
+OutputPin<8> hyp;
+OutputPin<10> hyn;
 
 ClockHand hourHand([](byte step) {
   bool x = greylsb(step); 
@@ -225,14 +229,31 @@ void doui() {
 
           break;
         case 'h'://go to position
-          dbg("\nHour going to:", cmd.arg);
-          hourHand.setTarget(cmd.arg);//todo scale to 12 hours!
+          dbg("\nHour stepping to:", cmd.arg);
+          hourHand.setTarget(cmd.arg);
+          break;
+
+        case ':':
+          dbg("\nHour time to:", cmd.arg);
+          hourHand.setTarget(stepForTime(cmd.arg ,12));
+          break;
+
+          case ';':
+          dbg("\nMinute time to:", cmd.arg);
+          minuteHand.setTarget(stepForTime(cmd.arg,60));
+          
           break;
 
         case 'm'://go to position
-          dbg("\nMinute going to:", cmd.arg);
-          minuteHand.setTarget(cmd.arg);//todo scale to 60 minutes!
+          dbg("\nMinute hand to:", cmd.arg);
+          minuteHand.setTarget(cmd.arg);
           break;
+
+        case 'z'://declare preseent position is noon
+          dbg("\n marking noon");
+          minuteHand.setReference(0);
+          hourHand.setReference(0);
+          break;    
 
         case 'v'://set stepping rate to use
           dbg("\nSetting step:", cmd.arg);
