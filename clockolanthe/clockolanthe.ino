@@ -96,9 +96,18 @@ OutputPin<5> mxn;
 OutputPin<6> myp;
 OutputPin<7> myn;
 
+bool greylsb(byte step){
+  byte phase=step&3;
+  return (phase==1)||(phase==2);
+}
+
+bool greymsb(byte step){
+  return (step&3)>>1;
+}
+
 ClockHand minuteHand([](byte step) {
-  bool x = (step & 1) != 0;
-  bool y = (step & 2) != 0;
+  bool x = greylsb(step); 
+  bool y = greymsb(step);
   mxp = x;
   mxn = !x;
   myp = y;
@@ -111,8 +120,8 @@ OutputPin<10> hyp;
 OutputPin<16> hyn;
 
 ClockHand hourHand([](byte step) {
-  bool x = (step & 1) != 0;
-  bool y = (step & 2) != 0;
+  bool x = greylsb(step); 
+  bool y = greymsb(step);
   hxp = x;
   hxn = !x;
   hyp = y;
