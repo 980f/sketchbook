@@ -200,7 +200,7 @@ ClockHand *hand = &minuteHand; //for tweaking one at a time
 /////////////////////////////////////
 
 void reportHand(const ClockHand&hand, const char *which) {
-  dbg("\n", which, hand.target, " en:", hand.enabled);
+  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, "Step=", hand.mechanism);
 }
 
 void setup() {
