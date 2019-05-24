@@ -1,4 +1,18 @@
+#define UsingLeonardo 1
+#define UsingD1 0
+#define UsingIOExpander 0
+
+#include <Arduino.h>
+
+#if UsingD1
 #include <ESP8266WiFi.h>
+#endif
+
+
+#if UsingIOExpander
+#include "pcf8575.h"  //reduced accessed but simplified use
+PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct drive two steppers.
+#endif
 
 #include "cheaptricks.h"
 
@@ -8,12 +22,11 @@
 EasyConsole<decltype(Serial)> dbg(Serial);
 
 
-
-
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
 
 class ClockHand {
+  public:
     Stepper mechanism;
     //ms per step
     unsigned thespeed = ~0U;
@@ -25,7 +38,11 @@ class ClockHand {
       if (changed(this->target, target)) {
         enabled = target != mechanism;
       }
+    }
 
+    /** declares what the present location is, does not modify target or enable. */
+    void setReference(int location) {
+      mechanism = location;
     }
 
     MonoStable ticker;//start up dead
@@ -49,20 +66,70 @@ class ClockHand {
     ClockHand(Stepper::Interface interface) {
       mechanism.interface = interface;
     }
-}
 
-byte drive_2coil(unsigned step) {
-  static const byte grey4[] = {0b0101, 0b0110, 0b1010, 0b0110};//use by two coil steppers. H-brdige drivers may select just two of the bits.
-  return grey4[step & 3];
-}
+    ClockHand() {
 
-#include "pcf8575.h"  //reduced accessed but simplified use
-PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct drive two steppers. 
+    }
+};
 
+//
+//byte drive_2coil(unsigned step) {
+//  static const byte grey4[] = {0b0101, 0b0110, 0b1010, 0b0110};//use by two coil steppers. H-brdige drivers may select just two of the bits.
+//  return grey4[step & 3];
+//}
 
+#if UsingLeonardo
+#include "pinclass.h"
+//D4..D7
+OutputPin<4> mxp;
+OutputPin<5> mxn;
+OutputPin<6> myp;
+OutputPin<7> myn;
 
+ClockHand minuteHand([](byte step) {
+  bool x = step & 1 != 0;
+  bool y = step & 2 != 0;
+  mxp = x;
+  mxn = !x;
+  myp = y;
+  myn = !y;
+});
+
+OutputPin<8> hxp;
+OutputPin<9> hxn;
+OutputPin<10> hyp;
+OutputPin<16> hyn;
+
+ClockHand hourHand([](byte step) {
+  bool x = step & 1 != 0;
+  bool y = step & 2 != 0;
+  hxp = x;
+  hxn = !x;
+  hyp = y;
+  hyn = !y;
+});
+
+OutputPin<14> stepperPower;
+
+#elif UsingIOExpander
+//todo: bits()<=pick 4
 ClockHand minuteHand;
 ClockHand hourHand;
+
+bool stepperPower;
+
+#else
+ClockHand minuteHand;
+ClockHand hourHand;
+
+bool stepperPower;
+#endif
+
+void upspeed(unsigned msperstep){
+	minuteHand.upspeed(msperstep);
+	hourHand.upspeed(msperstep);
+}
+
 
 /**
   Command Line Interpreter, Reverse Polish input
@@ -116,6 +183,9 @@ class CLIRP {
 CLIRP cmd;
 /////////////////////////////////////
 
+void reportHand(const ClockHand&hand, const char *which) {
+  dbg("\n", which, hand.target, " en:", hand.enabled);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -128,6 +198,11 @@ void loop() {
     while (auto key = dbg.getKey()) { //only checking every milli to save power
       if (cmd.doKey(key)) {
         switch (key) {
+          case ' '://report status
+            reportHand(hourHand, "Hour");
+            reportHand(minuteHand, "Minute");
+
+            break;
           case 'h'://go to position
             dbg("\nHour going to:", cmd.arg);
             hourHand.setTarget(cmd.arg);//todo scale to 12 hours!
@@ -140,8 +215,7 @@ void loop() {
 
           case 'v'://set stepping rate to use
             dbg("\nSetting step:", cmd.arg);
-            hourHand.upspeed(cmd.arg);
-            minuteHand.upspeed(cmd.arg);
+            upspeed(cmd.arg);
             break;
 
           case 'x'://stop stepping
@@ -150,7 +224,7 @@ void loop() {
             minuteHand.enabled = 0;
             break;
 
-					case 'i';
+
           //          case 'r'://free run in reverse
           //            dbg("\nRun Reverse.");
           //            minuteHand.setTarget(0);
