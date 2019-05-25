@@ -1,13 +1,10 @@
 #define UsingLeonardo 1
 #define UsingD1 0
 #define UsingIOExpander 0
-
-#include <Arduino.h>
-
+////////////////////////////////////
 #if UsingD1
 #include <ESP8266WiFi.h>
 #endif
-
 
 #if UsingIOExpander
 #include "pcf8575.h"  //reduced accessed but simplified use
@@ -21,15 +18,43 @@ PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct 
 #include "easyconsole.h"
 EasyConsole<decltype(Serial)> dbg(Serial);
 
-
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
+
+const unsigned baseSPR = 2048;//28BYJ-48
+const unsigned slewspeed = 5;//5: smooth moving, no load.
 
 class ClockHand {
   public:
     Stepper mechanism;
     //ms per step
     unsigned thespeed = ~0U;
+    unsigned stepperrev = baseSPR;
+    enum Unit {
+      Seconds,
+      Minutes,
+      Hours,
+    };
+    Unit unit;
+
+    /** human units to clock angle */
+    unsigned timeperrev() const {
+      switch (unit) {
+        case Seconds: //same as minutes
+        case Minutes: return 60;
+        case Hours: return 12;
+        default: return 0;
+      }
+    }
+
+    unsigned long msperunit() const {
+      switch (unit) {
+        case Seconds: return 1000UL;
+        case Minutes: return 60 * 1000UL;
+        case Hours: return 60 * 60 * 1000UL;
+        default: return 0UL;
+      }
+    }
 
     bool enabled = false;
     int target = ~0U;
@@ -40,14 +65,22 @@ class ClockHand {
       enabled = false;
     }
 
-    bool needsPower(){
-      return enabled||freerun!=0;
+    bool needsPower() {
+      return enabled || freerun != 0;
     }
 
     void setTarget(int target) {
       if (changed(this->target, target)) {
         enabled = target != mechanism;
       }
+    }
+
+    void setTime(unsigned hmrs) {
+      setTarget(rate(long(hmrs) * stepperrev , timeperrev()));
+    }
+
+    void setFromMillis(unsigned ms) {
+      setTime(rate(ms, msperunit()));
     }
 
     /** declares what the present location is, does not modify target or enable. */
@@ -77,7 +110,13 @@ class ClockHand {
       }
     }
 
-    ClockHand(Stepper::Interface interface) {
+    //free run with time set so that one revolution happens
+    void realtime() {
+      upspeed(rate(msperunit()*timeperrev(), stepperrev)); //milliseconds /
+      freerun = 1;
+    }
+
+    ClockHand(Unit unit, Stepper::Interface interface): unit(unit) {
       mechanism.interface = interface;
     }
 
@@ -85,12 +124,6 @@ class ClockHand {
 
     }
 };
-
-//
-//byte drive_2coil(unsigned step) {
-//  static const byte grey4[] = {0b0101, 0b0110, 0b1010, 0b0110};//use by two coil steppers. H-brdige drivers may select just two of the bits.
-//  return grey4[step & 3];
-//}
 
 #if UsingLeonardo
 #include "pinclass.h"
@@ -100,21 +133,18 @@ OutputPin<5> mxn;
 OutputPin<6> myp;
 OutputPin<4> myn;
 
-int stepForTime(unsigned time,unsigned base){
-  return rate(long(time) * 2048 ,base);
+
+bool greylsb(byte step) {
+  byte phase = step & 3;
+  return (phase == 1) || (phase == 2);
 }
 
-bool greylsb(byte step){
-  byte phase=step&3;
-  return (phase==1)||(phase==2);
+bool greymsb(byte step) {
+  return (step & 3) >> 1;
 }
 
-bool greymsb(byte step){
-  return (step&3)>>1;
-}
-
-ClockHand minuteHand([](byte step) {
-  bool x = greylsb(step); 
+ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
+  bool x = greylsb(step);
   bool y = greymsb(step);
   mxp = x;
   mxn = !x;
@@ -127,8 +157,8 @@ OutputPin<16> hxn;
 OutputPin<8> hyp;
 OutputPin<10> hyn;
 
-ClockHand hourHand([](byte step) {
-  bool x = greylsb(step); 
+ClockHand hourHand(ClockHand::Hours, [](byte step) {
+  bool x = greylsb(step);
   bool y = greymsb(step);
   hxp = x;
   hxn = !x;
@@ -136,6 +166,7 @@ ClockHand hourHand([](byte step) {
   hyn = !y;
 });
 
+//UDN2540 driver supports this natively, will be ignored by uln2003 boards. A true pwm pin would be a good choice.
 OutputPin<14> stepperPower;
 
 #elif UsingIOExpander
@@ -152,6 +183,7 @@ ClockHand hourHand;
 bool stepperPower;
 #endif
 
+//arduino has issues with a plain function name matching that of a class in the same file!
 void upspeedBoth(unsigned msperstep) {
   minuteHand.upspeed(msperstep);
   hourHand.upspeed(msperstep);
@@ -162,6 +194,15 @@ void freezeBoth() {
   hourHand.freeze();
 }
 
+//now is reference position. Might be 5:00 a.m. for act II of Iolanthe
+void highnoon() {
+  minuteHand.setReference(0);
+  hourHand.setReference(0);
+}
+
+//StopWatch jerky;//time for jerky motion
+MilliTick jerky0 = BadTick;
+bool beJerky = false;
 
 /**
   Command Line Interpreter, Reverse Polish input
@@ -223,11 +264,24 @@ void doui() {
   while (auto key = dbg.getKey()) { //only checking every milli to save power
     if (cmd.doKey(key)) {
       switch (key) {
+        case 'T': case 't': //run real time, smoothly
+          minuteHand.realtime();
+          hourHand.realtime();
+          break;
+
+        case 'G': case 'g': //jumpy real time
+          upspeedBoth(slewspeed);//move briskly between defined points.
+          highnoon();
+          //          jerky.start();
+          jerky0 = MilliTicked.recent();
+          beJerky = true;
+          break;
+
         case ' '://report status
           reportHand(hourHand, "Hour");
           reportHand(minuteHand, "Minute");
-
           break;
+
         case 'h'://go to position
           dbg("\nHour stepping to:", cmd.arg);
           hourHand.setTarget(cmd.arg);
@@ -235,13 +289,12 @@ void doui() {
 
         case ':':
           dbg("\nHour time to:", cmd.arg);
-          hourHand.setTarget(stepForTime(cmd.arg ,12));
+          hourHand.setTime(cmd.arg);
           break;
 
-          case ';':
+        case ';':
           dbg("\nMinute time to:", cmd.arg);
-          minuteHand.setTarget(stepForTime(cmd.arg,60));
-          
+          minuteHand.setTime(cmd.arg);
           break;
 
         case 'm'://go to position
@@ -251,9 +304,8 @@ void doui() {
 
         case 'Z'://declare preseent position is noon
           dbg("\n marking noon");
-          minuteHand.setReference(0);
-          hourHand.setReference(0);
-          break;    
+          highnoon();
+          break;
 
         case 'v'://set stepping rate to use
           dbg("\nSetting step:", cmd.arg);
@@ -263,12 +315,14 @@ void doui() {
         case 'x'://stop stepping of both
           dbg("\nStopping.");
           freezeBoth();
+          beJerky = 0;
           break;
 
         case 'H':
           dbg("\nfocussing on Hour hand");
           hand = &hourHand;
           break;
+
         case 'M':
           dbg("\nfocussing on minute hand");
           hand = &minuteHand;
@@ -278,13 +332,16 @@ void doui() {
           dbg("\nRun Reverse.");
           hand->freerun = -1;
           break;
+
         case 'F'://run forward
           dbg("\nRun Forward.");
           hand->freerun = +1;
           break;
+
         case 'X'://stop just the one
           hand->freeze();
           break;
+
         default:
           dbg("\nIgnored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
           break;
@@ -297,15 +354,21 @@ void doui() {
 
 void setup() {
   Serial.begin(115200);
-  upspeedBoth(5);//below around 3 the speed didn't change, might be erratic.
+  upspeedBoth(slewspeed);
+  minuteHand.stepperrev = baseSPR;
+  hourHand.stepperrev = baseSPR;
 }
 
 void loop() {
   if (MilliTicked) {
+    if (beJerky /*jerky.isRunning()*/) { //set time and let target logic move the hand
+      MilliTick elapsed = MilliTicked.since(jerky0); //this presumes we set the clock origin to 0 when we record jerky0.
+      minuteHand.setFromMillis(elapsed);
+      hourHand.setFromMillis(elapsed);
+    }
     minuteHand.onTick();
     hourHand.onTick();
-    
     doui();
-    stepperPower= hourHand.needsPower() || minuteHand.needsPower();
+    stepperPower = hourHand.needsPower() || minuteHand.needsPower();
   }
 }
