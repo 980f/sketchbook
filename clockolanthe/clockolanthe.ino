@@ -42,6 +42,8 @@ Pin<21, INPUT_PULLUP> SCLpup;
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
 
+
+
 class ClockHand {
   public:
     Stepper mechanism;
@@ -74,13 +76,20 @@ class ClockHand {
       }
     }
 
+    //want to be on
     bool enabled = false;
+    //think we are on
+    bool energized = false; //actually is unknown at init
+    //where we want to be
     int target = ~0U;
+    //ignore position, run forever in the given direction
     int freerun = 0;
 
     void freeze() {
       freerun = 0;
-      enabled = false;
+      if (changed(enabled, false)) {
+        ;
+      }
     }
 
     bool needsPower() {
@@ -110,22 +119,22 @@ class ClockHand {
     MonoStable ticker;//start up dead
     MonoStable lastStep;//need to wait a bit for power down, maybe also for power up.
 
-    void onTick() {    	
+    void onTick() {
       if (ticker.perCycle()) {
         if (freerun) {
           mechanism += freerun;
           return;
-        } 
+        }
         if (enabled) {
           mechanism += (target - mechanism);//automatic 'signof' under the hood in Stepper class
           if (target == mechanism) {
             enabled = 0;
-            lastStep.start(ticker);
+            lastStep.set(MilliTick(ticker));
           }
         } else {
-        	if(lastStep.hasFinished()){
-        		
-        	}
+          if (lastStep.hasFinished()) {
+
+          }
         }
       }
     }
@@ -143,10 +152,11 @@ class ClockHand {
       freerun = 1;
     }
 
-    ClockHand(Unit unit, Stepper::Mechanism &interface): mechanism(interface),unit(unit) {
+    ClockHand(Unit unit, Stepper::Interface interface): unit(unit) {
       mechanism.interface = interface;
     }
 
+    //placeholder for incomplete code for remote interface
     ClockHand() {
 
     }
@@ -154,6 +164,7 @@ class ClockHand {
 
 
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
+  protected:
     OutputPin<xp> mxp;
     OutputPin<xn> mxn;
     OutputPin<yp> myp;
@@ -170,9 +181,6 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     }
 
     void operator()(byte step) {
-      if (step == 255) { //magic value for 'all off'
-        return;
-      }
       bool x = greylsb(step);
       bool y = greymsb(step);
       mxp = x;
@@ -181,30 +189,65 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
       myn = !y;
     }
 
+};
+
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class ULN2003: public FourBanger<xp, xn, yp, yn> {
+    using Super = FourBanger<xp, xn, yp, yn>;
+    //	using FourBanger<xp, xn, yp, yn>;
+  public:
+    void operator()(byte step) {
+      if (step == 255) { //magic value for 'all off'
+        powerDown();
+      }
+      Super::operator()(step);
+    }
+
     void powerDown() {
-      mxp = 0;
-      mxn = 0;
-      myp = 0;
-      myn = 0;
+      //this-> or Super:: needed because C++ isn't yet willing to use the obvious base class.
+      this->mxp = 0;
+      this->mxn = 0;
+      Super::myp = 0;
+      this->myn = 0;
+    }
+};
+
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBanger<xp, xn, yp, yn> {
+    using Super = FourBanger<xp, xn, yp, yn>;
+    OutputPin<pwr> enabler;
+  public:
+    void operator()(byte step) {
+      if (step == 255) { //magic value for 'all off'
+        powerDown();
+      }
+      enabler = 0;
+      Super::operator()(step);
+    }
+
+    void powerDown() {
+      enabler = 1;
     }
 };
 
 
-#if UsingAdalogger
-#define FourPer 1
-FourBanger<18, 16, 17, 15> minutemotor;
-FourBanger<13, 11, 12, 10> hourmotor;
 
-//UDN2540 driver supports this natively, will be ignored by uln2003 boards. A true pwm pin would be a good choice.
-OutputPin<19> stepperPower;
+
+#if UsingAdalogger
+#if UsingUDN2540
+UDN2540<18, 16, 17, 15,19> minutemotor;
+UDN2540<13, 11, 12, 10,9> hourmotor;
+#else
+ULN2003<18, 16, 17, 15> minutemotor;
+ULN2003<13, 11, 12, 10> hourmotor;
+#endif
 
 #elif UsingLeonardo
-#define FourPer 1
-FourBanger<7, 5, 6, 4> minutemotor;
-FourBanger<9, 16, 8, 10> hourmotor;
-
-//UDN2540 driver supports this natively, will be ignored by uln2003 boards. A true pwm pin would be a good choice.
-OutputPin<14> stepperPower;
+#if UsingUDN2540
+UDN2540<7, 5, 6, 4,14> minutemotor;//todo: separate power pin!
+UDN2540<9, 16, 8, 10,14> hourmotor;
+#else
+ULN2003<7, 5, 6, 4> minutemotor;
+ULN2003<9, 16, 8, 10> hourmotor;
+#endif
 
 #elif UsingIOExpander
 //todo: bits()<=pick 4
@@ -220,9 +263,13 @@ ClockHand hourHand;
 bool stepperPower;
 #endif
 
-ClockHand minuteHand(ClockHand::Minutes, minutemotor);
+ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
+  minutemotor(step);
+});
 
-ClockHand hourHand(ClockHand::Hours, hourmotor);
+ClockHand hourHand(ClockHand::Hours, [](byte step) {
+  hourmotor(step);
+});
 
 
 //arduino has issues with a plain function name matching that of a class in the same file!
@@ -500,5 +547,5 @@ void loop() {
     }
 #endif
   }
-  stepperPower = hourHand.needsPower() || minuteHand.needsPower();
+
 }
