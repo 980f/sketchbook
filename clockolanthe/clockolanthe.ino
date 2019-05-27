@@ -131,14 +131,13 @@ class ClockHand {
             enabled = 0;
             lastStep.set(MilliTick(ticker));
           }
-        } else {
-          if (lastStep.hasFinished()) {
-
-          }
+        } else if (lastStep.hasFinished()) {
+          mechanism.interface(~0);
         }
       }
     }
 
+		/** update speed, where speed is millis per step */
     void upspeed(unsigned newspeed) {
       if (changed(thespeed, newspeed)) {
         ticker.set(thespeed);//this one will stretch a cycle in progress.
@@ -163,6 +162,7 @@ class ClockHand {
 };
 
 
+/** 4 wire 2 phase unipolar drive */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
   protected:
     OutputPin<xp> mxp;
@@ -191,6 +191,7 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
 
 };
 
+/** 4 phase unipolar with power down via nulling all pins. Next step will energize them again. It is a good idea to energize the last settings before changing them, but not absolutely required */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class ULN2003: public FourBanger<xp, xn, yp, yn> {
     using Super = FourBanger<xp, xn, yp, yn>;
     //	using FourBanger<xp, xn, yp, yn>;
@@ -211,6 +212,7 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     }
 };
 
+/** 4 unipolar drive, with common enable. You can PWM the power pin to get lower power, just wiggle it much faster than the load can react. */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBanger<xp, xn, yp, yn> {
     using Super = FourBanger<xp, xn, yp, yn>;
     OutputPin<pwr> enabler;
@@ -229,12 +231,10 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
 };
 
 
-
-
 #if UsingAdalogger
 #if UsingUDN2540
-UDN2540<18, 16, 17, 15,19> minutemotor;
-UDN2540<13, 11, 12, 10,9> hourmotor;
+UDN2540<18, 16, 17, 15, 19> minutemotor;
+UDN2540<13, 11, 12, 10, 9> hourmotor;
 #else
 ULN2003<18, 16, 17, 15> minutemotor;
 ULN2003<13, 11, 12, 10> hourmotor;
@@ -242,8 +242,8 @@ ULN2003<13, 11, 12, 10> hourmotor;
 
 #elif UsingLeonardo
 #if UsingUDN2540
-UDN2540<7, 5, 6, 4,14> minutemotor;//todo: separate power pin!
-UDN2540<9, 16, 8, 10,14> hourmotor;
+UDN2540<7, 5, 6, 4, 14> minutemotor; //todo: separate power pin!
+UDN2540<9, 16, 8, 10, 14> hourmotor;
 #else
 ULN2003<7, 5, 6, 4> minutemotor;
 ULN2003<9, 16, 8, 10> hourmotor;
