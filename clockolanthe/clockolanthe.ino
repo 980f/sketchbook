@@ -3,7 +3,7 @@
 #define UsingD1 0
 #define UsingIOExpander 0
 #define UsingEDSir 1
-
+#define UsingUDN2540 0
 ////////////////////////////////////
 #include "pinclass.h"
 
@@ -94,7 +94,8 @@ class ClockHand {
     }
 
     void setTime(unsigned hmrs) {
-      setTarget(rate(long(hmrs) * stepperrev , timeperrev()));
+      auto dial = timeperrev(); //size of dial
+      setTarget(rate(long(hmrs % dial) * stepperrev , dial)); //protect against stupid input, don't do extra wraps around the face.
     }
 
     void setFromMillis(unsigned ms) {
@@ -107,16 +108,24 @@ class ClockHand {
     }
 
     MonoStable ticker;//start up dead
+    MonoStable lastStep;//need to wait a bit for power down, maybe also for power up.
 
-    void onTick() {
+    void onTick() {    	
       if (ticker.perCycle()) {
         if (freerun) {
           mechanism += freerun;
-        } else if (enabled) {
+          return;
+        } 
+        if (enabled) {
           mechanism += (target - mechanism);//automatic 'signof' under the hood in Stepper class
           if (target == mechanism) {
             enabled = 0;
+            lastStep.start(ticker);
           }
+        } else {
+        	if(lastStep.hasFinished()){
+        		
+        	}
         }
       }
     }
@@ -128,13 +137,13 @@ class ClockHand {
       }
     }
 
-    //free run with time set so that one revolution happens
+    //free run with time set so that one revolution happens per real world cycle of hand
     void realtime() {
-      upspeed(rate(msperunit()*timeperrev(), stepperrev)); //milliseconds /
+      upspeed(rate(msperunit()*timeperrev(), stepperrev));
       freerun = 1;
     }
 
-    ClockHand(Unit unit, Stepper::Interface interface): unit(unit) {
+    ClockHand(Unit unit, Stepper::Mechanism &interface): mechanism(interface),unit(unit) {
       mechanism.interface = interface;
     }
 
@@ -144,33 +153,55 @@ class ClockHand {
 };
 
 
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
+    OutputPin<xp> mxp;
+    OutputPin<xn> mxn;
+    OutputPin<yp> myp;
+    OutputPin<yn> myn;
+
+  public:
+    static bool greylsb(byte step) {
+      byte phase = step & 3;
+      return (phase == 1) || (phase == 2);
+    }
+
+    static bool greymsb(byte step) {
+      return (step & 3) >> 1;
+    }
+
+    void operator()(byte step) {
+      if (step == 255) { //magic value for 'all off'
+        return;
+      }
+      bool x = greylsb(step);
+      bool y = greymsb(step);
+      mxp = x;
+      mxn = !x;
+      myp = y;
+      myn = !y;
+    }
+
+    void powerDown() {
+      mxp = 0;
+      mxn = 0;
+      myp = 0;
+      myn = 0;
+    }
+};
+
+
 #if UsingAdalogger
 #define FourPer 1
-OutputPin<18> mxp;
-OutputPin<16> mxn;
-OutputPin<17> myp;
-OutputPin<15> myn;
-
-OutputPin<13> hxp;
-OutputPin<11> hxn;
-OutputPin<12> hyp;
-OutputPin<10> hyn;
+FourBanger<18, 16, 17, 15> minutemotor;
+FourBanger<13, 11, 12, 10> hourmotor;
 
 //UDN2540 driver supports this natively, will be ignored by uln2003 boards. A true pwm pin would be a good choice.
 OutputPin<19> stepperPower;
 
 #elif UsingLeonardo
 #define FourPer 1
-//D4..D7  order chosen for wiring convenience
-OutputPin<7> mxp;
-OutputPin<5> mxn;
-OutputPin<6> myp;
-OutputPin<4> myn;
-
-OutputPin<9> hxp;
-OutputPin<16> hxn;
-OutputPin<8> hyp;
-OutputPin<10> hyn;
+FourBanger<7, 5, 6, 4> minutemotor;
+FourBanger<9, 16, 8, 10> hourmotor;
 
 //UDN2540 driver supports this natively, will be ignored by uln2003 boards. A true pwm pin would be a good choice.
 OutputPin<14> stepperPower;
@@ -189,39 +220,9 @@ ClockHand hourHand;
 bool stepperPower;
 #endif
 
-#if FourPer
+ClockHand minuteHand(ClockHand::Minutes, minutemotor);
 
-
-bool greylsb(byte step) {
-  byte phase = step & 3;
-  return (phase == 1) || (phase == 2);
-}
-
-bool greymsb(byte step) {
-  return (step & 3) >> 1;
-}
-
-ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
-  bool x = greylsb(step);
-  bool y = greymsb(step);
-  mxp = x;
-  mxn = !x;
-  myp = y;
-  myn = !y;
-});
-
-ClockHand hourHand(ClockHand::Hours, [](byte step) {
-  bool x = greylsb(step);
-  bool y = greymsb(step);
-  hxp = x;
-  hxn = !x;
-  hyp = y;
-  hyn = !y;
-});
-
-
-
-#endif
+ClockHand hourHand(ClockHand::Hours, hourmotor);
 
 
 //arduino has issues with a plain function name matching that of a class in the same file!
@@ -272,7 +273,6 @@ class CLIRP {
         return false;
       }
       arg = numberparser; //read and clear, regardless of whether used.
-
       switch (key) {//used: aAbcdDefFhHiIjlMmNnoprstwxyzZ  :@ *!,.   tab cr newline
         case '\t'://ignore tabs, makes param files easier to read.
           return false;
@@ -395,11 +395,15 @@ void doKey(char key) {
   }
 }
 
+void accept(char key) {
+  if (cmd.doKey(key)) {
+    doKey(key);
+  }
+}
+
 void doui() {
   while (auto key = dbg.getKey()) { //only checking every milli to save power
-    if (cmd.doKey(key)) {
-      doKey(key);
-    }//end command
+    accept(key);
   }
 }
 #if UsingEDSir
@@ -412,49 +416,42 @@ void doui() {
      4     5     6
      7     8     9
 */
-void doir() {
-  //  char irc = irchar; //I2C read, 0.1 ms
 
-  Wire.beginTransmission(0x60);
-  Wire.write(0);
-  Wire.endTransmission(false);
-  Wire.requestFrom(0x60, 1);
-  char irc = Wire.read();
-
+char irkey() {
+  char irc = irchar.fetch(); //I2C read, 0.1 ms\
 
   switch (irc) {//will map these to char used by keybaord etc.
     case 'p'://run reverse
-      doKey('R');
-      break;
+      return 'R';
     case 'c'://
-      doKey('X'); //stop tuning
+      return 'x'; //stop tuning
       break;
     case 'n'://run forward
-      doKey('F');
+      return 'F';
       break;
     case '<':
-      doKey('H');
+      return 'H';
       break;
     case '>':
-      doKey('M');
+      return 'M';
       break;
     case ' '://run realtime
-      doKey('t');
+      return 't';
       break;
     case '-':
-      doKey('G');
+      return 'G';
       break;
     case '+':
-      doKey('g');
+      return 'g';
       break;
     case '=':
-      doKey('Z');
+      return 'Z';
       break;
     case '%'://set hour
-      doKey(':');
+      return ':';
       break;
     case '&'://set minute
-      doKey(';');
+      return ';';
       break;
     case '0':
     case '1':
@@ -466,14 +463,12 @@ void doir() {
     case '7':
     case '8':
     case '9':
-      dbg("\nIR digit:", irc);
-      cmd.doKey(irc);
-      break;
+      return irc;
     case 0: //nothing there
-      break;
+      return 0;
     default:
       dbg("\nUnexpected IR code:", irc);
-      break;
+      return 0;
   }
 }
 #endif
@@ -483,7 +478,6 @@ void setup() {
   Serial.begin(115200);
 #if UsingEDSir
   edsIR.begin();//our sole i2c user
-  dbg("\nIR devie is ", edsIR.isPresent() ? "" : "not", " present");
 #endif
   upspeedBoth(slewspeed);
   minuteHand.stepperrev = baseSPR;
@@ -502,7 +496,7 @@ void loop() {
     doui();
 #if UsingEDSir
     if (sampleIR.perCycle()) {
-      doir();
+      accept(irkey());
     }
 #endif
   }
