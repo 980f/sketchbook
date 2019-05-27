@@ -20,6 +20,7 @@ ln -sf ../shared/ezcpp/minimath.h minimath.h
 ln -sf ../shared/pcf8575.h pcf8575.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
+ln -sf ../shared/scani2c.h scani2c.h
 ln -sf ../shared/stepper.h stepper.h
 ln -sf ../shared/ezcpp/textkey.cpp textkey.cpp
 ln -sf ../shared/ezcpp/textkey.h textkey.h

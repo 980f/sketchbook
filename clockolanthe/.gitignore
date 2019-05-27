@@ -19,6 +19,7 @@ minimath.h
 pcf8575.h
 pinclass.h
 pinuser.h
+scani2c.h
 stepper.cpp
 stepper.h
 textkey.cpp
