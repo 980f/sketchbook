@@ -1,6 +1,8 @@
-#define UsingLeonardo 1
+#define UsingLeonardo 0
+#define UsingAdalogger 1
 #define UsingD1 0
 #define UsingIOExpander 0
+#define UsingEDSir 1
 
 #include <Arduino.h>
 
@@ -21,9 +23,17 @@ PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct 
 #include "easyconsole.h"
 EasyConsole<decltype(Serial)> dbg(Serial);
 
-
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
+
+#if UsingEDSir
+#include "wirewrapper.h"
+WireWrapper irdata(0x60);//todo: see if this off by <<1
+WIred<char> irchar(irdata,0);//port 0 is asciified map of EDS controller
+
+MonoStable sampleIR();
+#endif
+
 
 class ClockHand {
   public:

@@ -24,3 +24,4 @@ ln -sf ../shared/stepper.h stepper.h
 ln -sf ../shared/ezcpp/textkey.cpp textkey.cpp
 ln -sf ../shared/ezcpp/textkey.h textkey.h
 ln -sf ../shared/unsignedrecognizer.h unsignedrecognizer.h
+ln -sf ../shared/wirewrapper.h wirewrapper.h
