@@ -94,10 +94,10 @@ void ClockServer::begin() {
   since.start();
 }
 
-void ClockServer::tick(void) {
+void ClockServer::onTick(void) {
   if (connected) {
     server.handleClient();
-//todo: confirm we don't need something like this    MDNS.update();
+    //todo: confirm we don't need something like this    MDNS.update();
   } else {
     if (pollStatus.perCycle()) {
       if (WiFi.status() != WL_CONNECTED) {
@@ -209,7 +209,7 @@ void ClockServer::onConnection() {
   server.on("/favicon.ico", [this]() {//browser insists on asking us for this, ignore it.
     ackIgnore();
   });
-  
+
   server.onNotFound([this]() {
     showRequest();
   });

@@ -46,9 +46,6 @@ class ClockServer {
     HMS bigben;
     HMS desired;
 
-    // 1859,  "bigbender",dbg):
-    ClockServer(unsigned port , const char * const name , ChainPrinter &dbg);
-
     void timestamp(const char *event) {
       dbg("\n", event, ':', double(since.roll()));
     }
@@ -70,10 +67,13 @@ class ClockServer {
     void onConnection();
     void login();
   public:
+    // 1859,  "bigbender",dbg):
+    ClockServer(unsigned port , const char * const name , ChainPrinter &dbg);
+
     //call this from setup():
     void begin() ;
 
     //call this once per millisecond:
-    void tick(void);
+    void onTick(void);
 
 };

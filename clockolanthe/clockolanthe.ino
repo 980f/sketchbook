@@ -435,6 +435,7 @@ char irkey() {
 }
 #endif
 /////////////////////////////////////
+ClockServer server(1859, "bigbender", dbg);
 
 void setup() {
   Serial.begin(115200);
@@ -444,10 +445,12 @@ void setup() {
   upspeedBoth(slewspeed);
   minuteHand.stepperrev = baseSPR;
   hourHand.stepperrev = baseSPR;
+  server.begin();
 }
 
 void loop() {
   if (MilliTicked) {
+    server.onTick();
     if (beJerky /*jerky.isRunning()*/) { //set time and let target logic move the hand
       MilliTick elapsed = MilliTicked.since(jerky0); //this presumes we set the clock origin to 0 when we record jerky0.
       minuteHand.setFromMillis(elapsed);
