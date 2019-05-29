@@ -1,20 +1,10 @@
-#define UsingLeonardo 0
-#define UsingAdalogger 1
-#define UsingD1 0
-#define UsingIOExpander 0
-#define UsingEDSir 1
+
+
+#define UsingEDSir 0
 #define UsingUDN2540 0
 ////////////////////////////////////
 #include "pinclass.h"
-
-#if UsingD1
-#include <ESP8266WiFi.h>
-#endif
-
-#if UsingIOExpander
-#include "pcf8575.h"  //reduced accessed but simplified use
-PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct drive two steppers.
-#endif
+#include "clockserver.h"
 
 #include "cheaptricks.h"
 
@@ -25,24 +15,17 @@ EasyConsole<decltype(Serial)> dbg(Serial);
 
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
+Using_MilliTicker
 
 #if UsingEDSir
-#include "wirewrapper.h"
-WireWrapper edsIR(0x60);//todo: see if this off by <<1
-WIred<char> irchar(edsIR, 0); //port 0 is asciified map of EDS controller
-
+#include "edsir.h"
+EDSir IRRX;
 MonoStable sampleIR(147);//fast enough for a crappy keypad
-
-//declare just to get pullups:
-Pin<20, INPUT_PULLUP> SDApup;
-Pin<21, INPUT_PULLUP> SCLpup;
 
 #endif
 
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
-
-
 
 class ClockHand {
   public:
@@ -137,7 +120,7 @@ class ClockHand {
       }
     }
 
-		/** update speed, where speed is millis per step */
+    /** update speed, where speed is millis per step */
     void upspeed(unsigned newspeed) {
       if (changed(thespeed, newspeed)) {
         ticker.set(thespeed);//this one will stretch a cycle in progress.
@@ -230,8 +213,6 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     }
 };
 
-
-#if UsingAdalogger
 #if UsingUDN2540
 UDN2540<18, 16, 17, 15, 19> minutemotor;
 UDN2540<13, 11, 12, 10, 9> hourmotor;
@@ -240,28 +221,6 @@ ULN2003<18, 16, 17, 15> minutemotor;
 ULN2003<13, 11, 12, 10> hourmotor;
 #endif
 
-#elif UsingLeonardo
-#if UsingUDN2540
-UDN2540<7, 5, 6, 4, 14> minutemotor; //todo: separate power pin!
-UDN2540<9, 16, 8, 10, 14> hourmotor;
-#else
-ULN2003<7, 5, 6, 4> minutemotor;
-ULN2003<9, 16, 8, 10> hourmotor;
-#endif
-
-#elif UsingIOExpander
-//todo: bits()<=pick 4
-ClockHand minuteHand;
-ClockHand hourHand;
-
-bool stepperPower;
-
-#else
-ClockHand minuteHand;
-ClockHand hourHand;
-
-bool stepperPower;
-#endif
 
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
@@ -293,62 +252,16 @@ void highnoon() {
 MilliTick jerky0 = BadTick;
 bool beJerky = false;
 
-/**
-  Command Line Interpreter, Reverse Polish input
-
-
-  If you have a 2-arg function
-  then the prior arg is take(pushed)
-*/
-#include "unsignedrecognizer.h"  //recognize numbers but doesn't deal with +/-
-
-
-class CLIRP {
-    UnsignedRecognizer numberparser;
-    //for 2 parameter commands, gets value from param.
-  public://until we get template to work.
-    unsigned arg = 0;
-    unsigned pushed = 0;
-  public:
-    /** command processor */
-    bool doKey(byte key) {
-      if (key == 0) { //ignore nulls, might be used for line pacing.
-        return false;
-      }
-      //test digits before ansi so that we can have a numerical parameter for those.
-      if (numberparser(key)) { //part of a number, do no more
-        return false;
-      }
-      arg = numberparser; //read and clear, regardless of whether used.
-      switch (key) {//used: aAbcdDefFhHiIjlMmNnoprstwxyzZ  :@ *!,.   tab cr newline
-        case '\t'://ignore tabs, makes param files easier to read.
-          return false;
-        case ','://push a parameter for 2 parameter commands.
-          pushed = arg;//by not using take() here 1234,X will behave like 1234,1234X
-          return false;
-      }
-      return true;//we did NOT handle it, you look at it.
-    }
-
-    template <typename Ret> Ret call(Ret (*fn)(unsigned, unsigned)) {
-      (*fn)(take(pushed), arg);
-    }
-
-    template <typename Ret> Ret call(Ret (*fn)(unsigned)) {
-      pushed = 0; //forget unused arg.
-      (*fn)(arg);
-    }
-
-};
-
+//command line interpreter, up to two RPN unsigned int arguments.
+#include "clirp.h"
 CLIRP cmd;
-ClockHand *hand = &minuteHand; //for tweaking one at a time
 
+ClockHand *hand = &minuteHand; //for tweaking one at a time
 void reportHand(const ClockHand&hand, const char *which) {
   dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
 }
 
-
+//I2C diagnostic
 #include "scani2c.h"
 
 void doKey(char key) {
@@ -433,7 +346,9 @@ void doKey(char key) {
 
     case '?':
       scanI2C(dbg);
-      dbg("\nIR device is ", edsIR.isPresent() ? "" : "not", " present");
+#if UsingEDSir
+      dbg("\nIR device is ", IRRX.isPresent() ? "" : "not", " present");
+#endif
       break;
 
     default:
@@ -465,7 +380,7 @@ void doui() {
 */
 
 char irkey() {
-  char irc = irchar.fetch(); //I2C read, 0.1 ms\
+  char irc = IRRX.key(); //I2C read, 0.1 ms\
 
   switch (irc) {//will map these to char used by keybaord etc.
     case 'p'://run reverse
@@ -524,7 +439,7 @@ char irkey() {
 void setup() {
   Serial.begin(115200);
 #if UsingEDSir
-  edsIR.begin();//our sole i2c user
+  IRRX.begin();//our sole i2c user
 #endif
   upspeedBoth(slewspeed);
   minuteHand.stepperrev = baseSPR;
