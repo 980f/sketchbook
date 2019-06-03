@@ -17,6 +17,23 @@ At such a rate precise timing is not needed so we will not use hardware timers, 
 For slewing we still want to be slow enough to not worry about acceleration.
 20 seconds for a complete revolution would be:
 20 s/200= 100ms/step.
+-------------------
+as built: 2048 steps per revolution! geared 28BYJ-48 device. 5V bipolar but 2.5V is unipolar.
+I ran them unipolar at 5V for quite some time and they got to be around 50'C. Shortening the pulse should work as well as dropping the power to 2.5V.
+
+
+3 implementations are being developed:
+1) ProMicro with ESP-01 for web server, not sure where IR attaches. The PM is a 5V part and the IR is 3.3 as is the ESP-01.
+2) ESP32 does it all
+3) D1 does it all
+
+The stepper interface known to work is the ULN2003, which has 4 wires.
+In hand are UDN2540's which have a power pin that would let us share the 4 wires for both motors, stepping only one at a time. Since they are geared they hold position without ppower so long as the hands aren't pushed hard.
+In the mail are DRV8833's which are on boards but otherwise are the same as UDN2540's with respect to sharing the 4 pins. 
+The DRV8833's are bipolar drivers which saves us having to reduce the 5V down to 2.5V or pwm modulate it to keep moitors from overheating.
+
+
+Preferred solution: D1&DRV8833's. 
 
 -------------------
 remote control:

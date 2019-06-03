@@ -1,149 +1,44 @@
 
 
-#define UsingEDSir 0
+#define UsingEDSir 1
+
+//pick a motor interface:
 #define UsingUDN2540 0
+#define UsingDRV8833 0
+#define UsingULN2003 1
+
+//pick a processor:
+#define UsingD1 1
+#define UsingESP32 0
+
+//todo: leonardo and separate ESP01, both sources with lots of #ifdef
+
 ////////////////////////////////////
 #include "pinclass.h"
-#include "clockserver.h"
-
 #include "cheaptricks.h"
-
-#include "stepper.h"
-
 #include "easyconsole.h"
 EasyConsole<decltype(Serial)> dbg(Serial);
 
-//soft millisecond timers are adequate for minutes and hours.
-#include "millievent.h"
-Using_MilliTicker
+
+#include "clockserver.h"
+ClockServer server(1859, "bigbender", dbg);
 
 #if UsingEDSir
 #include "edsir.h"
 EDSir IRRX;
 MonoStable sampleIR(147);//fast enough for a crappy keypad
-
 #endif
 
+//soft millisecond timers are adequate for minutes and hours.
+#include "millievent.h"
+Using_MilliTicker
+
+
+#include "stepper.h"
+#include "clockhand.h"
+//project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
-
-class ClockHand {
-  public:
-    Stepper mechanism;
-    //ms per step
-    unsigned thespeed = ~0U;
-    unsigned stepperrev = baseSPR;
-    enum Unit {
-      Seconds,
-      Minutes,
-      Hours,
-    };
-    Unit unit;
-
-    /** human units to clock angle */
-    unsigned timeperrev() const {
-      switch (unit) {
-        case Seconds: //same as minutes
-        case Minutes: return 60;
-        case Hours: return 12;
-        default: return 0;
-      }
-    }
-
-    unsigned long msperunit() const {
-      switch (unit) {
-        case Seconds: return 1000UL;
-        case Minutes: return 60 * 1000UL;
-        case Hours: return 60 * 60 * 1000UL;
-        default: return 0UL;
-      }
-    }
-
-    //want to be on
-    bool enabled = false;
-    //think we are on
-    bool energized = false; //actually is unknown at init
-    //where we want to be
-    int target = ~0U;
-    //ignore position, run forever in the given direction
-    int freerun = 0;
-
-    void freeze() {
-      freerun = 0;
-      if (changed(enabled, false)) {
-        ;
-      }
-    }
-
-    bool needsPower() {
-      return enabled || freerun != 0;
-    }
-
-    void setTarget(int target) {
-      if (changed(this->target, target)) {
-        enabled = target != mechanism;
-      }
-    }
-
-    void setTime(unsigned hmrs) {
-      auto dial = timeperrev(); //size of dial
-      setTarget(rate(long(hmrs % dial) * stepperrev , dial)); //protect against stupid input, don't do extra wraps around the face.
-    }
-
-    void setFromMillis(unsigned ms) {
-      setTime(rate(ms, msperunit()));
-    }
-
-    /** declares what the present location is, does not modify target or enable. */
-    void setReference(int location) {
-      mechanism = location;
-    }
-
-    MonoStable ticker;//start up dead
-    MonoStable lastStep;//need to wait a bit for power down, maybe also for power up.
-
-    void onTick() {
-      if (ticker.perCycle()) {
-        if (freerun) {
-          mechanism += freerun;
-          return;
-        }
-        if (enabled) {
-          mechanism += (target - mechanism);//automatic 'signof' under the hood in Stepper class
-          if (target == mechanism) {
-            enabled = 0;
-            lastStep.set(MilliTick(ticker));
-          }
-        } else if (lastStep.hasFinished()) {
-          mechanism.interface(~0);
-        }
-      }
-    }
-
-    /** update speed, where speed is millis per step */
-    void upspeed(unsigned newspeed) {
-      if (changed(thespeed, newspeed)) {
-        ticker.set(thespeed);//this one will stretch a cycle in progress.
-        dbg("\nSpeed:", thespeed);
-      }
-    }
-
-    //free run with time set so that one revolution happens per real world cycle of hand
-    void realtime() {
-      upspeed(rate(msperunit()*timeperrev(), stepperrev));
-      freerun = 1;
-    }
-
-    ClockHand(Unit unit, Stepper::Interface interface): unit(unit) {
-      mechanism.interface = interface;
-    }
-
-    //placeholder for incomplete code for remote interface
-    ClockHand() {
-
-    }
-};
-
 
 /** 4 wire 2 phase unipolar drive */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
@@ -177,7 +72,6 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
 /** 4 phase unipolar with power down via nulling all pins. Next step will energize them again. It is a good idea to energize the last settings before changing them, but not absolutely required */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class ULN2003: public FourBanger<xp, xn, yp, yn> {
     using Super = FourBanger<xp, xn, yp, yn>;
-    //	using FourBanger<xp, xn, yp, yn>;
   public:
     void operator()(byte step) {
       if (step == 255) { //magic value for 'all off'
@@ -190,15 +84,15 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
       //this-> or Super:: needed because C++ isn't yet willing to use the obvious base class.
       this->mxp = 0;
       this->mxn = 0;
-      Super::myp = 0;
+      this->myp = 0;
       this->myn = 0;
     }
 };
 
 /** 4 unipolar drive, with common enable. You can PWM the power pin to get lower power, just wiggle it much faster than the load can react. */
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBanger<xp, xn, yp, yn> {
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr,  unsigned polarity> class FourBangerWithPower: public FourBanger<xp, xn, yp, yn> {
     using Super = FourBanger<xp, xn, yp, yn>;
-    OutputPin<pwr> enabler;
+    OutputPin<pwr, polarity> enabler;
   public:
     void operator()(byte step) {
       if (step == 255) { //magic value for 'all off'
@@ -213,13 +107,26 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     }
 };
 
+
 #if UsingUDN2540
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBangerWithPower<xp, xn, yp, yn, , pwr, HIGH> {};
 UDN2540<18, 16, 17, 15, 19> minutemotor;
 UDN2540<13, 11, 12, 10, 9> hourmotor;
-#else
+#elif UsingDRV8833
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class DRV8833: public FourBangerWithPower<xp, xn, yp, yn, , pwr, LOW> {};
+DRV8833<5, 6, 7, 8, 3> minutemotor;
+DRV8833<5, 6, 7, 8, 4> hourmotor;
+#elif UsingULN2003
 ULN2003<18, 16, 17, 15> minutemotor;
 ULN2003<13, 11, 12, 10> hourmotor;
+#else
+#error "must define one of the driver classes such as UsingUDN2540, UsingDRV8833 ..."
 #endif
+
+#ifdef UsingD1
+#define SharedDrive 1
+#endif
+
 
 
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
@@ -248,9 +155,47 @@ void highnoon() {
   hourHand.setReference(0);
 }
 
-//StopWatch jerky;//time for jerky motion
 MilliTick jerky0 = BadTick;
 bool beJerky = false;
+
+
+//interface to local logic
+class ClockDriver {
+  public:
+    HMS target;//intermediary for RPN commands
+    ClockDriver():
+      target(0)
+    {
+      //#done.
+    }
+
+    void runReal(bool jerky) {
+      if (jerky) {
+        upspeedBoth(slewspeed);//move briskly between defined points.
+        highnoon();
+        jerky0 = MilliTicked.recent();
+        beJerky = true;
+      } else {
+        minuteHand.realtime();
+        hourHand.realtime();
+      }
+    }
+
+    void setMinute(unsigned arg) {
+      dbg("\nMinute time to:", arg);
+      minuteHand.setTime(target.minute = arg);
+    }
+
+    void setHour(unsigned arg) {
+      dbg("\nHour time to:", arg);
+      hourHand.setTime(target.hour = arg);
+    }
+
+
+
+};
+
+ClockDriver bigben;
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
@@ -264,19 +209,15 @@ void reportHand(const ClockHand&hand, const char *which) {
 //I2C diagnostic
 #include "scani2c.h"
 
+
 void doKey(char key) {
   switch (key) {
     case 'T': case 't': //run real time, smoothly
-      minuteHand.realtime();
-      hourHand.realtime();
+      bigben.runReal(false);
       break;
 
     case 'G': case 'g': //jumpy real time
-      upspeedBoth(slewspeed);//move briskly between defined points.
-      highnoon();
-      //          jerky.start();
-      jerky0 = MilliTicked.recent();
-      beJerky = true;
+      bigben.runReal(true);
       break;
 
     case ' '://report status
@@ -289,22 +230,20 @@ void doKey(char key) {
       hourHand.setTarget(cmd.arg);
       break;
 
-    case ':':
-      dbg("\nHour time to:", cmd.arg);
-      hourHand.setTime(cmd.arg);
-      break;
-
-    case ';':
-      dbg("\nMinute time to:", cmd.arg);
-      minuteHand.setTime(cmd.arg);
-      break;
-
     case 'm'://go to position
       dbg("\nMinute hand to:", cmd.arg);
       minuteHand.setTarget(cmd.arg);
       break;
+      
+    case ':':
+      bigben.setHour(cmd.arg);
+      break;
 
-    case 'Z'://declare preseent position is noon
+    case ';':
+      bigben.setMinute(cmd.arg);
+      break;
+
+    case 'Z'://declare present position is noon
       dbg("\n marking noon");
       highnoon();
       break;
@@ -353,7 +292,7 @@ void doKey(char key) {
 
     default:
       dbg("\nIgnored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
-      break;
+      return; //don't put in trace buffer
   }
 }
 
@@ -435,7 +374,6 @@ char irkey() {
 }
 #endif
 /////////////////////////////////////
-ClockServer server(1859, "bigbender", dbg);
 
 void setup() {
   Serial.begin(115200);
@@ -445,6 +383,7 @@ void setup() {
   upspeedBoth(slewspeed);
   minuteHand.stepperrev = baseSPR;
   hourHand.stepperrev = baseSPR;
+  //here is where we would configure step duration.
   server.begin();
 }
 
@@ -456,8 +395,10 @@ void loop() {
       minuteHand.setFromMillis(elapsed);
       hourHand.setFromMillis(elapsed);
     }
-    minuteHand.onTick();
-    hourHand.onTick();
+    //if both need to run, minute gets priority
+    if (!minuteHand.onTick()) {
+      hourHand.onTick();
+    }
     doui();
 #if UsingEDSir
     if (sampleIR.perCycle()) {

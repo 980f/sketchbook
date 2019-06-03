@@ -11,7 +11,7 @@
 #include "sprinter.h"
 #include "millievent.h" //timers
 #include "stopwatch.h"  //to see how fast we dare poll.
-
+#include "hook.h" //for hardware diagnostics page
 //// aux class for login credentials, one probably exists that we can find and replace this
 struct Login {
   const char * const ssid;;
@@ -43,7 +43,6 @@ class ClockServer {
     int msglen = 0;
     bool commanding;
 
-    HMS bigben;
     HMS desired;
 
     void timestamp(const char *event) {
@@ -75,5 +74,6 @@ class ClockServer {
 
     //call this once per millisecond:
     void onTick(void);
+
 
 };

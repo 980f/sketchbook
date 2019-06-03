@@ -1,8 +1,6 @@
 ## recreate links to library sources
 ln -sf ../shared/arduous arduous
-ln -sf ../shared/ezcpp/bitbanger.cpp bitbanger.cpp
 ln -sf ../shared/ezcpp/bitbanger.h bitbanger.h
-ln -sf ../shared/ezcpp/boolish.cpp boolish.cpp
 ln -sf ../shared/ezcpp/boolish.h boolish.h
 ln -sf ../shared/chainprinter.h chainprinter.h
 ln -sf lib/ezcpp/char.cpp char.cpp

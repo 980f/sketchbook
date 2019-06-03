@@ -1,13 +1,24 @@
 #include "clockserver.h"  //(C) 2019 Andy Heilveil, github/980F
 
 Login known[] = {//these get scrambled to optimize boot up time
-//  {"Matt's iPhone XS", "sizzlamofo", 9000},
+  //  {"Matt's iPhone XS", "sizzlamofo", 9000},
   {"honeypot", "brigadoon-will-be-back-soon", 4500},
   {"Verizon-MiFi7730L-7D50", "5532f44d", 9000},
+  {"Brentwood Theater", "asktravis", 12000},
 };
 
 #include "limitedpointer.h"
 LimitedPointer<Login> logins(known, countof(known));
+
+//orphaned code:
+//char traceui[5];
+//void ClockServer::traceKey(char key) {
+//  for (unsigned i = sizeof(traceui); i-- > 1;) {
+//    traceui[i] = traceui[i - 1];
+//  }
+//  traceui[0] = key;
+//}
+
 
 //remove this once we are sure that it is stable:
 #define WORKSPACE p.rewind()
@@ -71,11 +82,8 @@ ClockServer::ClockServer(unsigned port , const char * const name , ChainPrinter 
   ourname(name),
   server(port),
   pollStatus(500),
-  bigben(0),
   desired(0),
   p(workspace, sizeof(workspace))
-
-
 {
   //done.
 }
@@ -97,7 +105,6 @@ void ClockServer::begin() {
 void ClockServer::onTick(void) {
   if (connected) {
     server.handleClient();
-    //todo: confirm we don't need something like this    MDNS.update();
   } else {
     if (pollStatus.perCycle()) {
       if (WiFi.status() != WL_CONNECTED) {
