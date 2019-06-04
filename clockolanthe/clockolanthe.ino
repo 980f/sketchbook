@@ -103,8 +103,8 @@ UDN2540<18, 16, 17, 15, 19> minutemotor;
 UDN2540<13, 11, 12, 10, 9> hourmotor;
 #elif UsingDRV8833
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class DRV8833: public FourBangerWithPower<xp, xn, yp, yn, , pwr, LOW> {};
-DRV8833<5, 6, 7, 8, 3> minutemotor;
-DRV8833<5, 6, 7, 8, 4> hourmotor;
+DRV8833<D5, D6, D7, D8, D3> minutemotor;
+DRV8833<D5, D6, D7, D8, D4> hourmotor;
 #elif UsingULN2003
 ULN2003<18, 16, 17, 15> minutemotor;
 ULN2003<13, 11, 12, 10> hourmotor;
@@ -395,5 +395,6 @@ void loop() {
     }
 #endif
   }
+  yield();//
 
 }
