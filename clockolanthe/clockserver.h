@@ -1,10 +1,23 @@
 
+#include "options.h" //things normally in a makefile
 
+
+#if UsingD1
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+using WebServerClass=ESP8266WebServer;
+
+#elif UsingESP32
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WebServer.h>
+using WebServerClass= WebServer ;
 #include <ESPmDNS.h>
-
+#else
+#error "expect lots of errors because you haven't defined UsingD1 or UsingESP32"
+#endif
 
 #include "eztypes.h"//countof
 #include "chainprinter.h" //diagnostic output
@@ -29,7 +42,7 @@ class ClockServer {
     Login *dnserver = nullptr;
     bool connected = false;
     const char * const ourname;
-    WebServer server;
+    WebServerClass server;
 
     //will roll() with each event.
     StopWatch since;

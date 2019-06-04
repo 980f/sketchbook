@@ -1,16 +1,5 @@
 
-
-#define UsingEDSir 1
-
-//pick a motor interface:
-#define UsingUDN2540 0
-#define UsingDRV8833 0
-#define UsingULN2003 1
-
-//pick a processor:
-#define UsingD1 1
-#define UsingESP32 0
-
+#include "options.h"
 //todo: leonardo and separate ESP01, both sources with lots of #ifdef
 
 ////////////////////////////////////
@@ -234,7 +223,7 @@ void doKey(char key) {
       dbg("\nMinute hand to:", cmd.arg);
       minuteHand.setTarget(cmd.arg);
       break;
-      
+
     case ':':
       bigben.setHour(cmd.arg);
       break;
