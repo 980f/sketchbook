@@ -1,8 +1,9 @@
 
 #include "options.h" //things normally in a makefile
 
+#if ServeWifi
 
-#if UsingD1
+#ifdef ARDUINO_ARCH_ESP8266
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
@@ -90,3 +91,4 @@ class ClockServer {
 
 
 };
+#endif

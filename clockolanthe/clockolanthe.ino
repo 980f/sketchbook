@@ -9,8 +9,14 @@
 EasyConsole<decltype(Serial)> dbg(Serial);
 
 
+//soft millisecond timers are adequate for minutes and hours.
+#include "millievent.h"
+Using_MilliTicker
+
+#if ServeWifi
 #include "clockserver.h"
 ClockServer server(1859, "bigbender", dbg);
+#endif
 
 #if UsingEDSir
 #include "edsir.h"
@@ -18,93 +24,30 @@ EDSir IRRX;
 MonoStable sampleIR(147);//fast enough for a crappy keypad
 #endif
 
-//soft millisecond timers are adequate for minutes and hours.
-#include "millievent.h"
-Using_MilliTicker
-
 
 #include "stepper.h"
+#include "motordrivers.h"
 #include "clockhand.h"
+
+
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
 
-/** 4 wire 2 phase unipolar drive */
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
-  protected:
-    OutputPin<xp> mxp;
-    OutputPin<xn> mxn;
-    OutputPin<yp> myp;
-    OutputPin<yn> myn;
-
-  public:
-    static bool greylsb(byte step) {
-      byte phase = step & 3;
-      return (phase == 1) || (phase == 2);
-    }
-
-    static bool greymsb(byte step) {
-      return (step & 3) >> 1;
-    }
-
-    void operator()(byte step) {
-      bool x = greylsb(step);
-      bool y = greymsb(step);
-      mxp = x;
-      mxn = !x;
-      myp = y;
-      myn = !y;
-    }
-
-};
-
-/** 4 phase unipolar with power down via nulling all pins. Next step will energize them again. It is a good idea to energize the last settings before changing them, but not absolutely required */
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class ULN2003: public FourBanger<xp, xn, yp, yn> {
-    using Super = FourBanger<xp, xn, yp, yn>;
-  public:
-    void operator()(byte step) {
-      if (step == 255) { //magic value for 'all off'
-        powerDown();
-      }
-      Super::operator()(step);
-    }
-
-    void powerDown() {
-      //this-> or Super:: needed because C++ isn't yet willing to use the obvious base class.
-      this->mxp = 0;
-      this->mxn = 0;
-      this->myp = 0;
-      this->myn = 0;
-    }
-};
-
-/** 4 unipolar drive, with common enable. You can PWM the power pin to get lower power, just wiggle it much faster than the load can react. */
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr,  unsigned polarity> class FourBangerWithPower: public FourBanger<xp, xn, yp, yn> {
-    using Super = FourBanger<xp, xn, yp, yn>;
-    OutputPin<pwr, polarity> enabler;
-  public:
-    void operator()(byte step) {
-      if (step == 255) { //magic value for 'all off'
-        powerDown();
-      }
-      enabler = 0;
-      Super::operator()(step);
-    }
-
-    void powerDown() {
-      enabler = 1;
-    }
-};
-
-
 #if UsingUDN2540
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBangerWithPower<xp, xn, yp, yn, , pwr, HIGH> {};
 UDN2540<18, 16, 17, 15, 19> minutemotor;
 UDN2540<13, 11, 12, 10, 9> hourmotor;
 #elif UsingDRV8833
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class DRV8833: public FourBangerWithPower<xp, xn, yp, yn, , pwr, LOW> {};
-DRV8833<D5, D6, D7, D8, D3> minutemotor;
-DRV8833<D5, D6, D7, D8, D4> hourmotor;
+#  ifdef UsingD1
+#    define SharedDrive 1
+#error "faked out shared drive"
+//DRV8833<D5, D6, D7, D8, D3> minutemotor;
+//DRV8833<D5, D6, D7, D8, D4> hourmotor;
+DRV8833<D5, D5, D5, D5, D5> minutemotor;
+DRV8833<D5, D5, D5, D5, D5> hourmotor;
+#  else
+#    error "need to define motor objects for the given processor"
+#  endif
 #elif UsingULN2003
 ULN2003<18, 16, 17, 15> minutemotor;
 ULN2003<13, 11, 12, 10> hourmotor;
@@ -112,11 +55,7 @@ ULN2003<13, 11, 12, 10> hourmotor;
 #error "must define one of the driver classes such as UsingUDN2540, UsingDRV8833 ..."
 #endif
 
-#ifdef UsingD1
-#define SharedDrive 1
-#endif
-
-
+///////////////////////////////////////////////////////////////////////////
 
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
@@ -147,42 +86,56 @@ void highnoon() {
 MilliTick jerky0 = BadTick;
 bool beJerky = false;
 
+#include "clockdriver.h"
 
 //interface to local logic
-class ClockDriver {
-  public:
-    HMS target;//intermediary for RPN commands
-    ClockDriver():
-      target(0)
-    {
-      //#done.
-    }
+ClockDriver::ClockDriver():
+  target(0)
+{
+  //#done.
+}
 
-    void runReal(bool jerky) {
-      if (jerky) {
-        upspeedBoth(slewspeed);//move briskly between defined points.
-        highnoon();
-        jerky0 = MilliTicked.recent();
-        beJerky = true;
-      } else {
-        minuteHand.realtime();
-        hourHand.realtime();
-      }
-    }
+void ClockDriver::runReal(bool jerky) {
+  if (jerky) {
+    upspeedBoth(slewspeed);//move briskly between defined points.
+    highnoon();
+    jerky0 = MilliTicked.recent();
+    beJerky = true;
+  } else {
+    minuteHand.realtime();
+    hourHand.realtime();
+  }
+}
 
-    void setMinute(unsigned arg) {
-      dbg("\nMinute time to:", arg);
-      minuteHand.setTime(target.minute = arg);
-    }
+void ClockDriver::setMinute(unsigned arg, bool raw) {
+  if (raw) {
+    dbg("\nMinute step to:", arg);
+    minuteHand.setTarget(arg);
+  } else {
+    dbg("\nMinute time to:", arg);
+    minuteHand.setTime(target.minute = arg);
+  }
+}
 
-    void setHour(unsigned arg) {
-      dbg("\nHour time to:", arg);
-      hourHand.setTime(target.hour = arg);
-    }
+void ClockDriver::setHour(unsigned arg, bool raw) {
+  if (raw) {
+    dbg("\nHour stepping to:", arg);
+    hourHand.setTarget(arg);
+  } else {
+    dbg("\nHour time to:", arg);
+    hourHand.setTime(target.hour = arg);
+  }
+}
+
+void reportHand(const ClockHand&hand, const char *which) {
+  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
+}
 
 
-
-};
+void ClockDriver::dump() {
+  reportHand(hourHand, "Hour");
+  reportHand(minuteHand, "Minute");
+}
 
 ClockDriver bigben;
 
@@ -191,9 +144,6 @@ ClockDriver bigben;
 CLIRP cmd;
 
 ClockHand *hand = &minuteHand; //for tweaking one at a time
-void reportHand(const ClockHand&hand, const char *which) {
-  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
-}
 
 //I2C diagnostic
 #include "scani2c.h"
@@ -210,18 +160,15 @@ void doKey(char key) {
       break;
 
     case ' '://report status
-      reportHand(hourHand, "Hour");
-      reportHand(minuteHand, "Minute");
+      bigben.dump();
       break;
 
     case 'h'://go to position
-      dbg("\nHour stepping to:", cmd.arg);
-      hourHand.setTarget(cmd.arg);
+      bigben.setHour(cmd.arg, true);
       break;
 
     case 'm'://go to position
-      dbg("\nMinute hand to:", cmd.arg);
-      minuteHand.setTarget(cmd.arg);
+      bigben.setMinute(cmd.arg, true);
       break;
 
     case ':':
@@ -366,19 +313,39 @@ char irkey() {
 
 void setup() {
   Serial.begin(115200);
+  while(!Serial);
+
+	while(1){
+		Serial.print('A');
+	}
+  
+  dbg("setup");
 #if UsingEDSir
+  dbg("setup edsir");
   IRRX.begin();//our sole i2c user
 #endif
+  dbg("setup upsspeed");
   upspeedBoth(slewspeed);
+  dbg("setup basespr");
   minuteHand.stepperrev = baseSPR;
   hourHand.stepperrev = baseSPR;
   //here is where we would configure step duration.
+#if ServeWifi
+  dbg("setup server");
   server.begin();
+#endif
 }
 
+unsigned looped = 0;
+
 void loop() {
+  if (!looped) {
+    dbg("loop first");
+  }
   if (MilliTicked) {
+#if ServeWifi
     server.onTick();
+#endif
     if (beJerky /*jerky.isRunning()*/) { //set time and let target logic move the hand
       MilliTick elapsed = MilliTicked.since(jerky0); //this presumes we set the clock origin to 0 when we record jerky0.
       minuteHand.setFromMillis(elapsed);
@@ -395,6 +362,6 @@ void loop() {
     }
 #endif
   }
-  yield();//
-
+  //did not fix wdt. yield();//
+  ++looped;
 }

@@ -1,3 +1,4 @@
+#if ServeWifi
 #include "clockserver.h"  //(C) 2019 Andy Heilveil, github/980F
 
 Login known[] = {//these get scrambled to optimize boot up time
@@ -105,6 +106,9 @@ void ClockServer::begin() {
 void ClockServer::onTick(void) {
   if (connected) {
     server.handleClient();
+#ifdef ARDUINO_ARCH_ESP8266
+    MDNS.update();
+#endif
   } else {
     if (pollStatus.perCycle()) {
       if (WiFi.status() != WL_CONNECTED) {
@@ -228,3 +232,4 @@ void ClockServer::onConnection() {
 void ClockServer::showclock(const HMS &ck) {
   p.printf(clockdisplay, ck.hour * 30, ck.minute * 6, ck.sec * 6, ck.hour , ck.minute, ck.sec ); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
 }
+#endif
