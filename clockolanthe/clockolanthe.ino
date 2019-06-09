@@ -34,29 +34,32 @@ MonoStable sampleIR(147);//fast enough for a crappy keypad
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
 
-#if UsingUDN2540
-UDN2540<18, 16, 17, 15, 19> minutemotor;
-UDN2540<13, 11, 12, 10, 9> hourmotor;
-#elif UsingDRV8833
-#  ifdef UsingD1
-#    define SharedDrive 1
-#error "faked out shared drive"
-//DRV8833<D5, D6, D7, D8, D3> minutemotor;
-//DRV8833<D5, D6, D7, D8, D4> hourmotor;
-DRV8833<D5, D5, D5, D5, D5> minutemotor;
-DRV8833<D5, D5, D5, D5, D5> hourmotor;
-#  else
-#    error "need to define motor objects for the given processor"
-#  endif
-#elif UsingULN2003
-ULN2003<18, 16, 17, 15> minutemotor;
-ULN2003<13, 11, 12, 10> hourmotor;
-#else
-#error "must define one of the driver classes such as UsingUDN2540, UsingDRV8833 ..."
-#endif
+//#if UsingUDN2540
+//UDN2540<18, 16, 17, 15, 19> minutemotor;
+//UDN2540<13, 11, 12, 10, 9> hourmotor;
+//#elif UsingDRV8833
+//#  ifdef UsingD1
+//#    define SharedDrive 1
+//#error "faked out shared drive"
+////DRV8833<D5, D6, D7, D8, D3> minutemotor;
+////DRV8833<D5, D6, D7, D8, D4> hourmotor;
+//DRV8833<D5, D5, D5, D5, D5> minutemotor;
+//DRV8833<D5, D5, D5, D5, D5> hourmotor;
+//#  else
+//DRV8833<27,26,25,33,32> minutemotor;
+//DRV8833<16,17,5,18,19> hourmotor;
+//#  endif
+//#elif UsingULN2003
+//ULN2003<18, 16, 17, 15> minutemotor;
+//ULN2003<13, 11, 12, 10> hourmotor;
+//#else
+//#error "must define one of the driver classes such as UsingUDN2540, UsingDRV8833 ..."
+void minutemotor(byte step){}
+void hourmotor(byte step){}
+//#endif
 
 ///////////////////////////////////////////////////////////////////////////
-
+ 
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
 });
@@ -317,6 +320,7 @@ void setup() {
 
 	while(1){
 		Serial.print('A');
+		delay(550);
 	}
   
   dbg("setup");

@@ -4,15 +4,15 @@
 
 //both are allowed
 #define ServeAsStation 0
-#define ServeAsRouter 0
+#define ServeAsRouter 1
 #if ServeAsStation || ServeAsRouter
 #define ServeWifi 0
 #endif
 
 //pick a motor interface:
 #define UsingUDN2540 0
-#define UsingDRV8833 0
-#define UsingULN2003 1
+#define UsingDRV8833 1
+#define UsingULN2003 0
 
 //arduino processor designators are awkward to type so I map them to my style:
 
