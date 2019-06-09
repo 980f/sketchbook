@@ -36,9 +36,9 @@ void setup() {
   webserver.on("/", handleRoot);
   webserver.begin();
 
-  //start server
-  server.begin();
-  server.setNoDelay(true);
+  //start telnet server
+//  server.begin();
+//  server.setNoDelay(true);
 
 //  logger->print("Ready! Use 'telnet ");
 //  logger->print(WiFi.localIP());
