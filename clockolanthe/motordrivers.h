@@ -1,6 +1,29 @@
 #pragma once //(C) 2019 Andy Heilveil, github/980f
 
 #include "pinclass.h"
+
+bool greylsb(byte step) {
+  byte phase = step & 3;
+  return (phase == 1) || (phase == 2);
+}
+
+bool greymsb(byte step) {
+  return (step & 3) >> 1;
+}
+
+//for 4 bit packed field:
+byte motorNibble(byte step) {
+  bool x = greylsb(step);
+  bool y = greymsb(step);
+  byte nib = 0;
+  if ( x) nib |= 1;
+  if (!x) nib |= 2;
+  if ( y) nib |= 4;
+  if (!y) nib |= 8;
+  return nib;
+}
+
+
 /** 4 wire 2 phase unipolar drive */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn> class FourBanger {
   protected:
@@ -8,16 +31,6 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     OutputPin<xn> mxn;
     OutputPin<yp> myp;
     OutputPin<yn> myn;
-
-  public:
-    static bool greylsb(byte step) {
-      byte phase = step & 3;
-      return (phase == 1) || (phase == 2);
-    }
-
-    static bool greymsb(byte step) {
-      return (step & 3) >> 1;
-    }
 
     void operator()(byte step) {
       bool x = greylsb(step);

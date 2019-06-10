@@ -26,24 +26,29 @@ const unsigned slewspeed = 5;//5: smooth moving, no load.
 #if UsingDRV8833
 
 #ifdef ADAFRUIT_FEATHER_M0
-DRV8833<12,11,10,9,13> minutemotor;
-//DRV8833<16,17,5,18,19> hourmotor;
-void hourmotor(byte step){}
+DRV8833<10, 9, 12, 11, 13> minutemotor;
+DRV8833<16, 17, 14, 15, 18> hourmotor;
+//void hourmotor(byte step){}
 #else  //presume ProMicro/Leonardo
-DRV8833<12,11,10,9,13> minutemotor;
-DRV8833<16,17,5,18,19> hourmotor;
+DRV8833<12, 11, 10, 9, 13> minutemotor;
+DRV8833<16, 17, 5, 18, 19> hourmotor;
 
 #endif
 #else
 //#error "must define one of the driver classes such as UsingUDN2540, UsingDRV8833 ..."
-void minutemotor(byte step){}
-void hourmotor(byte step){}
+void minutemotor(byte step) {}
+void hourmotor(byte step) {}
 #endif
 
 ///////////////////////////////////////////////////////////////////////////
- 
+#include "char.h"
+char steptrace[32 + 1];
+unsigned stepcount = 0;
+
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
+  steptrace[stepcount++] = Char(motorNibble(step)).hexNibble(0);
+  stepcount %= 32;
 });
 
 ClockHand hourHand(ClockHand::Hours, [](byte step) {
@@ -80,8 +85,8 @@ ClockDriver::ClockDriver():
 }
 
 void ClockDriver::runReal() {
-    minuteHand.realtime();
-    hourHand.realtime(); 
+  minuteHand.realtime();
+  hourHand.realtime();
 }
 
 void ClockDriver::setMinute(unsigned arg, bool raw) {
@@ -134,6 +139,8 @@ void doKey(char key) {
 
     case ' '://report status
       bigben.dump();
+
+      dbg("\nTrace:", steptrace);
       break;
 
     case 'h'://go to position
@@ -219,14 +226,8 @@ void doui() {
 /////////////////////////////////////
 
 void setup() {
+  steptrace[32] = 0; //terminate debug text
   Serial.begin(115200);
-//  while(!Serial);
-//
-//	while(1){
-//		Serial.print('A');
-//		delay(550);
-//	}
-  
   dbg("setup");
 
   dbg("setup upsspeed");
