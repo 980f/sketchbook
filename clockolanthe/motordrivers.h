@@ -66,23 +66,24 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
 /** 4 unipolar drive, with common enable. You can PWM the power pin to get lower power, just wiggle it much faster than the load can react. */
 template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr,  unsigned polarity> class FourBangerWithPower: public FourBanger<xp, xn, yp, yn> {
     using Super = FourBanger<xp, xn, yp, yn>;
+  public: //while we are working out init
     OutputPin<pwr, polarity> enabler;
   public:
     void operator()(byte step) {
       if (step == 255) { //magic value for 'all off'
         powerDown();
       }
-      enabler = 0;
+      //      enabler = 1;
       Super::operator()(step);
     }
 
     void powerDown() {
-      enabler = 1;
+      //      enabler = 0;
     }
 };
 
 //old chips in hand:
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBangerWithPower<xp, xn, yp, yn, pwr, HIGH> {};
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class UDN2540: public FourBangerWithPower<xp, xn, yp, yn, pwr, LOW> {};//to test by switching between this and DRV8833
 
 //popular dual bridge, which curiously has same driver pattern as unipolar.
-template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class DRV8833: public FourBangerWithPower<xp, xn, yp, yn, pwr, LOW> {};
+template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn, PinNumberType pwr> class DRV8833: public FourBangerWithPower<xp, xn, yp, yn, pwr, HIGH> {};

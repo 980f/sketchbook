@@ -27,7 +27,7 @@ const unsigned slewspeed = 5;//5: smooth moving, no load.
 
 #ifdef ADAFRUIT_FEATHER_M0
 DRV8833<10, 9, 12, 11, 13> minutemotor;
-DRV8833<16, 17, 14, 15, 18> hourmotor;
+DRV8833< 16, 15,17, 18, 14> hourmotor;
 //void hourmotor(byte step){}
 #else  //presume ProMicro/Leonardo
 DRV8833<12, 11, 10, 9, 13> minutemotor;
@@ -234,7 +234,10 @@ void setup() {
   upspeedBoth(slewspeed);
   dbg("setup basespr");
   minuteHand.stepperrev = baseSPR;
+  minutemotor.enabler = 1;
+  
   hourHand.stepperrev = baseSPR;
+  hourmotor.enabler = 1;
   //here is where we would configure step duration.
   bigben.runReal(); //power cycle at least gets us moving.
 }
