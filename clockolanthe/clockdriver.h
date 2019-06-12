@@ -1,5 +1,7 @@
 #pragma once
 
+/** api to the .ino code for webserver control */
+
 #include "hms.h" //HoursMinutesSeconds, not the Pinafore.
 class ClockDriver {
   public:

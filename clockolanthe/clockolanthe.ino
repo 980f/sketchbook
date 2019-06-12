@@ -18,16 +18,17 @@ Using_MilliTicker
 #include "motordrivers.h"
 #include "clockhand.h"
 
-
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 const unsigned slewspeed = 5;//5: smooth moving, no load.
+
+
 
 #if UsingDRV8833
 
 #ifdef ADAFRUIT_FEATHER_M0
 DRV8833<10, 9, 12, 11, 13> minutemotor;
-DRV8833< 16, 15,17, 18, 14> hourmotor;
+DRV8833< 16, 15, 17, 18, 14> hourmotor;
 //void hourmotor(byte step){}
 #else  //presume ProMicro/Leonardo
 DRV8833<12, 11, 10, 9, 13> minutemotor;
@@ -55,6 +56,34 @@ ClockHand hourHand(ClockHand::Hours, [](byte step) {
   hourmotor(step);
 });
 
+
+template <PinNumberType forward, PinNumberType reverse> class SlewControl {
+  public: //for diagnostics
+    InputPin<forward> fwd;
+    InputPin<reverse> rev;
+  public: //easier to set after construction.
+    ClockHand &myHand;
+    SlewControl(ClockHand & myHand): myHand(myHand) {
+      //#set myHand on setup()
+    }
+
+    void onTick() { //every millisecond
+      //      if (myHand) {
+      if (fwd) {
+        myHand.freerun = +1;
+        myHand.upspeed ( slewspeed);
+      } else if (rev) {
+        myHand.freerun = -1;
+        myHand.upspeed ( slewspeed);
+      } else {
+        myHand.realtime();
+      }
+      //      }
+    }
+};
+
+SlewControl<20, 21> minuteSlew(minuteHand);
+SlewControl<23, 24> hourSlew(hourHand);
 
 //arduino has issues with a plain function name matching that of a class in the same file!
 void upspeedBoth(unsigned msperstep) {
@@ -235,9 +264,10 @@ void setup() {
   dbg("setup basespr");
   minuteHand.stepperrev = baseSPR;
   minutemotor.enabler = 1;
-  
-  hourHand.stepperrev = baseSPR;
+
+  hourHand.stepperrev = baseSPR; //todo: pulley ratio goes here
   hourmotor.enabler = 1;
+
   //here is where we would configure step duration.
   bigben.runReal(); //power cycle at least gets us moving.
 }
@@ -245,6 +275,8 @@ void setup() {
 
 void loop() {
   if (MilliTicked) {
+    minuteSlew.onTick();
+    hourSlew.onTick();
     //if both need to run, minute gets priority (in case we share control lines)
     if (!minuteHand.onTick()) {
       hourHand.onTick();
