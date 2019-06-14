@@ -21,15 +21,17 @@ Stream &debug(Serial);
 
 #include "pinclass.h"
 
+//pin choices below are for ESP-01 module, with only 2 GPIO is you are using the uart (which is the download port)
+
 //a pin used to enable extra debug spew:
-const InputPin<D7, LOW> Verbose;
-const InputPin<D8, LOW> Initparams;
+const InputPin<0, LOW> Verbose;
+//
+const InputPin<2, LOW> Initparams;
 
 #include "strz.h"
 
 #include "telnetter.h"
 Credentials cred;
-
 
 #include "nvblock.h"
 
@@ -40,6 +42,8 @@ const Nvblock keepip = Nvblock::For(mystaticip, 128); //todo: allocation scheme 
 
 const char *Hostname = "980FMesher";
 
+
+//a class for accessing our ino parts
 struct Chatter: public TelnetActor {
   bool chat = true;
   void onInput(uint8_t *bytes, unsigned length, unsigned ci);
