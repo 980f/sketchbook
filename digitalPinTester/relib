@@ -1,4 +1,5 @@
 ## recreate links to library sources
 ln -sf ../shared/arduous arduous
+ln -sf lib/digitalpin.h digitalpin.h
 ln -sf ../shared/lardls lardls
 ln -sf ../shared lib
