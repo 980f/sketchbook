@@ -1,11 +1,9 @@
+#include "Arduino.h"  //pro-forma?
 
 #include "chainprinter.h"
 ChainPrinter dbg(Serial);
-//
-//
-//#define DebugDigitalPin Serial
-#include "digitalpin.h"
 
+#include "digitalpin.h"
 
 //what is our clue for whether Dxx symbols have been defined?
 #ifndef D5
@@ -14,9 +12,12 @@ ChainPrinter dbg(Serial);
 
 DigitalInput button(4, LOW);
 
-//#ifdef LED_BUILTIN
-DigitalOutput led(5);
-//#endif
+#ifndef LED_BUILTIN
+DigitalOutput led(LED_BUILTIN);
+#else 
+bool led; //this is one of the advantages of the DigitalXX classes, you can replace with a boolean when there is no pin for the concept.
+#endif
+
 
 #include "cheaptricks.h"
 
@@ -29,30 +30,25 @@ BiStable toggler(250, 550);
 bool butevent = 0;
 
 void setup() {
-
   Serial.begin(115200);
   while (!Serial);
-#ifdef   ARDUINO_BOARD
+#ifdef ARDUINO_BOARD
   Serial.println(ARDUINO_BOARD);
 #endif
 
-#ifdef   ARDUINO_VARIANT
+#ifdef ARDUINO_VARIANT
   Serial.println(ARDUINO_VARIANT);
 #endif
 
   //everything needed is in constructors.
   //  dbg(
-  Serial.println(
-    "\nin Setup");
+  Serial.println("\nin Setup");
   delay(2000);
 
   //	 pinMode(D5, INPUT_PULLUP);
-  Serial.println(
-    "\nDone");
+  Serial.println("\nDone");
   delay(2000);
-
 }
-
 
 unsigned loopcount = 0;
 
