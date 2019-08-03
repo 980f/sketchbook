@@ -30,7 +30,8 @@ Using_MilliTicker
 
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
-const unsigned slewspeed = 5;//5: smooth moving, no load.
+
+unsigned slewspeed = 5;//5: 28BJY48 smooth moving, no load.
 
 
 
@@ -130,10 +131,16 @@ void doKey(char key) {
       highnoon();
       break;
 
-    case 'v'://set stepping rate to use
+    case 'v'://set stepping rate to use for timekeeping
       dbg("\nSetting step:", cmd.arg);
       minuteHand.upspeed(cmd.arg);
       break;
+
+  case 's'://set stepping rate to use for slewing
+      dbg("\nSetting slew:", cmd.arg);
+      slewspeed=cmd.arg;
+      break;
+
 
     case 'x': case 'X': //stop stepping
       dbg("\nStopping.");
@@ -148,6 +155,16 @@ void doKey(char key) {
       dbg("\nbipolar engaged");
       unipolar = 0;
       break;
+
+  case 'p': case 'P':
+      dbg("\npower on");
+      motorpower = 1;
+      break;
+    case 'o': case 'O':
+      dbg("\npower off");
+      motorpower = 0;
+      break;
+
 
     case 'R'://free run in reverse
       dbg("\nRun Reverse.");
