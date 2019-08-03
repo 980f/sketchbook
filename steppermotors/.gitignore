@@ -6,6 +6,8 @@ char.cpp
 char.h
 cheaptricks.h
 clirp.h
+clockhand.cpp
+clockhand.h
 cstr.cpp
 cstr.h
 easyconsole.h
@@ -21,6 +23,7 @@ limitedpointer.h
 microseconds.h
 millievent.h
 minimath.h
+motordrivers.h
 pcf8575.h
 pinclass.h
 pinuser.h

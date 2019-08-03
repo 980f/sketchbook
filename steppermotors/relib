@@ -7,6 +7,8 @@ ln -sf lib/ezcpp/char.cpp char.cpp
 ln -sf lib/ezcpp/char.h char.h
 ln -sf ../shared/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf lib/clirp.h clirp.h
+ln -sf lib/clockhand.cpp clockhand.cpp
+ln -sf lib/clockhand.h clockhand.h
 ln -sf lib/ezcpp/cstr.cpp cstr.cpp
 ln -sf lib/ezcpp/cstr.h cstr.h
 ln -sf ../shared/easyconsole.h easyconsole.h
@@ -22,7 +24,7 @@ ln -sf lib/ezcpp/limitedpointer.h limitedpointer.h
 ln -sf lib/microseconds.h microseconds.h
 ln -sf ../shared/millievent.h millievent.h
 ln -sf ../shared/ezcpp/minimath.h minimath.h
-ln -sf ../shared/pcf8575.h pcf8575.h
+ln -sf lib/motordrivers.h motordrivers.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
 ln -sf ../shared/scani2c.h scani2c.h
