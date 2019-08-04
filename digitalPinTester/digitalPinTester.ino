@@ -11,14 +11,14 @@ DigitalOutput b(17);
 DigitalOutput c(16);
 
 //you can make arrays:
-DigitalOutput nib[] = {{18}, {17}, {16}};
-DigitalInput quad[] = {{23} , {20}, {21}, {24}};
+const DigitalOutput nib[] = {{18}, {17}, {16}};
+const DigitalInput quad[] = {{23} , {20}, {21}, {24}};
 bool last[4];
 
 
 class EdgyInput {
 	bool last;
-	DigitalInput pin;
+	const DigitalInput pin;
 	public:
 	EdgyInput(unsigned which):pin(which){
 		last=this->operator bool();	
