@@ -20,10 +20,12 @@
 EasyConsole<decltype(Serial)> dbg(Serial);
 
 
-//soft millisecond timers are adequate for minutes and hours.
-#include "millievent.h"
-Using_MilliTicker
+////soft millisecond timers are adequate for minutes and hours.
+//#include "millievent.h"
+//Using_MilliTicker
 
+#include "microevent.h"
+Using_MicroTicker
 
 #include "stepper.h"
 #include "motordrivers.h"
@@ -31,8 +33,8 @@ Using_MilliTicker
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 
-unsigned slewspeed = 5;//5: 28BJY48 smooth moving, no load.
-
+//todo: code in seconds so that we can switch between micro and milli
+unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
 
 
 
@@ -57,7 +59,7 @@ unsigned stepcount = 0;
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
   steptrace[stepcount++] = Char(motorNibble(step)).hexNibble(0);
-  stepcount %= 32;
+  stepcount %= 32;//diagnostic loop, unrelated to stepper action. Used to look for erratic timebase.
 });
 
 
@@ -222,7 +224,7 @@ void setup() {
 
 
 void loop() {
-  if (MilliTicked) {
+  if (MicroTicked) {
     minuteSlew.onTick();
     //if both need to run, minute gets priority (in case we share control lines)
     if (!minuteHand.onTick()) {
