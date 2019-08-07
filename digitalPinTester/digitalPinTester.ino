@@ -90,7 +90,7 @@ void loop(){
 //  //  		  Serial.println(loopcount);
 //  //  	}
 
-if (MilliTicked) {//slow down check to minimze worst of switch bounce.
+if (MilliTicked) {//slow down check to minimize worst of switch bounce.
   for (unsigned i = 3; i-- > 0;) {
     if (changed(last[i], quad[i])) {
       dbg( i + 1, " changed to ", last[i]);
