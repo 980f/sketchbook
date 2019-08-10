@@ -17,7 +17,7 @@
 #include "pinclass.h"
 #include "cheaptricks.h"
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial);
+EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
 
 
 ////soft millisecond timers are adequate for minutes and hours.
@@ -138,9 +138,9 @@ void doKey(char key) {
       minuteHand.upspeed(cmd.arg);
       break;
 
-  case 's'://set stepping rate to use for slewing
+    case 's'://set stepping rate to use for slewing
       dbg("\nSetting slew:", cmd.arg);
-      slewspeed=cmd.arg;
+      slewspeed = cmd.arg;
       break;
 
 
@@ -158,7 +158,7 @@ void doKey(char key) {
       unipolar = 0;
       break;
 
-  case 'p': case 'P':
+    case 'p': case 'P':
       dbg("\npower on");
       motorpower = 1;
       break;
@@ -222,9 +222,20 @@ void setup() {
   minuteHand.realtime(); //power cycle at least gets us moving.
 }
 
+MicroTick::RawTick ticks[500 + 1];
+unsigned microTickTracer = 0;
 
 void loop() {
   if (MicroTicked) {
+    if (true) {
+      if (microTickTracer < 500) {
+        ticks[microTickTracer++] = MicroTicked.recent().micros; //~10 ms per loop
+      } else {
+        while (microTickTracer > 0) {
+          dbg(ticks[--microTickTracer]);
+        }
+      }
+    }
     minuteSlew.onTick();
     //if both need to run, minute gets priority (in case we share control lines)
     if (!minuteHand.onTick()) {
