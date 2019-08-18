@@ -3,6 +3,8 @@
 //don't need special attributes for isr's, so blank define this.
 #define ISRISH 
 
+#define SEEEDV1_2
+
 #define UsingDRV8833 0
 #define UsingL298 1
 

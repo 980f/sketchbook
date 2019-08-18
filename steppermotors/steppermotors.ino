@@ -33,8 +33,12 @@ Using_MicroTicker
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 
+<<<<<<< Updated upstream
 //todo: code in seconds so that we can switch between micro and milli
 unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
+=======
+unsigned slewspeed = 500;//5: 28BJY48 smooth moving, no load.
+>>>>>>> Stashed changes
 
 
 
@@ -42,6 +46,25 @@ unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
 FourBanger<10, 9, 12, 11> minutemotor;
 OutputPin<17> unipolar;//else bipolar
 OutputPin<18> motorpower;//relay, don't pwm this!
+#elif defined(SEEEDV1_2)
+FourBanger<8, 11, 12, 13> minutemotor;
+bool unipolar;//else bipolar
+
+struct DuplicateOutput {
+  const OutputPin<9> theone;
+  const OutputPin<10> theother;
+  void operator=(bool on) {
+    theone = on;
+    theother = on;
+  }
+
+  operator bool () const {
+    return theone;
+  }
+};
+
+DuplicateOutput motorpower;//pwm OK.
+
 #else  //presume ProMicro/Leonardo
 FourBanger<12, 11, 10, 9> minutemotor;
 bool unipolar;
@@ -108,6 +131,7 @@ CLIRP cmd;
 //I2C diagnostic
 #include "scani2c.h"
 
+int sstep=0;
 
 void doKey(char key) {
   switch (key) {
@@ -167,6 +191,13 @@ void doKey(char key) {
       motorpower = 0;
       break;
 
+
+    case 'f':
+      minutemotor(++sstep);
+      break;
+    case 'r':
+      minutemotor(--sstep);
+      break;
 
     case 'R'://free run in reverse
       dbg("\nRun Reverse.");
