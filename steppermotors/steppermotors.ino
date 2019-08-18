@@ -222,25 +222,26 @@ void setup() {
   minuteHand.realtime(); //power cycle at least gets us moving.
 }
 
-MicroTick::RawTick ticks[500 + 1];
+#define numSamples 20
+MicroTick::RawTick before[numSamples+ 1];
+MicroTick::RawTick after[numSamples + 1];
 unsigned microTickTracer = 0;
 
 void loop() {
   if (MicroTicked) {
-    if (true) {
-      if (microTickTracer < 500) {
-        ticks[microTickTracer++] = MicroTicked.recent().micros; //~10 ms per loop
-      } else {
-        while (microTickTracer > 0) {
-          dbg(ticks[--microTickTracer]);
-        }
+    if (++microTickTracer >= numSamples) {
+      while (microTickTracer-- > 0) {
+        dbg(after[microTickTracer] - before[microTickTracer]);
       }
     }
+
     minuteSlew.onTick();
     //if both need to run, minute gets priority (in case we share control lines)
     if (!minuteHand.onTick()) {
       //      hourHand.onTick();
     }
+    before[microTickTracer] = micros();
     doui();
+    after[microTickTracer] = micros();
   }
 }
