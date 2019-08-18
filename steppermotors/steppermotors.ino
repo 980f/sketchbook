@@ -17,15 +17,12 @@
 #include "pinclass.h"
 #include "cheaptricks.h"
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
+EasyConsole<decltype(Serial)> dbg(Serial);
 
 
-////soft millisecond timers are adequate for minutes and hours.
-//#include "millievent.h"
-//Using_MilliTicker
-
-#include "microevent.h"
-Using_MicroTicker
+//soft millisecond timers are adequate for minutes and hours.
+#include "millievent.h"
+Using_MilliTicker
 
 #include "stepper.h"
 #include "motordrivers.h"
@@ -33,12 +30,8 @@ Using_MicroTicker
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 
-<<<<<<< Updated upstream
-//todo: code in seconds so that we can switch between micro and milli
-unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
-=======
-unsigned slewspeed = 500;//5: 28BJY48 smooth moving, no load.
->>>>>>> Stashed changes
+//todo: switch for speed range
+unsigned slewspeed = 5;//: 28BJY48 smooth moving, no load.
 
 
 
@@ -82,7 +75,7 @@ unsigned stepcount = 0;
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
   steptrace[stepcount++] = Char(motorNibble(step)).hexNibble(0);
-  stepcount %= 32;//diagnostic loop, unrelated to stepper action. Used to look for erratic timebase.
+  stepcount %= 32;
 });
 
 
@@ -253,26 +246,12 @@ void setup() {
   minuteHand.realtime(); //power cycle at least gets us moving.
 }
 
-#define numSamples 20
-MicroTick::RawTick before[numSamples+ 1];
-MicroTick::RawTick after[numSamples + 1];
-unsigned microTickTracer = 0;
 
 void loop() {
-  if (MicroTicked) {
-    if (++microTickTracer >= numSamples) {
-      while (microTickTracer-- > 0) {
-        dbg(after[microTickTracer] - before[microTickTracer]);
-      }
-    }
-
+  if (MilliTicked) {
     minuteSlew.onTick();
     //if both need to run, minute gets priority (in case we share control lines)
-    if (!minuteHand.onTick()) {
-      //      hourHand.onTick();
-    }
-    before[microTickTracer] = micros();
+    minuteHand.onTick();
     doui();
-    after[microTickTracer] = micros();
   }
 }
