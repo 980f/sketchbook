@@ -59,7 +59,7 @@ struct DuplicateOutput {
 DuplicateOutput motorpower;//pwm OK.
 
 #else  //presume ProMicro/Leonardo
-FourBanger<12, 11, 10, 9> minutemotor;
+FourBanger<4,5,6,7> minutemotor;
 bool unipolar;
 bool motorpower;//todo: assign real pins
 #endif
