@@ -46,7 +46,7 @@ bool unipolar;//else bipolar
 DuplicateOutput<9,10> motorpower;//pwm OK. These are the ENA and ENB of the L298, for stepper use there is no reason to just keep one active.
 
 #else  //presume ProMicro/Leonardo
-FourBanger<12, 11, 10, 9> minutemotor;
+FourBanger<4,5,6,7> minutemotor;
 bool unipolar;
 bool motorpower;//todo: assign real pins
 #endif
