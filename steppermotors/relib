@@ -20,8 +20,10 @@ ln -sf ../shared/ezcpp/hook.h hook.h
 ln -sf ../shared/ezcpp/index.h index.h
 ln -sf ../shared/lardls lardls
 ln -sf lib/ezcpp/limitedpointer.h limitedpointer.h
+ln -sf lib/microevent.cpp microevent.cpp
 ln -sf lib/microevent.h microevent.h
 ln -sf lib/microseconds.h microseconds.h
+ln -sf lib/millievent.cpp millievent.cpp
 ln -sf ../shared/millievent.h millievent.h
 ln -sf ../shared/ezcpp/minimath.h minimath.h
 ln -sf lib/motordrivers.h motordrivers.h

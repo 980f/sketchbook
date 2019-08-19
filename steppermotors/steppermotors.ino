@@ -17,12 +17,14 @@
 #include "pinclass.h"
 #include "cheaptricks.h"
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial);
+EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
 
 
-//soft millisecond timers are adequate for minutes and hours.
+////soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
-Using_MilliTicker
+
+#include "microevent.h"
+
 
 #include "stepper.h"
 #include "motordrivers.h"
@@ -30,9 +32,8 @@ Using_MilliTicker
 //project specific values:
 const unsigned baseSPR = 2048;//28BYJ-48
 
-//todo: switch for speed range
-unsigned slewspeed = 5;//: 28BJY48 smooth moving, no load.
-
+//todo: code in seconds so that we can switch between micro and milli
+unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
 
 
 #ifdef ADAFRUIT_FEATHER_M0
@@ -42,21 +43,7 @@ OutputPin<18> motorpower;//relay, don't pwm this!
 #elif defined(SEEEDV1_2)
 FourBanger<8, 11, 12, 13> minutemotor;
 bool unipolar;//else bipolar
-
-struct DuplicateOutput {
-  const OutputPin<9> theone;
-  const OutputPin<10> theother;
-  void operator=(bool on) {
-    theone = on;
-    theother = on;
-  }
-
-  operator bool () const {
-    return theone;
-  }
-};
-
-DuplicateOutput motorpower;//pwm OK.
+DuplicateOutput<9,10> motorpower;//pwm OK. These are the ENA and ENB of the L298, for stepper use there is no reason to just keep one active.
 
 #else  //presume ProMicro/Leonardo
 FourBanger<12, 11, 10, 9> minutemotor;
@@ -75,7 +62,7 @@ unsigned stepcount = 0;
 ClockHand minuteHand(ClockHand::Minutes, [](byte step) {
   minutemotor(step);
   steptrace[stepcount++] = Char(motorNibble(step)).hexNibble(0);
-  stepcount %= 32;
+  stepcount %= 32;//diagnostic loop, unrelated to stepper action. Used to look for erratic timebase.
 });
 
 
@@ -124,7 +111,6 @@ CLIRP cmd;
 //I2C diagnostic
 #include "scani2c.h"
 
-int sstep=0;
 
 void doKey(char key) {
   switch (key) {
@@ -185,13 +171,6 @@ void doKey(char key) {
       break;
 
 
-    case 'f':
-      minutemotor(++sstep);
-      break;
-    case 'r':
-      minutemotor(--sstep);
-      break;
-
     case 'R'://free run in reverse
       dbg("\nRun Reverse.");
       minuteHand.freerun = -1;
@@ -246,12 +225,23 @@ void setup() {
   minuteHand.realtime(); //power cycle at least gets us moving.
 }
 
+#define numSamples 20
+MicroTick::RawTick before[numSamples+ 1];
+MicroTick::RawTick after[numSamples + 1];
+unsigned microTickTracer = 0;
 
 void loop() {
-  if (MilliTicked) {
+  if (MicroTicked) {
+    if (++microTickTracer >= numSamples) {
+      while (microTickTracer-- > 0) {
+        dbg(after[microTickTracer] - before[microTickTracer]);
+      }
+    }
+
     minuteSlew.onTick();
-    //if both need to run, minute gets priority (in case we share control lines)
     minuteHand.onTick();
+    before[microTickTracer] = micros();
     doui();
+    after[microTickTracer] = micros();
   }
 }
