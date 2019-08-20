@@ -30,6 +30,8 @@ ln -sf lib/motordrivers.h motordrivers.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
 ln -sf ../shared/scani2c.h scani2c.h
+ln -sf lib/spibridges.cpp spibridges.cpp
+ln -sf lib/spibridges.h spibridges.h
 ln -sf lib/sprinter.cpp sprinter.cpp
 ln -sf lib/sprinter.h sprinter.h
 ln -sf ../shared/stepper.h stepper.h

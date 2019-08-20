@@ -31,6 +31,8 @@ pcf8575.h
 pinclass.h
 pinuser.h
 scani2c.h
+spibridges.cpp
+spibridges.h
 sprinter.cpp
 sprinter.h
 stepper.h
