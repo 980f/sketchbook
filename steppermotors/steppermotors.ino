@@ -1,4 +1,4 @@
-
+#include <Arduino.h>
 #include "options.h"
 /* test stepper motors.
     started with code from a clock project, hence some of the peculiar naming and the use of time instead of degrees.
@@ -24,16 +24,14 @@ EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
 #include "millievent.h"
 
 #include "microevent.h"
-
-
 #include "stepper.h"
 #include "motordrivers.h"
 
 //project specific values:
-const unsigned baseSPR = 2048;//28BYJ-48
+const unsigned baseSPR = 200;//1.8' steppers ar ethe ones that need speed testing
 
 //todo: code in seconds so that we can switch between micro and milli
-unsigned slewspeed = 50;//5: 28BJY48 smooth moving, no load.
+RawMicros slewspeed = 500000;
 
 
 #ifdef ADAFRUIT_FEATHER_M0
@@ -99,10 +97,10 @@ void highnoon() {
   minuteHand.setReference(0);
 }
 
-
-void reportHand(const ClockHand&hand, const char *which) {
-  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
-}
+//clion maker can't handle user defined classes in its forward reference generator.
+//void reportHand(const ClockHand&hand, const char *which) {
+//  dbg("\n", which, "T=", hand.target, " en:", hand.enabled, " FR=", hand.freerun, " Step=", hand.mechanism);
+//}
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
@@ -119,8 +117,9 @@ void doKey(char key) {
       break;
 
     case ' '://report status
-      reportHand(minuteHand, "Minute");
-      dbg("\nTrace:", steptrace);
+//clion can't handle this:      reportHand(minuteHand, "Minute");
+			dbg( "T=", minuteHand.target, " en:", minuteHand.enabled, " FR=", minuteHand.freerun, " Step=", minuteHand.mechanism);
+      dbg("Trace:", steptrace);
       break;
 
     case 'm'://go to position
@@ -132,52 +131,52 @@ void doKey(char key) {
       break;
 
     case 'Z'://declare present position is noon
-      dbg("\n marking noon");
+      dbg("marking noon");
       highnoon();
       break;
 
     case 'v'://set stepping rate to use for timekeeping
-      dbg("\nSetting step:", cmd.arg);
+      dbg("Setting step:", cmd.arg);
       minuteHand.upspeed(cmd.arg);
       break;
 
     case 's'://set stepping rate to use for slewing
-      dbg("\nSetting slew:", cmd.arg);
+      dbg("Setting slew:", cmd.arg);
       slewspeed = cmd.arg;
       break;
 
 
     case 'x': case 'X': //stop stepping
-      dbg("\nStopping.");
+      dbg("Stopping.");
       minuteHand.freeze();
       break;
 
     case 'u': case 'U':
-      dbg("\nunipolar engaged");
+      dbg("unipolar engaged");
       unipolar = 1;
       break;
     case 'b': case 'B':
-      dbg("\nbipolar engaged");
+      dbg("bipolar engaged");
       unipolar = 0;
       break;
 
     case 'p': case 'P':
-      dbg("\npower on");
-      motorpower = 1;
+      dbg("power on");
+      motorpower = true;
       break;
     case 'o': case 'O':
-      dbg("\npower off");
-      motorpower = 0;
+      dbg("power off");
+      motorpower = false;
       break;
 
 
     case 'R'://free run in reverse
-      dbg("\nRun Reverse.");
+      dbg("Run Reverse.");
       minuteHand.freerun = -1;
       break;
 
     case 'F'://run forward
-      dbg("\nRun Forward.");
+      dbg("Run Forward.");
       minuteHand.freerun = +1;
       break;
 
@@ -185,12 +184,12 @@ void doKey(char key) {
     case '?':
       scanI2C(dbg);
 #if UsingEDSir
-      dbg("\nIR device is ", IRRX.isPresent() ? "" : "not", " present");
+      dbg("IR device is ", IRRX.isPresent() ? "" : "not", " present");
 #endif
       break;
 
     default:
-      dbg("\nIgnored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
+      dbg("Ignored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
       return; //don't put in trace buffer
   }
 }
@@ -220,28 +219,16 @@ void setup() {
   minuteHand.stepperrev = baseSPR;
   motorpower = 1;
 
-
   //here is where we would configure step duration.
   minuteHand.realtime(); //power cycle at least gets us moving.
 }
 
-#define numSamples 20
-MicroTick::RawTick before[numSamples+ 1];
-MicroTick::RawTick after[numSamples + 1];
-unsigned microTickTracer = 0;
+
 
 void loop() {
   if (MicroTicked) {
-    if (++microTickTracer >= numSamples) {
-      while (microTickTracer-- > 0) {
-        dbg(after[microTickTracer] - before[microTickTracer]);
-      }
-    }
-
     minuteSlew.onTick();
     minuteHand.onTick();
-    before[microTickTracer] = micros();
     doui();
-    after[microTickTracer] = micros();
   }
 }
