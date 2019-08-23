@@ -57,12 +57,13 @@ void bridge0(byte phase) {
 void bridge1(byte phase) {
   bridgeLambda<1>(phase);
 }
+InputPin<18, LOW> zeroMarker; //on leonardo is A0, and so on up.
+InputPin<19, LOW> oneMarker; //on leonardo is A0, and so on up.
 
 #endif
 
 /** input for starting position of cycle. */
-InputPin<18, LOW> zeroMarker; //on leonardo is A0, and so on up.
-InputPin<19, LOW> oneMarker;
+
 
 #ifdef LED_BUILTIN
 OutputPin<LED_BUILTIN> led;
@@ -76,8 +77,7 @@ bool led;
 /** adds velocity to position.  */
 struct StepperMotor {
   Stepper pos;
-  Stepper::Step target = 0; //might migrate into Stepper
-
+  Stepper::Step target; //might migrate into Stepper
   /// override run and step at a steady rate forever.
   bool freeRun = false;
   /** if and which direction to step*/
@@ -86,27 +86,116 @@ struct StepperMotor {
   //time between steps
   MicroStable ticker;
 
+  
+  Stepper::Step homeWidth = 15; //todo:eeprom
+  MicroStable::Tick homeSpeed = 250000; //todo:eeprom
+  BoolishRef *homeSensor;
+
+  bool which;//used for trace messages
+  bool edgy;//used to detect edges of homesensor
+	Stepper::Step homeOn;
+  Stepper::Step homeOff;
+
+
+  
+  
   void setTick(MicroStable::Tick perstep) {
     ticker.set(perstep);
   }
 
+  enum Homing { //arranged to count down to zero
+    Homed = 0,   //when move to center of region is issued
+    BackwardsOff,//capture far edge, so that we can center on sensor for less drift
+    BackwardsOn, //capture low to high
+    ForwardOff,  //if on when starting must move off
+    NotHomed //setup homing run and choose the initial state
+  };
+  Homing homing = NotHomed;
+
+  /** call this when timer has ticked */
   void operator()() {
     if (ticker.perCycle()) {
-      if (!freeRun) {
-        run = pos - target;//
+      bool homeChanged = homeSensor && changed(edgy, *homeSensor);
+      if (homeChanged) {
+        dbg("W:",which," sensor:", edgy);
       }
-      pos += run;//steps if run !0
+      switch (homing) {
+        case Homed://normal motion logic
+          if (!freeRun) {
+            run = pos - target;//
+          }
+          pos += run;//steps if run !0
+          break;
+
+        case NotHomed://set up slow move one way or the other
+          freeRun = 0;
+          run = 0;
+          if (homeSensor) {
+            if (edgy) {
+              pos = -homeWidth;//a positive pos will be a timeout
+              target = 0;
+              homing = ForwardOff;
+            } else {
+              pos = homeWidth;//a negative pos will be a timeout
+              target = 0;
+              homing = BackwardsOn;
+            }
+          } else {
+            pos = 0;
+            target = 0;
+            homing = Homed;//told to home but no sensor then just clear positions and proclaim we are there.
+          }
+          setTick(homeSpeed);
+          dbg("Homing started:", target, " @", homing, " width:", homeWidth);
+          break;
+
+        case ForwardOff://HM:3
+          if (!edgy) {
+            dbg("Homing backed off sensor, at ", pos);
+            pos = homeWidth;//a negative pos will be a timeout
+            target = 0;
+            homing = BackwardsOn;
+          } else {
+            pos += 1;
+          }
+          break;
+
+        case BackwardsOn://HM:2
+          if (edgy) {
+            dbg("Homing found on edge at ", pos);
+            pos = homeWidth;//so that a negative pos means we should give up.
+            target = 0;
+            homing = BackwardsOff;
+          } else {
+            pos += -1;//todo: -= operator on pos.
+          }
+          break;
+
+        case BackwardsOff://HM:1
+          if (!edgy) {
+            dbg("Homing found off edge at ", pos);
+            pos = (homeWidth + pos) / 2;
+            target = 0;
+            homing = Homed;
+            stats(&dbg);
+          } else {
+            pos += -1;
+          }
+          break;
+      }
     }
   }
 
+	//active state report, formatted as lax JSON (no quotes except for escaping framing)
   void stats(ChainPrinter *adbg) {
     if (adbg) {
-      (*adbg)("T=", target, " Step=", int(pos), " FR=", freeRun, " tick:", ticker.duration);
+      (*adbg)("{W:",which,", T:", target, ", Step:", int(pos), ", FR:", freeRun?run:0, ", HM:", homing, ", tick:", ticker.duration,'}');
     }
   }
 
   /** stop where it is. */
   void freeze() {
+    homing = Homed;//else failed homing will keep it running.
     freeRun = false;
     target = pos;
   }
@@ -121,12 +210,17 @@ struct StepperMotor {
     pos = 0;
   }
 
-  void start(bool second, Stepper::Interface iface) {
-    pos.interface = iface;//lambda didn't work
-    //      [second](byte phase){
-    //      SpiDualBridgeBoard::setBridge(second,phase);
-    //    };
-    setTick(250000);
+  void start(bool second, Stepper::Interface iface, BoolishRef *homer) {
+  	which = second;
+    pos.interface = iface;
+    if (changed(homeSensor, homer)) {
+      if (homeSensor != nullptr) {
+        homing = NotHomed;
+      } else {
+        homing = Homed;
+      }
+    }
+    setTick(homeSpeed);
   }
 };
 
@@ -181,7 +275,24 @@ void doKey(char key) {
       motor[which].target = cmd.arg;
       break;
 
-    case 'H':
+    case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
+      motor[which].target = -cmd.arg;
+      break;
+
+    case 'H'://takes advantage of 0 not being a viable value for these optional parameters
+      if (cmd.pushed) {//if 2 args width,speed
+        motor[which].homeWidth = cmd.pushed;
+        dbg("set home width to ", motor[which].homeWidth);
+      }
+      if (cmd.arg) {//if 1 arg speed.
+        motor[which].homeSpeed = cmd.arg;
+        dbg("set home speed to ", motor[which].homeSpeed);
+      }
+      motor[which].homing = StepperMotor::NotHomed;//will lock up if no sensor present or is broken.
+      dbg("starting home procedure at stage ", motor[which].homing);
+      break;
+
+    case 'K':
       motor[which].target -= 1;
       break;
     case 'J':
@@ -236,9 +347,22 @@ void doKey(char key) {
       break;
 
     case 'G'://whatever
-      dbg("inputs:", zeroMarker, ",", oneMarker);
+      dbg("inputs:", motor[0].edgy, ",", motor[1].edgy);
       break;
 
+    case '#':
+      switch (cmd.arg) {
+        case 42://todo: save initstring to eeprom
+          dbg("save initstring to eeprom not yet implemented");//this message reserves bytes to do so :)
+          break;
+        case 6://todo: read initstring from eeprom
+          dbg("read initstring from eeprom not yet implemented");//this message reserves bytes to do so :)
+          break;
+        default:
+          dbg("# takes 42 to burn eeprom, 6 to reload from it, else ignored");
+          break;
+      }
+      break;
     case '?':
       scanI2C(dbg);
 #if UsingEDSir
@@ -248,10 +372,11 @@ void doKey(char key) {
 
     default:
       dbg("Ignored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
-      return; //don't put in trace buffer
+      //      return; //don't put in trace buffer
   }
 }
 
+//keep separate, we will feed from eeprom as init technique
 void accept(char key) {
   if (cmd.doKey(key)) {
     doKey(key);
@@ -264,18 +389,23 @@ void doui() {
   }
 }
 
+void doString(const char *initstring) {
+  while (char c = *initstring++) {
+    accept(c);
+  }
+}
+
 /////////////////////////////////////
-bool edgy[2];
+
 void setup() {
   Serial.begin(115200);
   dbg("setup");
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-  motor[0].start(0, bridge0);
-
-  motor[1].start(1, bridge1);
-  edgy[0] = zeroMarker;
-  edgy[1] = oneMarker;
+  motor[0].start(0, bridge0, &zeroMarker);
+  doString("15,250000h");
+  motor[1].start(1, bridge1, &oneMarker);
+  doString("15,250000H");
 }
 
 
@@ -287,16 +417,6 @@ void loop() {
   }
   if (MilliTicked) {//non urgent things like debouncing index sensor
     led = zeroMarker ^ oneMarker;
-    if (changed(edgy[0], zeroMarker)) {
-      if (edgy[0]) { //todo: and homing
-        motor[0].atIndex();
-      }
-    }
-    if (changed(edgy[1], oneMarker)) {
-      if (edgy[1]) {
-        motor[1].atIndex();
-      }
-    }
     doui();
   }
 }

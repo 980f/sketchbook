@@ -23,9 +23,10 @@ set(ARDLIBS Wire)
 include_directories(${ARDUINO_SDK_PATH}/hardware/arduino/avr/libraries/Wire/src)
 
 
-#arduino IDE effectively does this: FILE(GLOB ${PROJECT_NAME}_SRCS *.cpp)
-#we will be selective:
-set(${CMAKE_PROJECT_NAME}_SRCS char.cpp cstr.cpp  millievent.cpp microevent.cpp sprinter.cpp textkey.cpp spibridges.cpp )
+#arduino IDE effectively does this:
+FILE(GLOB ${CMAKE_PROJECT_NAME}_SRCS *.cpp)
+#we will be selective:  but didn't get a list in the project window so seeing if glob will do that
+#set(${CMAKE_PROJECT_NAME}_SRCS char.cpp cstr.cpp  millievent.cpp microevent.cpp sprinter.cpp textkey.cpp spibridges.cpp )
 #but include all headers, that is cheap and helps the IDE
 FILE(GLOB ${CMAKE_PROJECT_NAME}_HDRS *.h)
 
