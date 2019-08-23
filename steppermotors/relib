@@ -7,15 +7,11 @@ ln -sf lib/ezcpp/char.cpp char.cpp
 ln -sf lib/ezcpp/char.h char.h
 ln -sf ../shared/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf lib/clirp.h clirp.h
-ln -sf lib/clockhand.cpp clockhand.cpp
-ln -sf lib/clockhand.h clockhand.h
 ln -sf lib/ezcpp/cstr.cpp cstr.cpp
 ln -sf lib/ezcpp/cstr.h cstr.h
 ln -sf ../shared/easyconsole.h easyconsole.h
 ln -sf lib/edsir.h edsir.h
 ln -sf ../shared/ezcpp/eztypes.h eztypes.h
-ln -sf lib/hms.cpp hms.cpp
-ln -sf lib/hms.h hms.h
 ln -sf ../shared/ezcpp/hook.h hook.h
 ln -sf ../shared/ezcpp/index.h index.h
 ln -sf ../shared/lardls lardls

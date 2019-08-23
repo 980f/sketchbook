@@ -19,33 +19,28 @@
 #include "cheaptricks.h"
 
 #include "easyconsole.h"
-
 EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
-
 
 ////soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
 
+//using microsecond soft timer to get more refined speeds.
 #include "microevent.h"
 #include "stepper.h"
 #include "motordrivers.h" //FourBanger and similar
-//
-////project specific values:
-////steps per rev matters only when seeking zeroMarker, might be handy for UI.
-//const unsigned baseSPR = 200;//1.8' steppers ar ethe ones that need speed testing
-//
-////todo: code in seconds so that we can switch between micro and milli
-//RawMicros slewspeed = 500000;
 
 
 #ifdef ADAFRUIT_FEATHER_M0
+
 FourBanger<10, 9, 12, 11> minutemotor;
 OutputPin<17> unipolar;//else bipolar
 OutputPin<18> motorpower;//relay, don't pwm this!
+
 #elif defined(SEEEDV1_2)
+
 FourBanger<8, 11, 12, 13> minutemotor;
 bool unipolar;//else bipolar
-DuplicateOutput<9,10> motorpower;//pwm OK. These are the ENA and ENB of the L298, for stepper use there is no reason to just keep one active.
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298, for stepper use there is no reason to just keep one active.
 
 #else  //presume ProMicro/Leonardo with dual. we'll clean this up someday
 
@@ -66,20 +61,23 @@ void bridge1(byte phase) {
 #endif
 
 /** input for starting position of cycle. */
-InputPin<14> zeroMarker;
+InputPin<14> zeroMarker; //14 on leonardo is A0, and so on up.
+
 ///////////////////////////////////////////////////////////////////////////
 #include "char.h"
 
 /** adds velocity to position.  */
 struct StepperMotor {
   Stepper pos;
+  Stepper::Step target = 0; //might migrate into Stepper
 
-  MicroStable ticker;
-
+  /// override run and step at a steady rate forever.
+  bool freeRun = false;
   /** if and which direction to step*/
   int run = 0;//1,0,-1
-  Stepper::Step target = 0;
-  bool freeRun = false;
+
+  //time between steps
+  MicroStable ticker;
 
   void setTick(MicroStable::Tick perstep) {
     ticker.set(perstep);
@@ -88,15 +86,15 @@ struct StepperMotor {
   void operator()() {
     if (ticker.perCycle()) {
       if (!freeRun) {
-        run = pos - target;//weird but true, the x= ops are differential, the non x= ops are absolute, and we wish to differential step in a direction determined by absolute position.
+        run = pos - target;//
       }
-      pos += run;
+      pos += run;//steps if run !0
     }
   }
 
   void stats(ChainPrinter *adbg) {
     if (adbg) {
-      (*adbg)("T=", target, " FR=", freeRun, " Step=", int(pos));
+      (*adbg)("T=", target, " Step=", int(pos), " FR=", freeRun, " tick:", ticker.duration);
     }
   }
 
@@ -113,9 +111,9 @@ struct StepperMotor {
 
   void start(bool second, Stepper::Interface iface) {
     pos.interface = iface;//lambda didn't work
-//      [second](byte phase){
-//      SpiDualBridgeBoard::setBridge(second,phase);
-//    };
+    //      [second](byte phase){
+    //      SpiDualBridgeBoard::setBridge(second,phase);
+    //    };
     setTick(250000);
   }
 };
@@ -149,7 +147,6 @@ StepperMotor motor[2];//setup will attach each to pins/
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
-
 CLIRP cmd;
 
 //I2C diagnostic
@@ -159,79 +156,81 @@ void doKey(char key) {
   bool which = key < 'a';//which of two motors
   switch (key) {
 
-  case ' '://report status
-    motor[0].stats(&dbg);
-    motor[1].stats(&dbg);
-    break;
+    case ' '://report status
+      motor[0].stats(&dbg);
+      motor[1].stats(&dbg);
+      break;
 
-  case 'm'://go to position
-    motor[which].target = cmd.arg;
-    break;
+    case 'm'://go to position
+      motor[which].target = cmd.arg;
+      break;
 
-  case 'Z':
-  case 'z': //declare present position is ref
-    dbg("marking start");
-    motor[which].pos = 0;
-    break;
+    case 'Z':
+    case 'z': //declare present position is ref
+      dbg("marking start");
+      motor[which].pos = 0;
+      break;
 
-  case 'S':
-  case 's'://set stepping rate to use for slewing
-    dbg("Setting slew:", cmd.arg);
-    motor[which].setTick(cmd.arg);
-    break;
+    case 'S':
+    case 's'://set stepping rate to use for slewing
+      dbg("Setting slew:", cmd.arg);
+      motor[which].setTick(cmd.arg);
+      break;
 
-  case 'x':
-  case 'X': //stop stepping
-    dbg("Stopping.");
-    motor[which].freeze();
-    break;
+    case 'x':
+    case 'X': //stop stepping
+      dbg("Stopping.");
+      motor[which].freeze();
+      break;
 
     //one test system had two relays for switching the motor wiring:
     //  case 'u':
-//  case 'U':
-//    dbg("unipolar engaged");
-//    unipolar = true;
-//    break;
-//  case 'b':
-//  case 'B':
-//    dbg("bipolar engaged");
-//    unipolar = false;
-//    break;
+    //  case 'U':
+    //    dbg("unipolar engaged");
+    //    unipolar = true;
+    //    break;
+    //  case 'b':
+    //  case 'B':
+    //    dbg("bipolar engaged");
+    //    unipolar = false;
+    //    break;
 
-  case 'p':
-  case 'P':
-    dbg("power on");
-    SpiDualBridgeBoard::power(which, true);
-    break;
+    case 'p':
+    case 'P':
+      dbg("power on");
+      SpiDualBridgeBoard::power(which, true);
+      break;
 
-  case 'O':
-  case 'o':
-    dbg("power off");
-    SpiDualBridgeBoard::power(which, false);
-    break;
+    case 'O':
+    case 'o':
+      dbg("power off");
+      SpiDualBridgeBoard::power(which, false);
+      break;
 
-  case 'R':
-  case 'r'://free run in reverse
-    dbg("Run Reverse.");
-    motor[which].freeRun = -1;
-    break;
+    case 'R':
+    case 'r'://free run in reverse
+      dbg("Run Reverse.");
+      motor[which].run = -1;
+      motor[which].freeRun=true;
+      break;
 
-  case 'F':
-  case 'f'://run forward
-    dbg("Run Forward.");
-    motor[which].freeRun = +1;
-    break;
+    case 'F':
+    case 'f'://run forward
+      dbg("Run Forward.");
+      motor[which].run = +1;
+      motor[which].freeRun=true; 
+      break;
 
-  case '?':
-    scanI2C(dbg);
+    case '?':
+      scanI2C(dbg);
 #if UsingEDSir
-    dbg("IR device is ", IRRX.isPresent() ? "" : "not", " present");
+      dbg("IR device is ", IRRX.isPresent() ? "" : "not", " present");
 #endif
-    break;
+      break;
 
-  default:
-    dbg("Ignored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
-    return; //don't put in trace buffer
+    default:
+      dbg("Ignored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
+      return; //don't put in trace buffer
   }
 }
 
@@ -242,26 +241,22 @@ void accept(char key) {
 }
 
 void doui() {
-  while (auto key = dbg.getKey()) { //only checking every milli to save power
+  while (auto key = dbg.getKey()) { 
     accept(key);
   }
 }
 
 /////////////////////////////////////
 
-
-
-
 void setup() {
   Serial.begin(115200);
   dbg("setup");
-  SpiDualStepper::start(true);//using true during development, low power until program is ready to run
+  SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
   motor[0].start(0, bridge0);
 
   motor[1].start(1, bridge1);
 
-  dbg("setup upsspeed");
 }
 
 void loop() {
@@ -269,8 +264,8 @@ void loop() {
     motor[0]();
     motor[1]();
   }
-  if (MilliTicked) {//no urgent things like debouncing index sensor
-    if(zeroMarker){
+  if (MilliTicked) {//non urgent things like debouncing index sensor
+    if (zeroMarker) {
       motor[0].freeze();
     }
     doui();
