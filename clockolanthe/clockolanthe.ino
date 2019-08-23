@@ -304,7 +304,7 @@ bool beJerky = false;
 
 
 class CLIRP {
-    UnsignedRecognizer numberparser;
+    UnsignedRecognizer<unsigned> numberparser;
     //for 2 parameter commands, gets value from param.
   public://until we get template to work.
     unsigned arg = 0;

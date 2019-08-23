@@ -19,6 +19,7 @@ lardls
 lib
 limitedpointer.h
 microseconds.h
+millievent.cpp
 millievent.h
 minimath.h
 pcf8575.h
