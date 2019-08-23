@@ -147,78 +147,80 @@ StepperMotor motor[2];//setup will attach each to pins/
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
-CLIRP cmd;
+CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
 
 //I2C diagnostic
 #include "scani2c.h"
 
 void doKey(char key) {
-  bool which = key < 'a';//which of two motors
-  switch (key) {
+  Char k(key);
+  bool which = k.isLower();//which of two motors
+  if (which) { 	
+    k.raw -= ' '; //crass way to do a 'toupper'
+  }
 
+  switch (k) {
     case ' '://report status
       motor[0].stats(&dbg);
       motor[1].stats(&dbg);
       break;
 
-    case 'm'://go to position
+    case 'M'://go to position
       motor[which].target = cmd.arg;
       break;
 
-    case 'Z':
-    case 'z': //declare present position is ref
+    case 'H':
+      motor[which].target -= 1;
+      break;
+    case 'J':
+      motor[which].target += 1;
+      break;
+
+    case 'Z'://declare present position is ref
       dbg("marking start");
       motor[which].pos = 0;
       break;
 
-    case 'S':
-    case 's'://set stepping rate to use for slewing
+    case 'S'://set stepping rate to use for slewing
       dbg("Setting slew:", cmd.arg);
       motor[which].setTick(cmd.arg);
       break;
 
-    case 'x':
     case 'X': //stop stepping
       dbg("Stopping.");
       motor[which].freeze();
       break;
 
     //one test system had two relays for switching the motor wiring:
-    //  case 'u':
     //  case 'U':
     //    dbg("unipolar engaged");
     //    unipolar = true;
     //    break;
-    //  case 'b':
     //  case 'B':
     //    dbg("bipolar engaged");
     //    unipolar = false;
     //    break;
 
-    case 'p':
     case 'P':
       dbg("power on");
       SpiDualBridgeBoard::power(which, true);
       break;
 
     case 'O':
-    case 'o':
       dbg("power off");
       SpiDualBridgeBoard::power(which, false);
       break;
 
-    case 'R':
-    case 'r'://free run in reverse
+    case 'R'://free run in reverse
       dbg("Run Reverse.");
       motor[which].run = -1;
-      motor[which].freeRun=true;
+      motor[which].freeRun = true;
       break;
 
-    case 'F':
-    case 'f'://run forward
+    case 'F'://run forward
       dbg("Run Forward.");
       motor[which].run = +1;
-      motor[which].freeRun=true; 
+      motor[which].freeRun = true;
       break;
 
     case '?':
@@ -241,7 +243,7 @@ void accept(char key) {
 }
 
 void doui() {
-  while (auto key = dbg.getKey()) { 
+  while (auto key = dbg.getKey()) {
     accept(key);
   }
 }
@@ -267,6 +269,7 @@ void loop() {
   if (MilliTicked) {//non urgent things like debouncing index sensor
     if (zeroMarker) {
       motor[0].freeze();
+      motor[1].freeze();
     }
     doui();
   }
