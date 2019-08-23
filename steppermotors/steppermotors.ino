@@ -61,7 +61,14 @@ void bridge1(byte phase) {
 #endif
 
 /** input for starting position of cycle. */
-InputPin<14> zeroMarker; //14 on leonardo is A0, and so on up.
+InputPin<18, LOW> zeroMarker; //on leonardo is A0, and so on up.
+InputPin<19, LOW> oneMarker;
+
+#ifdef LED_BUILTIN
+OutputPin<LED_BUILTIN> led;
+#else
+bool led;
+#endif
 
 ///////////////////////////////////////////////////////////////////////////
 #include "char.h"
@@ -107,6 +114,11 @@ struct StepperMotor {
   /** not actually there until the step has had time to settle down. pessimistically that is when the next step would occur if we were still moving.*/
   bool there() const {
     return run == 0 && target == pos;
+  }
+
+  bool atIndex() {
+    freeze();
+    pos = 0;
   }
 
   void start(bool second, Stepper::Interface iface) {
@@ -155,7 +167,7 @@ CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32
 void doKey(char key) {
   Char k(key);
   bool which = k.isLower();//which of two motors
-  if (which) { 	
+  if (which) {
     k.raw -= ' '; //crass way to do a 'toupper'
   }
 
@@ -223,6 +235,10 @@ void doKey(char key) {
       motor[which].freeRun = true;
       break;
 
+    case 'G'://whatever
+      dbg("inputs:", zeroMarker, ",", oneMarker);
+      break;
+
     case '?':
       scanI2C(dbg);
 #if UsingEDSir
@@ -249,7 +265,7 @@ void doui() {
 }
 
 /////////////////////////////////////
-
+bool edgy[2];
 void setup() {
   Serial.begin(115200);
   dbg("setup");
@@ -258,18 +274,28 @@ void setup() {
   motor[0].start(0, bridge0);
 
   motor[1].start(1, bridge1);
-
+  edgy[0] = zeroMarker;
+  edgy[1] = oneMarker;
 }
 
+
 void loop() {
+
   if (MicroTicked) {//on avr this is always true, cortexm0, maybe 50%
     motor[0]();
     motor[1]();
   }
   if (MilliTicked) {//non urgent things like debouncing index sensor
-    if (zeroMarker) {
-      motor[0].freeze();
-      motor[1].freeze();
+    led = zeroMarker ^ oneMarker;
+    if (changed(edgy[0], zeroMarker)) {
+      if (edgy[0]) { //todo: and homing
+        motor[0].atIndex();
+      }
+    }
+    if (changed(edgy[1], oneMarker)) {
+      if (edgy[1]) {
+        motor[1].atIndex();
+      }
     }
     doui();
   }
