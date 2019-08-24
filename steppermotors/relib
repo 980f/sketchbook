@@ -31,6 +31,7 @@ ln -sf lib/spibridges.h spibridges.h
 ln -sf lib/sprinter.cpp sprinter.cpp
 ln -sf lib/sprinter.h sprinter.h
 ln -sf ../shared/stepper.h stepper.h
+ln -sf lib/steppermotor.h steppermotor.h
 ln -sf lib/stopwatch.cpp stopwatch.cpp
 ln -sf lib/stopwatch.h stopwatch.h
 ln -sf ../shared/ezcpp/textkey.cpp textkey.cpp

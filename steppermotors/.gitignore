@@ -36,6 +36,7 @@ spibridges.h
 sprinter.cpp
 sprinter.h
 stepper.h
+steppermotor.h
 stopwatch.cpp
 stopwatch.h
 textkey.cpp

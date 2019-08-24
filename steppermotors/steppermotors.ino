@@ -26,6 +26,8 @@ EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
 
 //using microsecond soft timer to get more refined speeds.
 #include "microevent.h"
+
+
 #include "stepper.h"
 #include "motordrivers.h" //FourBanger and similar
 
@@ -44,22 +46,11 @@ DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L2
 
 #else  //presume ProMicro/Leonardo with dual. we'll clean this up someday
 
-#include "spibridges.h"
-
-template<bool second> void bridgeLambda(byte phase) {
-  SpiDualBridgeBoard::setBridge(second, phase);
-}
-
-void bridge0(byte phase) {
-  bridgeLambda<0>(phase);
-}
-
-void bridge1(byte phase) {
-  bridgeLambda<1>(phase);
-}
+#include "spibridges.h"  //consumes 3..12
+//14..17 are physically hard to get to.
 InputPin<18, LOW> zeroMarker; //on leonardo is A0, and so on up.
 InputPin<19, LOW> oneMarker; //on leonardo is A0, and so on up.
-
+//2 still available, perhaps 4 more from the A group.
 #endif
 
 /** input for starting position of cycle. */
@@ -72,158 +63,7 @@ bool led;
 #endif
 
 ///////////////////////////////////////////////////////////////////////////
-#include "char.h"
-
-/** adds velocity to position.  */
-struct StepperMotor {
-  Stepper pos;
-  Stepper::Step target; //might migrate into Stepper
-  /// override run and step at a steady rate forever.
-  bool freeRun = false;
-  /** if and which direction to step*/
-  int run = 0;//1,0,-1
-
-  //time between steps
-  MicroStable ticker;
-
-  
-  Stepper::Step homeWidth = 15; //todo:eeprom
-  MicroStable::Tick homeSpeed = 250000; //todo:eeprom
-  BoolishRef *homeSensor;
-
-  bool which;//used for trace messages
-  bool edgy;//used to detect edges of homesensor
-	Stepper::Step homeOn;
-  Stepper::Step homeOff;
-
-
-  
-  
-  void setTick(MicroStable::Tick perstep) {
-    ticker.set(perstep);
-  }
-
-  enum Homing { //arranged to count down to zero
-    Homed = 0,   //when move to center of region is issued
-    BackwardsOff,//capture far edge, so that we can center on sensor for less drift
-    BackwardsOn, //capture low to high
-    ForwardOff,  //if on when starting must move off
-    NotHomed //setup homing run and choose the initial state
-  };
-  Homing homing = NotHomed;
-
-  /** call this when timer has ticked */
-  void operator()() {
-    if (ticker.perCycle()) {
-      bool homeChanged = homeSensor && changed(edgy, *homeSensor);
-      if (homeChanged) {
-        dbg("W:",which," sensor:", edgy);
-      }
-      switch (homing) {
-        case Homed://normal motion logic
-          if (!freeRun) {
-            run = pos - target;//
-          }
-          pos += run;//steps if run !0
-          break;
-
-        case NotHomed://set up slow move one way or the other
-          freeRun = 0;
-          run = 0;
-          if (homeSensor) {
-            if (edgy) {
-              pos = -homeWidth;//a positive pos will be a timeout
-              target = 0;
-              homing = ForwardOff;
-            } else {
-              pos = homeWidth;//a negative pos will be a timeout
-              target = 0;
-              homing = BackwardsOn;
-            }
-          } else {
-            pos = 0;
-            target = 0;
-            homing = Homed;//told to home but no sensor then just clear positions and proclaim we are there.
-          }
-          setTick(homeSpeed);
-          dbg("Homing started:", target, " @", homing, " width:", homeWidth);
-          break;
-
-        case ForwardOff://HM:3
-          if (!edgy) {
-            dbg("Homing backed off sensor, at ", pos);
-            pos = homeWidth;//a negative pos will be a timeout
-            target = 0;
-            homing = BackwardsOn;
-          } else {
-            pos += 1;
-          }
-          break;
-
-        case BackwardsOn://HM:2
-          if (edgy) {
-            dbg("Homing found on edge at ", pos);
-            pos = homeWidth;//so that a negative pos means we should give up.
-            target = 0;
-            homing = BackwardsOff;
-          } else {
-            pos += -1;//todo: -= operator on pos.
-          }
-          break;
-
-        case BackwardsOff://HM:1
-          if (!edgy) {
-            dbg("Homing found off edge at ", pos);
-            pos = (homeWidth + pos) / 2;
-            target = 0;
-            homing = Homed;
-            stats(&dbg);
-          } else {
-            pos += -1;
-          }
-          break;
-      }
-    }
-  }
-
-	//active state report, formatted as lax JSON (no quotes except for escaping framing)
-  void stats(ChainPrinter *adbg) {
-    if (adbg) {
-      (*adbg)("{W:",which,", T:", target, ", Step:", int(pos), ", FR:", freeRun?run:0, ", HM:", homing, ", tick:", ticker.duration,'}');
-    }
-  }
-
-  /** stop where it is. */
-  void freeze() {
-    homing = Homed;//else failed homing will keep it running.
-    freeRun = false;
-    target = pos;
-  }
-
-  /** not actually there until the step has had time to settle down. pessimistically that is when the next step would occur if we were still moving.*/
-  bool there() const {
-    return run == 0 && target == pos;
-  }
-
-  bool atIndex() {
-    freeze();
-    pos = 0;
-  }
-
-  void start(bool second, Stepper::Interface iface, BoolishRef *homer) {
-  	which = second;
-    pos.interface = iface;
-    if (changed(homeSensor, homer)) {
-      if (homeSensor != nullptr) {
-        homing = NotHomed;
-      } else {
-        homing = Homed;
-      }
-    }
-    setTick(homeSpeed);
-  }
-};
-
+#include "steppermotor.h"
 StepperMotor motor[2];//setup will attach each to pins/
 
 ///* run fast in direction controlled by button. */
@@ -272,10 +112,16 @@ void doKey(char key) {
       break;
 
     case 'M'://go to position
-      motor[which].target = cmd.arg;
+      if (cmd.pushed) {//if 2 args speed,location
+        motor[which].setTick(cmd.pushed);
+      }
+      motor[which].target = cmd.arg;//1 arg or 0
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
+      if (cmd.pushed) {//if 2 args speed,location
+        motor[which].setTick(cmd.pushed);
+      }
       motor[which].target = -cmd.arg;
       break;
 
@@ -396,15 +242,17 @@ void doString(const char *initstring) {
 }
 
 /////////////////////////////////////
-
+template<bool second> void bridgeLambda(byte phase) {
+  SpiDualBridgeBoard::setBridge(second, phase);
+}
 void setup() {
   Serial.begin(115200);
   dbg("setup");
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-  motor[0].start(0, bridge0, &zeroMarker);
+  motor[0].start(0, bridgeLambda<0>, &zeroMarker);
   doString("15,250000h");
-  motor[1].start(1, bridge1, &oneMarker);
+  motor[1].start(1, bridgeLambda<1>, &oneMarker);
   doString("15,250000H");
 }
 
