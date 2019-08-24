@@ -111,27 +111,21 @@ void doKey(char key) {
       motor[1].stats(&dbg);
       break;
 
-    case 'M'://go to position
-      if (cmd.pushed) {//if 2 args speed,location
-        motor[which].setTick(cmd.pushed);
-      }
-      motor[which].target = cmd.arg;//1 arg or 0
+    case 'M'://go to position  [speed,]position M
+      motor[which].moveto(take(cmd.arg),take(cmd.pushed));    
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
-      if (cmd.pushed) {//if 2 args speed,location
-        motor[which].setTick(cmd.pushed);
-      }
-      motor[which].target = -cmd.arg;
+      motor[which].moveto(-take(cmd.arg),take(cmd.pushed));
       break;
 
     case 'H'://takes advantage of 0 not being a viable value for these optional parameters
       if (cmd.pushed) {//if 2 args width,speed
-        motor[which].homeWidth = cmd.pushed;
+        motor[which].homeWidth = take(cmd.pushed);
         dbg("set home width to ", motor[which].homeWidth);
       }
       if (cmd.arg) {//if 1 arg speed.
-        motor[which].homeSpeed = cmd.arg;
+        motor[which].homeSpeed = take(cmd.arg);
         dbg("set home speed to ", motor[which].homeSpeed);
       }
       motor[which].homing = StepperMotor::NotHomed;//will lock up if no sensor present or is broken.
