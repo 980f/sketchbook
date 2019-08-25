@@ -42,7 +42,7 @@ OutputPin<18> motorpower;//relay, don't pwm this!
 
 FourBanger<8, 11, 12, 13> minutemotor;
 bool unipolar;//else bipolar
-DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298, for stepper use there is no reason to just keep one active.
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298
 
 #else  //presume ProMicro/Leonardo with dual. we'll clean this up someday
 
@@ -65,31 +65,6 @@ bool led;
 ///////////////////////////////////////////////////////////////////////////
 #include "steppermotor.h"
 StepperMotor motor[2];//setup will attach each to pins/
-
-///* run fast in direction controlled by button. */
-//template <PinNumberType forward, PinNumberType reverse> class SlewControl {
-//  public: //for diagnostics
-//    InputPin<forward> fwd;
-//    InputPin<reverse> rev;
-//  public: //easier to set after construction.
-//    ClockHand &myHand;
-//    SlewControl(ClockHand & myHand): myHand(myHand) {
-//      //#set myHand on setup()
-//    }
-//
-//    void onTick() { //every millisecond
-//      if (fwd) {
-//        myHand.freerun = +1;
-//        myHand.upspeed ( slewspeed);
-//      } else if (rev) {
-//        myHand.freerun = -1;
-//        myHand.upspeed ( slewspeed);
-//      } else {
-//        myHand.realtime();
-//      }
-//    }
-//};
-
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"

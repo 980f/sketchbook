@@ -6,35 +6,38 @@
     <meta name="author" content="Andy Heilveil">
   </head>
   <body>
-    <p>Dual stepper driver with homing capability</p>
-    <p>some commands apply to both motors at once, or neither.<br>
-      commands particular to a motor are letters, and the case of the letter
-      picks which motor.<br>
+    <h2>Dual stepper driver with homing capability</h2>
+    <p>github/980f/sketchbook&nbsp; steppermotors&nbsp; and shared folders
+      required, and shared requires you checkout github/980f/ezcpp beneath it.<br>
       <br>
-      Motion happens via a state machine. State transitions are paced by a soft
-      timer programmed in microseconds (Arduino micros() function called to do
-      timing).<br>
+      Some commands apply to both motors at once, or neither.<br>
+      Commands particular to a motor are single letters, and the case of the
+      letter picks which motor.<br>
+      <br>
+      Motion happens via a state machine. <br>
+      State transitions are paced by a soft timer programmed in microseconds
+      (Arduino micros() function is called in loop() to do timing).<br>
       There is a position and a target. If not homing and they are not the same
       then a step is made in the appropriate direction.<br>
       There is a "free run" flag which ignores position and target and issues
       steps in a selected direction.<br>
-      Homing state machine is explained after the table of commands.</p>
+      Homing state machine is explained after the table of commands, and
+      overrides the above.</p>
     <table width="100%" border="1">
       <tbody>
         <tr>
-          <td>1st of two</td>
-          <td>2nd or only</td>
-          <td>letter</td>
-          <td><br>
+          <td><strong>1st of two</strong></td>
+          <td><strong>2nd or only</strong></td>
+          <td><strong>letter</strong></td>
+          <td><strong>what it does</strong><br>
           </td>
         </tr>
         <tr>
-          <td><br>
+          <td>[width]</td>
+          <td>[usec per step]</td>
+          <td>H</td>
+          <td>Starts procedure to find the home mark and go to the center of it.
           </td>
-          <td><br>
-          </td>
-          <td>[space]</td>
-          <td>motor diagnostics for both motors</td>
         </tr>
         <tr>
           <td>[usec per step]</td>
@@ -44,18 +47,38 @@
             last speed used is used.</td>
         </tr>
         <tr>
+          <td><br>
+          </td>
+          <td>usec per step</td>
+          <td>S</td>
+          <td>sets rate for subsequent commands that don't have a rate option. <strong>Note:</strong>
+            will change the rate while motion is in progress.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>X</td>
+          <td>Stop! NOW!&nbsp; by setting target to current position.<br>
+            Also sets "homed" flag.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>Z</td>
+          <td>clear position counter. Note: If target is not 0 then a move will
+            begin.</td>
+        </tr>
+        <tr>
           <td>[usec per step]</td>
           <td>location</td>
           <td>N</td>
           <td>the parser only supports unsigned numbers at the moment but
             location can be negative, use this command for your negative
             locations.</td>
-        </tr>
-        <tr>
-          <td>[width]</td>
-          <td>[usec per step]</td>
-          <td>H</td>
-          <td>Find home mark and go to center of it. </td>
         </tr>
         <tr>
           <td><br>
@@ -72,31 +95,6 @@
           </td>
           <td>J</td>
           <td>step forward 1 (by setting target 1 more than present value)</td>
-        </tr>
-        <tr>
-          <td><br>
-          </td>
-          <td><br>
-          </td>
-          <td>Z</td>
-          <td>clear position counter. If target is not 0 then a move will begin.</td>
-        </tr>
-        <tr>
-          <td><br>
-          </td>
-          <td>usec per step</td>
-          <td>S</td>
-          <td>sets rate for subsequent commands that don't have a rate option,
-            will change the rate while motion is in progress.</td>
-        </tr>
-        <tr>
-          <td><br>
-          </td>
-          <td><br>
-          </td>
-          <td>X</td>
-          <td>Stop! NOW!&nbsp; <br>
-            Also sets "homed" flag and target to current position.</td>
         </tr>
         <tr>
           <td><br>
@@ -129,6 +127,14 @@
           </td>
           <td>F</td>
           <td>free run forward</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>[space]</td>
+          <td>motor diagnostics for both motors</td>
         </tr>
         <tr>
           <td><br>
@@ -189,8 +195,7 @@
       Motions occur at 'homeSpeed' which is optionally set by this command.<br>
       The other parameter is 'homeWidth' optionally set by this command, see
       below for usage. Default values for these are set by a command string
-      executed by setup().<br>
-    </p>
+      executed by setup().</p>
     Homing begins with an initialization of all state machine controls, present
     state is ignored. <br>
     If the sensor is already active then position and target are set up for a
@@ -217,6 +222,61 @@
       for 0. Homing is marked as done even though the motor will continue to
       move until it gets to 0.</p>
     <p>Motion commands sent while homing will disrupt the homing procedure by
-      altering the speed. </p>
+      altering the speed.</p>
+    <hr>
+    <h3><span style="text-decoration: line-through;">Undesirable features</span>
+      Quirks</h3>
+    <ul>
+      <li>If the steprate ever becomes zero either motion is permanently
+        disabled or so fast that nothing actually occurs, as in 100k steps per
+        second attempted, which might make the driver chip very hot. Whether 0
+        is a lock up can be determined by reading the source code, it is
+        deterministic just not obvious.</li>
+      <li>hardware pin allocations are burned into the code, not configurable in
+        the field. <br>
+        This includes whether a home sensor exists for a motor. If there is no
+        home sensor but one is configured then don't issue an H command but
+        instead send XMZ:
+        <ul>
+          <li>X sets target to position, which stops motion, and marks
+            "successfully homed" so this clears a failed homing request.</li>
+          <li>M with no operands sets target to 0</li>
+          <li>Z sets position to 0.</li>
+        </ul>
+        <br>
+        You can then use F or R to start perpetual motion and change speed with
+        S. You can stop with X without having to send MZ again, but might as
+        well.</li>
+    </ul>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <p><br>
+    </p>
+    <ul>
+      <ul>
+        <li>use S to set speed and R and F to change direction and start motion.</li>
+      </ul>
+    </ul>
+    <br>
+    <p><br>
+    </p>
   </body>
 </html>
