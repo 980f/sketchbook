@@ -1,0 +1,222 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <title>commands</title>
+    <meta name="author" content="Andy Heilveil">
+  </head>
+  <body>
+    <p>Dual stepper driver with homing capability</p>
+    <p>some commands apply to both motors at once, or neither.<br>
+      commands particular to a motor are letters, and the case of the letter
+      picks which motor.<br>
+      <br>
+      Motion happens via a state machine. State transitions are paced by a soft
+      timer programmed in microseconds (Arduino micros() function called to do
+      timing).<br>
+      There is a position and a target. If not homing and they are not the same
+      then a step is made in the appropriate direction.<br>
+      There is a "free run" flag which ignores position and target and issues
+      steps in a selected direction.<br>
+      Homing state machine is explained after the table of commands.</p>
+    <table width="100%" border="1">
+      <tbody>
+        <tr>
+          <td>1st of two</td>
+          <td>2nd or only</td>
+          <td>letter</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>[space]</td>
+          <td>motor diagnostics for both motors</td>
+        </tr>
+        <tr>
+          <td>[usec per step]</td>
+          <td>location</td>
+          <td>M</td>
+          <td>move to location at speed usec/step. if usec/step is omitted then
+            last speed used is used.</td>
+        </tr>
+        <tr>
+          <td>[usec per step]</td>
+          <td>location</td>
+          <td>N</td>
+          <td>the parser only supports unsigned numbers at the moment but
+            location can be negative, use this command for your negative
+            locations.</td>
+        </tr>
+        <tr>
+          <td>[width]</td>
+          <td>[usec per step]</td>
+          <td>H</td>
+          <td>Find home mark and go to center of it. </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>K</td>
+          <td>step back 1 (by setting target 1 less than present value)</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>J</td>
+          <td>step forward 1 (by setting target 1 more than present value)</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>Z</td>
+          <td>clear position counter. If target is not 0 then a move will begin.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>usec per step</td>
+          <td>S</td>
+          <td>sets rate for subsequent commands that don't have a rate option,
+            will change the rate while motion is in progress.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>X</td>
+          <td>Stop! NOW!&nbsp; <br>
+            Also sets "homed" flag and target to current position.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>P</td>
+          <td>dualbridge (L293) power on to both motors</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>O</td>
+          <td>dualbridge (L293) power off to both motors</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>R</td>
+          <td>free run in reverse</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>F</td>
+          <td>free run forward</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>G</td>
+          <td><em>diagnostics that change frequently</em></td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>code</td>
+          <td>#</td>
+          <td><em><strong>NYI</strong>: EEPROM save and load.<br>
+              At program start a string of commands is read from the eeprom.<br>
+              42: save present state as set of commands to reproduce it<br>
+              6: rerun init string.<br>
+            </em>Until the above is implemented there are hard coded init
+            strings in setup()<em>.<br>
+            </em></td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>?</td>
+          <td>List I2C devices.</td>
+        </tr>
+      </tbody>
+    </table>
+    <hr>
+    <h3>Spontaneous emissions</h3>
+    <p>The program is likely to still have diagnostic messages being output.
+      Messages that are part of the protocol are framed with '{' and '}' and
+      formatted very similar to JSON. The difference from standard JSON is that
+      no quote are emitted around keys and values. Note that all values are
+      numerical.<br>
+      The protocol messages are:</p>
+    <ol>
+      <li>the response to the ' ' command, which is the status of both motor
+        state machines. <br>
+        "{W:", which, ", T:", target, ", P:", pos, ", FR:", [-1|1|0], ", HM:",
+        homing, ", tick:", usec, '}'</li>
+      <li>upon reaching a target during normal motion (which includes the final
+        step of homing) or if given a motion command and already at that
+        location.<br>
+        "{W:", which, ",M:", pos, "}"</li>
+    </ol>
+    <hr>
+    <h3>Homing</h3>
+    <p><br>
+      The H command (which might be internally issued on reset) starts the
+      homing sequence. It is presumed that the sensor will be active for many
+      steps. The procedure finds both edges of the sensor range and calls the
+      average of them '0'.<br>
+      Motions occur at 'homeSpeed' which is optionally set by this command.<br>
+      The other parameter is 'homeWidth' optionally set by this command, see
+      below for usage. Default values for these are set by a command string
+      executed by setup().<br>
+    </p>
+    Homing begins with an initialization of all state machine controls, present
+    state is ignored. <br>
+    If the sensor is already active then position and target are set up for a
+    forward move to get off of the home position.<br>
+    Else position and target are set up for a reverse move.<br>
+    <br>
+    <sub>Note: in both cases the values are such that the position will change
+      sign after 'homeWidth' steps without an edge detected. At the moment that
+      does not get checked and sensor failure results in near infinite motion.<br>
+      <br>
+      Note: if the hardware has been configured to not have a sensor then the
+      state machine is set to make the present position 0 and all other values
+      set so that no motion occurs without another command.</sub><br>
+    <br>
+    <p>If moving forward to make the sensor go off then when the off is set the
+      same values are set as if the sensor was off when homing began.</p>
+    <p>If moving backwards to find the sensor then when it goes on position and
+      target are set to continue moving backwards, and so that position goes
+      negative if more than homeWidth steps are taken and the sensor is still
+      on.</p>
+    <p>While continuing to move backwards after having found one edge of the
+      sensor then when the sensor goes off we have found the other edge and
+      position is set to half the difference between the edges and target is set
+      for 0. Homing is marked as done even though the motor will continue to
+      move until it gets to 0.</p>
+    <p>Motion commands sent while homing will disrupt the homing procedure by
+      altering the speed. </p>
+  </body>
+</html>
