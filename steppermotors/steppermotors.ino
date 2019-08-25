@@ -16,10 +16,17 @@
 */
 ////////////////////////////////////
 #include "pinclass.h"
+
+#ifdef LED_BUILTIN
+OutputPin<LED_BUILTIN> led;
+#else
+bool led;
+#endif
+
 #include "cheaptricks.h"
 
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
+EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 
 ////soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
@@ -27,40 +34,36 @@ EasyConsole<decltype(Serial)> dbg(Serial, true /*autofeed*/);
 //using microsecond soft timer to get more refined speeds.
 #include "microevent.h"
 
+#include "stepper.h" //should probably merge this into steppermotor.h
+#include "motordrivers.h" //FourBanger and similar direct drive units.
 
-#include "stepper.h"
-#include "motordrivers.h" //FourBanger and similar
-
-
-#ifdef ADAFRUIT_FEATHER_M0
-
-FourBanger<10, 9, 12, 11> minutemotor;
-OutputPin<17> unipolar;//else bipolar
-OutputPin<18> motorpower;//relay, don't pwm this!
-
-#elif defined(SEEEDV1_2)
-
-FourBanger<8, 11, 12, 13> minutemotor;
+#if SEEEDV1_2==1
+//pinout is not our choice
+FourBanger<8, 11, 12, 13> L298;
 bool unipolar;//else bipolar
-DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
 
-#else  //presume ProMicro/Leonardo with dual. we'll clean this up someday
+void L298lambda(byte phase) {
+  L298(phase);
+}
 
+#elif UsingSpibridges==1
 #include "spibridges.h"  //consumes 3..12
-//14..17 are physically hard to get to.
-InputPin<18, LOW> zeroMarker; //on leonardo is A0, and so on up.
-InputPin<19, LOW> oneMarker; //on leonardo is A0, and so on up.
+
+//14..17 are physically hard to get to on leonardo.
+InputPin<18, LOW> zeroMarker;
+InputPin<19, LOW> oneMarker;
 //2 still available, perhaps 4 more from the A group.
+
+//compiler version too old to do this inline, and nasty to type:
+template<bool second> void bridgeLambda(byte phase) {
+  SpiDualBridgeBoard::setBridge(second, phase);
+}
+
 #endif
 
-/** input for starting position of cycle. */
 
-
-#ifdef LED_BUILTIN
-OutputPin<LED_BUILTIN> led;
-#else
-bool led;
-#endif
+unsigned StepsPerRev = 200;
 
 ///////////////////////////////////////////////////////////////////////////
 #include "steppermotor.h"
@@ -87,11 +90,11 @@ void doKey(char key) {
       break;
 
     case 'M'://go to position  [speed,]position M
-      motor[which].moveto(take(cmd.arg),take(cmd.pushed));    
+      motor[which].moveto(take(cmd.arg), take(cmd.pushed));
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
-      motor[which].moveto(-take(cmd.arg),take(cmd.pushed));
+      motor[which].moveto(-take(cmd.arg), take(cmd.pushed));
       break;
 
     case 'H'://takes advantage of 0 not being a viable value for these optional parameters
@@ -141,12 +144,26 @@ void doKey(char key) {
 
     case 'P':
       dbg("power on");
+#if UsingSpibridges==1
       SpiDualBridgeBoard::power(which, true);
+
+#endif
+#if SEEEDV1_2==1
+      motorpower = 1;
+#endif
+
       break;
 
     case 'O':
       dbg("power off");
+#if UsingSpibridges==1
       SpiDualBridgeBoard::power(which, false);
+
+#endif
+#if SEEEDV1_2==1
+      motorpower = 0;
+#endif
+
       break;
 
     case 'R'://free run in reverse
@@ -211,18 +228,30 @@ void doString(const char *initstring) {
 }
 
 /////////////////////////////////////
-template<bool second> void bridgeLambda(byte phase) {
-  SpiDualBridgeBoard::setBridge(second, phase);
-}
+
 void setup() {
   Serial.begin(115200);
+#if UsingSpibridges==1
   dbg("setup");
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-  motor[0].start(0, bridgeLambda<0>, &zeroMarker);
-  doString("15,250000h");
-  motor[1].start(1, bridgeLambda<1>, &oneMarker);
-  doString("15,250000H");
+  motor[0].start(0, bridgeLambda<0>, &zeroMarker);//uppercase
+  motor[1].start(1, bridgeLambda<1>, nullptr);//lower case
+#endif
+
+#if SEEEDV1_2==1
+  motor[1].start(0, L298lambda, nullptr);
+#endif
+
+  if (StepsPerRev == 200) {//marker for testing big motor with L298 coz my new dual didn't come in when it was supposed to.
+    doString("xmz3600spr");
+  } else {
+    //24 SPR/ 15 degree
+    doString("15,250000h");
+    doString("XMZ");
+  }
+
+
 }
 
 
@@ -233,7 +262,6 @@ void loop() {
     motor[1]();
   }
   if (MilliTicked) {//non urgent things like debouncing index sensor
-    led = zeroMarker ^ oneMarker;
     doui();
   }
 }
