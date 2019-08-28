@@ -26,6 +26,7 @@ bool led;
 #include "cheaptricks.h"
 
 #include "easyconsole.h"
+
 EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 
 ////soft millisecond timers are adequate for minutes and hours.
@@ -37,7 +38,30 @@ EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 #include "stepper.h" //should probably merge this into steppermotor.h
 #include "motordrivers.h" //FourBanger and similar direct drive units.
 
-#if SEEEDV1_2==1
+
+//eeprom allocations:
+#include <Print.h>
+#include <EEPROM.h>
+
+class EEPrinter : public Print {
+    unsigned ptr;
+
+  public:
+    explicit EEPrinter(int start): ptr(start) {}
+    size_t write(uint8_t data) override {      
+//    	dbg("burn:", ptr," =",char(data));
+      EEPROM.write(ptr++, data);    
+    };
+
+    int availableForWrite() override {
+      //  	unsigned (512);//todo: find processor specific define for the value here. Using worst case minium.
+      return 512 - ptr;
+    }
+    //  virtual void flush() {  }
+};
+
+
+#if SEEEDV1_2 == 1
 //pinout is not our choice
 FourBanger<8, 11, 12, 13> L298;
 bool unipolar;//else bipolar
@@ -47,7 +71,7 @@ void L298lambda(byte phase) {
   L298(phase);
 }
 
-#elif UsingSpibridges==1
+#elif UsingSpibridges == 1
 #include "spibridges.h"  //consumes 3..12
 
 //14..17 are physically hard to get to on leonardo.
@@ -62,19 +86,47 @@ template<bool second> void bridgeLambda(byte phase) {
 
 #endif
 
-
-unsigned StepsPerRev = 200;
-
 ///////////////////////////////////////////////////////////////////////////
 #include "steppermotor.h"
+
 StepperMotor motor[2];//setup will attach each to pins/
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
+
 CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
 
 //I2C diagnostic
 #include "scani2c.h"
+
+void initread(bool forrealz) {
+  dbg("Initstring:");
+  unsigned addr = 0;
+  char key = EEPROM.read(addr++);
+  if (key == '#') {
+    auto x = dbg.nofeeds();
+    while (key = EEPROM.read(addr++) && addr < 64) { //guard  against  no nulls in blank eeprom.
+      dbg(key);
+      if (forrealz) {
+        accept(key);
+      }
+    }
+  } else {
+    dbg("not present or corrupt header");
+  }
+}
+
+void initwriter(ChainPrinter &writer) {
+  writer("#");
+  for (auto sm : motor) {
+    if (sm.homeSensor != nullptr) { //if motor has a home
+      writer(sm.homeWidth, ',', sm.homeSpeed, sm.which ? 'h' : 'H'); //todo: case matters!
+    } else { //wake up running at speed it was going when burn occurred
+      writer(sm.which ? "xmz" : "XMZ", sm.ticker.duration, sm.which ? "sp" : "SP", sm.run > 0 ? sm.which ? 'f' : 'F' : sm.run < 0 ? sm.which ? 'r' : 'R' : sm.which ? 'x' : 'X'); //definitely regretting using case. it has a virtue-no UI state.
+    }
+  }
+  writer(char(0));//null terminator for readback loops
+}
 
 void doKey(char key) {
   Char k(key);
@@ -123,7 +175,6 @@ void doKey(char key) {
       break;
 
     case 'S'://set stepping rate to use for slewing
-      dbg("Setting slew:", cmd.arg);
       motor[which].setTick(cmd.arg);
       break;
 
@@ -144,11 +195,11 @@ void doKey(char key) {
 
     case 'P':
       dbg("power on");
-#if UsingSpibridges==1
+#if UsingSpibridges == 1
       SpiDualBridgeBoard::power(which, true);
 
 #endif
-#if SEEEDV1_2==1
+#if SEEEDV1_2 == 1
       motorpower = 1;
 #endif
 
@@ -156,14 +207,13 @@ void doKey(char key) {
 
     case 'O':
       dbg("power off");
-#if UsingSpibridges==1
+#if UsingSpibridges == 1
       SpiDualBridgeBoard::power(which, false);
 
 #endif
-#if SEEEDV1_2==1
+#if SEEEDV1_2 == 1
       motorpower = 0;
 #endif
-
       break;
 
     case 'R'://free run in reverse
@@ -184,14 +234,23 @@ void doKey(char key) {
 
     case '#':
       switch (cmd.arg) {
-        case 42://todo: save initstring to eeprom
-          dbg("save initstring to eeprom not yet implemented");//this message reserves bytes to do so :)
+        case 666: {//todo: save initstring to eeprom
+            EEPrinter eep(0);
+            ChainPrinter writer(eep);
+            initwriter(writer);
+          }
           break;
-        case 6://todo: read initstring from eeprom
-          dbg("read initstring from eeprom not yet implemented");//this message reserves bytes to do so :)
+        case 123:
+          initwriter(dbg);
+          break;
+        case 0:
+          initread(false);
+          break;
+        case 42:  //execute initstring from eeprom
+          initread(true);
           break;
         default:
-          dbg("# takes 42 to burn eeprom, 6 to reload from it, else ignored");
+          dbg("# takes 666 to burn eeprom, 42 to reload from it, 0 show it");
           break;
       }
       break;
@@ -203,7 +262,10 @@ void doKey(char key) {
       break;
 
     default:
-      dbg("Ignored:", char(key), " (", key, ") ", cmd.arg, ',', cmd.pushed);
+      if (key == 255) {
+        //some jerk is sending this when the shift key is hit all by its lonesome. Looking at you arduino serial monitor!
+      }
+      dbg("Ignored:", char(key), " (", unsigned(key), ") ", cmd.arg, ',', cmd.pushed);
       //      return; //don't put in trace buffer
   }
 }
@@ -231,7 +293,7 @@ void doString(const char *initstring) {
 
 void setup() {
   Serial.begin(115200);
-#if UsingSpibridges==1
+#if UsingSpibridges == 1
   dbg("setup");
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
@@ -239,21 +301,18 @@ void setup() {
   motor[1].start(1, bridgeLambda<1>, nullptr);//lower case
 #endif
 
-#if SEEEDV1_2==1
-  motor[1].start(0, L298lambda, nullptr);
+#if SEEEDV1_2 == 1
+  motor[0].start(0, [](byte phase) {}, nullptr);
+  motor[1].start(1, L298lambda, nullptr);
 #endif
 
-  if (StepsPerRev == 200) {//marker for testing big motor with L298 coz my new dual didn't come in when it was supposed to.
-    doString("xmz3600spr");
-  } else {
-    //24 SPR/ 15 degree
-    doString("15,250000h");
-    doString("XMZ");
-  }
-
-
+  doString("6#");
+  //      doString("xmz3600spr");
+  //  } else {
+  //    //24 SPR/ 15 degree
+  //    doString("15,250000h"  "XMZ");
+  //  }
 }
-
 
 void loop() {
 
