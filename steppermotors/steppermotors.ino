@@ -1,17 +1,11 @@
 #include <Arduino.h> //needed by some IDE's.
 
 #include "options.h"
-/* test stepper motors.
-    started with code from a clock project, hence some of the peculiar naming and the use of time instead of degrees.
-
-    the test driver initially is an adafruit adalogger, it is what I had wired up for the clock.
-    the test hardware has a unipolar/bipolar select on D17
-    and power on/off D18 (need to learn the polarity )
-
-    it is convenient that both DRV8333 and L298n take the same control input, and that pattern is such that a simple connect of the center taps to the power supply makes them operate as unipolar.
-
-    with fixed power supply voltage the unipolar mode is twice the voltage on half the coil.
-    the uni current is double, but only half as many coils are energized.
+/* drive stepper motors.
+ *  one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
+ *  partially implemented: chaining to another leonardo for a second motor when local only has 1. 
+ *  ... to finish the above I need to suppress all local action for the 2nd motor, especially sending feedback to host.
+ *  
 
 */
 ////////////////////////////////////
@@ -26,8 +20,13 @@ bool led;
 #include "cheaptricks.h"
 
 #include "easyconsole.h"
-
 EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
+
+#ifdef SerialRing
+Stream *ring = &SerialRing;
+#else
+Stream *ring = nullptr;
+#endif
 
 ////soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
@@ -38,44 +37,7 @@ EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 #include "stepper.h" //should probably merge this into steppermotor.h
 #include "motordrivers.h" //FourBanger and similar direct drive units.
 
-
-//eeprom allocations:
-#include <Print.h>
-
-#ifdef ARDUINO_ARCH_AVR
-#include <EEPROM.h>
-#if defined(ARDUINO_AVR_LEONARDO)
-#define EESIZE 1024
-#elif defined(ARDUINO_AVR_UNO)
-#define EESIZE 1024
-#elif defined(ARDUINO_AVR_MEGA)
-#define EESIZE 4096
-#else
-#define EESIZE 512
-#endif
-/*
-ARDUINO_ARCH_SAMD
-
-ARDUINO_ARCH_AVR
-*/
-class EEPrinter : public Print {
-    unsigned ptr;
-
-  public:
-    explicit EEPrinter(int start): ptr(start) {}
-    size_t write(uint8_t data) override {      
-      EEPROM.write(ptr++, data);    
-    };
-
-    int availableForWrite() override {
-      return EESIZE - ptr;
-    }
-    //  virtual void flush() {  }
-};
-
-#else
-#error no EEPrinter for your architecture
-#endif //arch_avr
+#include "eeprinter.h" //presently only works for AVR  
 
 #if SEEEDV1_2 == 1
 //pinout is not our choice
@@ -86,9 +48,11 @@ DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L2
 void L298lambda(byte phase) {
   L298(phase);
 }
+#endif
 
-#elif UsingSpibridges == 1
+#if UsingSpibridges == 1
 #include "spibridges.h"  //consumes 3..12
+SpiDualPowerBit p[2] = {0, 1};
 
 //14..17 are physically hard to get to on leonardo.
 InputPin<18, LOW> zeroMarker;
@@ -102,6 +66,9 @@ template<bool second> void bridgeLambda(byte phase) {
 
 #endif
 
+/** no jump== single controller, with jumper dual. This polarity was chosen by which board had jumperable pins handy. */
+InputPin<23> UseSeeed;
+
 ///////////////////////////////////////////////////////////////////////////
 #include "steppermotor.h"
 
@@ -109,7 +76,6 @@ StepperMotor motor[2];//setup will attach each to pins/
 
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
-
 CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
 
 //I2C diagnostic
@@ -211,25 +177,12 @@ void doKey(char key) {
 
     case 'P':
       dbg("power on");
-#if UsingSpibridges == 1
-      SpiDualBridgeBoard::power(which, true);
-
-#endif
-#if SEEEDV1_2 == 1
-      motorpower = 1;
-#endif
-
+      motor[which].power(1);
       break;
 
     case 'O':
       dbg("power off");
-#if UsingSpibridges == 1
-      SpiDualBridgeBoard::power(which, false);
-
-#endif
-#if SEEEDV1_2 == 1
-      motorpower = 0;
-#endif
+      motor[which].power(0);
       break;
 
     case 'R'://free run in reverse
@@ -250,9 +203,13 @@ void doKey(char key) {
 
     case '#':
       switch (cmd.arg) {
-        case 666: {//todo: save initstring to eeprom
+        case 666: {// save initstring to eeprom
+#if HaveEEPrinter
             EEPrinter eep(0);
             ChainPrinter writer(eep);
+#else
+            //todo: I2C eeprom as Print
+#endif
             initwriter(writer);
           }
           break;
@@ -282,7 +239,6 @@ void doKey(char key) {
         //some jerk is sending this when the shift key is hit all by its lonesome. Looking at you arduino serial monitor!
       }
       dbg("Ignored:", char(key), " (", unsigned(key), ") ", cmd.arg, ',', cmd.pushed);
-      //      return; //don't put in trace buffer
   }
 }
 
@@ -293,11 +249,6 @@ void accept(char key) {
   }
 }
 
-void doui() {
-  while (auto key = dbg.getKey()) {
-    accept(key);
-  }
-}
 
 void doString(const char *initstring) {
   while (char c = *initstring++) {
@@ -309,18 +260,17 @@ void doString(const char *initstring) {
 
 void setup() {
   Serial.begin(115200);
-#if UsingSpibridges == 1
   dbg("setup");
-  SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-  motor[0].start(0, bridgeLambda<0>, &zeroMarker);//uppercase
-  motor[1].start(1, bridgeLambda<1>, nullptr);//lower case
-#endif
+  if (UseSeeed) {
+    motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
+    motor[1].start(1, L298lambda, nullptr, &motorpower);
+  } else {
+    SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-#if SEEEDV1_2 == 1
-  motor[0].start(0, [](byte phase) {}, nullptr);
-  motor[1].start(1, L298lambda, nullptr);
-#endif
+    motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
+    motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
+  }
 
   doString("6#");
   //      doString("xmz3600spr");
@@ -337,6 +287,16 @@ void loop() {
     motor[1]();
   }
   if (MilliTicked) {//non urgent things like debouncing index sensor
-    doui();
+    while (char key = dbg.getKey()) {
+      accept(key);
+			if(ring){
+				ring->write(key);
+			}
+    }
+    if(ring){//todo: locally buffer until newline seen then send whole line OR implement DC1/DC3 for second channel and wrap this chunk of copying.
+      for(unsigned qty=ring->available();qty-->0;){
+      	dbg.conn.write(ring->read());
+      }
+    }
   }
 }
