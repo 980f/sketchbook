@@ -41,25 +41,41 @@ EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 
 //eeprom allocations:
 #include <Print.h>
-#include <EEPROM.h>
 
+#ifdef ARDUINO_ARCH_AVR
+#include <EEPROM.h>
+#if defined(ARDUINO_AVR_LEONARDO)
+#define EESIZE 1024
+#elif defined(ARDUINO_AVR_UNO)
+#define EESIZE 1024
+#elif defined(ARDUINO_AVR_MEGA)
+#define EESIZE 4096
+#else
+#define EESIZE 512
+#endif
+/*
+ARDUINO_ARCH_SAMD
+
+ARDUINO_ARCH_AVR
+*/
 class EEPrinter : public Print {
     unsigned ptr;
 
   public:
     explicit EEPrinter(int start): ptr(start) {}
     size_t write(uint8_t data) override {      
-//    	dbg("burn:", ptr," =",char(data));
       EEPROM.write(ptr++, data);    
     };
 
     int availableForWrite() override {
-      //  	unsigned (512);//todo: find processor specific define for the value here. Using worst case minium.
-      return 512 - ptr;
+      return EESIZE - ptr;
     }
     //  virtual void flush() {  }
 };
 
+#else
+#error no EEPrinter for your architecture
+#endif //arch_avr
 
 #if SEEEDV1_2 == 1
 //pinout is not our choice

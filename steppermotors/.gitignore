@@ -12,6 +12,7 @@ cstr.cpp
 cstr.h
 easyconsole.h
 edsir.h
+eeprinter.h
 eztypes.h
 hms.cpp
 hms.h

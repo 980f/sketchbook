@@ -11,6 +11,7 @@ ln -sf lib/ezcpp/cstr.cpp cstr.cpp
 ln -sf lib/ezcpp/cstr.h cstr.h
 ln -sf ../shared/easyconsole.h easyconsole.h
 ln -sf lib/edsir.h edsir.h
+ln -sf lib/eeprinter.h eeprinter.h
 ln -sf ../shared/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/ezcpp/hook.h hook.h
 ln -sf ../shared/ezcpp/index.h index.h
