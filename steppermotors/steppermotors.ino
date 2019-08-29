@@ -84,15 +84,19 @@ CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32
 void initread(bool forrealz) {
   dbg("Initstring:");
   unsigned addr = 0;
-  char key = EEPROM.read(addr++);
+  char key = EEPROM.read(addr);
   if (key == '#') {
-    auto x = dbg.nofeeds();
-    while (key = EEPROM.read(addr++) && addr < 64) { //guard  against  no nulls in blank eeprom.
-      dbg(key);
+//    auto x = dbg.nofeeds();
+    do {
+    	char key = EEPROM.read(addr);
+    	if(key==0){
+    		return;
+    	}
+    	dbg(addr,':',unsigned(key),' ',char(key));
       if (forrealz) {
         accept(key);
       }
-    }
+    } while (++addr<35 ) ; //guard  against  no nulls in blank eeprom.
   } else {
     dbg("not present or corrupt header");
   }
@@ -272,12 +276,7 @@ void setup() {
     motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
   }
 
-  doString("6#");
-  //      doString("xmz3600spr");
-  //  } else {
-  //    //24 SPR/ 15 degree
-  //    doString("15,250000h"  "XMZ");
-  //  }
+  doString("42#");// 42# is "execute eeprom"
 }
 
 void loop() {
