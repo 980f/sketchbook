@@ -2,10 +2,10 @@
 
 #include "options.h"
 /* drive stepper motors.
- *  one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
- *  partially implemented: chaining to another leonardo for a second motor when local only has 1. 
- *  ... to finish the above I need to suppress all local action for the 2nd motor, especially sending feedback to host.
- *  
+    one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
+    partially implemented: chaining to another leonardo for a second motor when local only has 1.
+    ... to finish the above I need to suppress all local action for the 2nd motor, especially sending feedback to host.
+
 
 */
 ////////////////////////////////////
@@ -86,17 +86,17 @@ void initread(bool forrealz) {
   unsigned addr = 0;
   char key = EEPROM.read(addr);
   if (key == '#') {
-//    auto x = dbg.nofeeds();
+    //    auto x = dbg.nofeeds();
     do {
-    	char key = EEPROM.read(addr);
-    	if(key==0){
-    		return;
-    	}
-    	dbg(addr,':',unsigned(key),' ',char(key));
+      char key = EEPROM.read(addr);
+      if (key == 0) {
+        return;
+      }
+      dbg(addr, ':', unsigned(key), ' ', char(key));
       if (forrealz) {
         accept(key);
       }
-    } while (++addr<35 ) ; //guard  against  no nulls in blank eeprom.
+    } while (++addr < 35 ) ; //guard  against  no nulls in blank eeprom.
   } else {
     dbg("not present or corrupt header");
   }
@@ -116,10 +116,7 @@ void initwriter(ChainPrinter &writer) {
 
 void doKey(char key) {
   Char k(key);
-  bool which = k.isLower();//which of two motors
-  if (which) {
-    k.raw -= ' '; //crass way to do a 'toupper'
-  }
+  bool which = k.toUpper();//which of two motors
 
   switch (k) {
     case ' '://report status
@@ -288,13 +285,13 @@ void loop() {
   if (MilliTicked) {//non urgent things like debouncing index sensor
     while (char key = dbg.getKey()) {
       accept(key);
-			if(ring){
-				ring->write(key);
-			}
+      if (ring) {
+        ring->write(key);
+      }
     }
-    if(ring){//todo: locally buffer until newline seen then send whole line OR implement DC1/DC3 for second channel and wrap this chunk of copying.
-      for(unsigned qty=ring->available();qty-->0;){
-      	dbg.conn.write(ring->read());
+    if (ring) { //todo: locally buffer until newline seen then send whole line OR implement DC1/DC3 for second channel and wrap this chunk of copying.
+      for (unsigned qty = ring->available(); qty-- > 0;) {
+        dbg.conn.write(ring->read());
       }
     }
   }
