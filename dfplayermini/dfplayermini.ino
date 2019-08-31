@@ -1,8 +1,10 @@
 
 #include <Arduino.h>  //help non-arduino IDE
+
+#define DF_Include_Helpers 1
 #include "DFRobotDFPlayerMini.h"
+
 #include "millievent.h"
-DFRobotDFPlayerMini mplayer;
 
 ////////////////////////////////////
 #include "pinclass.h"
@@ -17,37 +19,51 @@ bool led;
 
 #include "easyconsole.h"
 EasyConsole<decltype(SerialUSB)> dbg(SerialUSB, true /*autofeed*/);
-
-
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
 CLIRP<uint16_t> cmd;//params are 16 bits.
+
+DFRobotDFPlayerMini mplayer;
+
+void onReply(uint8_t opcode, uint16_t param) {
+  dbg("Response: ", opcode, ':', param);
+}
 
 void doKey(char key) {
   Char k(key);
   bool which = k.toUpper();
   switch (k) {
+    case 'i':
+      mplayer.reset();
+      break;
+    case '!':
+      if (mplayer.ready) {
+        mplayer.sendCommand(cmd.arg, cmd.pushed);
+      }  	  else {
+        dbg("Player not ready");
+      }
+      break;
     case ' '://show status.
-//      if (mplayer.available()) { //then at some time a message from it has been received.
-//        auto mstatus = mplayer.readCommand();
-//        auto marg = mplayer.read();
-//        dbg("MS:", HEXLY(mstatus), "\t", HEXLY(marg), "\t", marg);
-//      }
+      mplayer.showstate(dbg);
       break;
     case 'T':
-//      while (!mplayer.Ready); //block, player is busy but won't tell us so.
-      
-      mplayer.play(cmd.arg);
+      if (mplayer.ready) { //block, player is busy but won't tell us so.
+        mplayer.play(cmd.arg);
+      } else {
+        dbg("Player not ready");
+      }
       break;
     case 'V':
       mplayer.volume(cmd.arg);
       break;
+
     case 'D':
-    	mplayer.ACK(0);//trying to match example packet to determine what checksum should be.
+      mplayer.ACK(0);//trying to match example packet to determine what checksum should be.
       mplayer.outputDevice(Medium::FLASH);
       break;
   }
 }
+
 
 void accept(char key) {
   if (cmd.doKey(key)) {
@@ -58,9 +74,9 @@ void accept(char key) {
 //////////////////////////////////////////////////////////
 void setup() {
   Serial1.begin(9600);//hardcoded baud rate of device.
-  mplayer.begin(Serial1, true, true); //isAck and reset
-//  playerReady = 0; //want this to be part of the begin which presently has a multi-second block in it.
-//  playerReady = mplayer.outputDevice(Medium::SDcard);
+  mplayer.begin(Serial1, true, false); //defer reset to init command
+  //  playerReady = 0; //want this to be part of the begin which presently has a multi-second block in it.
+  //  playerReady = mplayer.outputDevice(Medium::SDcard);
 }
 
 void loop() {
@@ -68,5 +84,6 @@ void loop() {
     while (char key = dbg.getKey()) {
       accept(key);
     }
+    mplayer.onMilli(onReply);
   }
 }
