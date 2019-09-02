@@ -7,8 +7,10 @@
   </head>
   <body>
     <h2>Dual stepper driver with homing capability</h2>
-    <p>github/980f/sketchbook&nbsp; steppermotors&nbsp; and shared folders
-      required, and shared requires you checkout github/980f/ezcpp beneath it.<br>
+    <p><code>github/980f/sketchbook</code>&nbsp; steppermotors&nbsp; folder<code><br>
+        github/980f/arduino</code> as '<code>shared</code>'&nbsp; is required,
+      and this requires you checkout <br>
+      <code>github/980f/ezcpp</code> beneath it.&nbsp; (run <code>onclone.sh</code>)<br>
       <br>
       Some commands apply to both motors at once, or neither.<br>
       Commands particular to a motor are single letters, and the case of the
@@ -31,6 +33,17 @@
           <td><strong>letter</strong></td>
           <td><strong>what it does</strong><br>
           </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>code</td>
+          <td>!</td>
+          <td>selects hardware interface, <br>
+            <code>0</code>:<code>L293</code>, <br>
+            <code>1</code>:<code>L298</code>.<br>
+            The related jumper is inspected only during setup. This command is <strong>NOT</strong>
+            presently saved with <code>666#</code>.</td>
         </tr>
         <tr>
           <td>[width]</td>
@@ -102,7 +115,7 @@
           <td><br>
           </td>
           <td>P</td>
-          <td>dualbridge (L293) power on to both motors</td>
+          <td>dualbridge (<code>L293</code>) power on to both motors</td>
         </tr>
         <tr>
           <td><br>
@@ -110,7 +123,7 @@
           <td><br>
           </td>
           <td>O</td>
-          <td>dualbridge (L293) power off to both motors</td>
+          <td>dualbridge (<code>L293</code>) power off to both motors</td>
         </tr>
         <tr>
           <td><br>
@@ -149,12 +162,11 @@
           </td>
           <td>code</td>
           <td>#</td>
-          <td><em><strong>NYI</strong>: EEPROM save and load.<br>
-              At program start a string of commands is read from the eeprom.<br>
-              42: save present state as set of commands to reproduce it<br>
-              6: rerun init string.<br>
-            </em>Until the above is implemented there are hard coded init
-            strings in setup()<em>.<br>
+          <td>At program start a string of commands is read from the eeprom.<br>
+            <code>666</code>: save present state as set of commands to reproduce
+            it<br>
+            <code>42</code>: execute init string from <code>EEPROM</code><br>
+            <code>0</code>,<code>123</code> used for debugging this feature.<em><br>
             </em></td>
         </tr>
         <tr>
@@ -163,7 +175,7 @@
           <td><br>
           </td>
           <td>?</td>
-          <td>List I2C devices.</td>
+          <td>List <code>I2C</code> devices.</td>
         </tr>
       </tbody>
     </table>

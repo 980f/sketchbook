@@ -22,6 +22,7 @@ bool led;
 #include "easyconsole.h"
 EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 
+//set up daisy chain on serial in case we need to slave a board to get more I/O.
 #ifdef SerialRing
 Stream *ring = &SerialRing;
 #else
@@ -51,7 +52,7 @@ void L298lambda(byte phase) {
 #endif
 
 #if UsingSpibridges == 1
-#include "spibridges.h"  //consumes 3..12
+#include "spibridges.h"  //consumes 3..12, which precludes using standard I2C port.
 SpiDualPowerBit p[2] = {0, 1};
 
 //14..17 are physically hard to get to on leonardo.
@@ -59,14 +60,14 @@ InputPin<18, LOW> zeroMarker;
 InputPin<19, LOW> oneMarker;
 //2 still available, perhaps 4 more from the A group.
 
-//compiler version too old to do this inline, and nasty to type:
+//compiler version was too old to do this inline, and for later ones is too nasty to type:
 template<bool second> void bridgeLambda(byte phase) {
   SpiDualBridgeBoard::setBridge(second, phase);
 }
 
 #endif
 
-/** no jump== single controller, with jumper dual. This polarity was chosen by which board had jumperable pins handy. */
+/** no jumper == single controller, with jumper dual. This polarity was chosen by which board had jumperable pins handy. */
 InputPin<23> UseSeeed;
 
 ///////////////////////////////////////////////////////////////////////////
@@ -74,6 +75,19 @@ InputPin<23> UseSeeed;
 
 StepperMotor motor[2];//setup will attach each to pins/
 
+void selectDriver(bool seeed) {
+  if (seeed) {
+    motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
+    motor[1].start(1, L298lambda, nullptr, &motorpower);
+  } else {
+    SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
+
+    motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
+    motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
 //command line interpreter, up to two RPN unsigned int arguments.
 #include "clirp.h"
 CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
@@ -123,6 +137,10 @@ void doKey(char key) {
       motor[0].stats(&dbg);
       motor[1].stats(&dbg);
       break;
+
+		case '!': //select motor configuration
+		  selectDriver(cmd.arg);
+		  break;
 
     case 'M'://go to position  [speed,]position M
       motor[which].moveto(take(cmd.arg), take(cmd.pushed));
@@ -263,15 +281,7 @@ void setup() {
   Serial.begin(115200);
   dbg("setup");
 
-  if (UseSeeed) {
-    motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
-    motor[1].start(1, L298lambda, nullptr, &motorpower);
-  } else {
-    SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
-
-    motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
-    motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
-  }
+	selectDriver(UseSeeed);
 
   doString("42#");// 42# is "execute eeprom"
 }

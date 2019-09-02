@@ -19,6 +19,8 @@ The shared directory might someday be a git submodule, until then from sketchboo
 * cd shared
 * git clone https://github.com/980f/ezcpp
 
+or run onclone.sh in sketchbook.
+
 Those choices will be compatible with the links  you can organize differently but will have to redo your links. Please fork any repo you do that to.
 To track links there is the script lardls (in arduino.git) which produces the script relib, and alters .gitignore. Add relib to your repo and run it after each git pull to get the links that project needs.
 The support scripts can be added to a new arduino project via the script newsketch, in arduino.git.
