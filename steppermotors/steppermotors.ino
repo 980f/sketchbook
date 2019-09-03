@@ -190,6 +190,16 @@ CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32
 
 void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
   dbg("\ntest:", arg1, ',', arg2);
+  switch(arg1){
+  	case 0:
+  	switch(arg2){
+  		case 0:
+  		break;
+  	}
+  	break;
+  	default:
+  	break;
+  }
 }
 
 
@@ -214,7 +224,7 @@ void doKey(char key) {
     //      break;
 
     case 'M'://go to position  [speed,]position M
-      m.moveto(cmd.arg, cmd.pushed);
+      m.moveto(cmd.arg, cmd.pushed);      
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
@@ -228,6 +238,7 @@ void doKey(char key) {
 
     case 'H'://load characteristics
       m.h.configure(cmd.arg,cmd.pushed);
+      m.home();//no longer automatic on configuration change.
       dbg("starting home procedure at stage ", m.homing);
       break;
 

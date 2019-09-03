@@ -35,17 +35,6 @@
           </td>
         </tr>
         <tr>
-          <td><br>
-          </td>
-          <td>code</td>
-          <td>!</td>
-          <td>selects hardware interface, <br>
-            <code>0</code>:<code>L293</code>, <br>
-            <code>1</code>:<code>L298</code>.<br>
-            The related jumper is inspected only during setup. This command is <strong>NOT</strong>
-            presently saved with <code>666#</code>.</td>
-        </tr>
-        <tr>
           <td>start speed</td>
           <td>acceleration</td>
           <td>G</td>
@@ -57,18 +46,19 @@
             quirk.</td>
         </tr>
         <tr>
-          <td>[width]</td>
-          <td>[usec per step]</td>
+          <td>steps per rev</td>
+          <td>width</td>
           <td>H</td>
-          <td>Starts procedure to find the home mark and go to the center of it.
-          </td>
+          <td>Starts procedure to find the home mark and go to the center of it.<br>
+            width and rev are <strong><em>planned to be</em></strong> used as
+            nominal timeouts on the motion.</td>
         </tr>
         <tr>
-          <td>[usec per step]</td>
+          <td>usec per step</td>
           <td>location</td>
           <td>M</td>
           <td>move to location at speed usec/step. if usec/step is omitted then
-            last speed used is used.</td>
+            last speed used is used, which should be 'start speed'.</td>
         </tr>
         <tr>
           <td><br>
@@ -97,7 +87,7 @@
             begin.</td>
         </tr>
         <tr>
-          <td>[usec per step]</td>
+          <td>usec per step</td>
           <td>location</td>
           <td>N</td>
           <td>the parser only supports unsigned numbers at the moment but
@@ -126,7 +116,7 @@
           <td><br>
           </td>
           <td>P</td>
-          <td>dualbridge (<code>L293</code>) power on to both motors</td>
+          <td>power on to motor</td>
         </tr>
         <tr>
           <td><br>
@@ -134,7 +124,7 @@
           <td><br>
           </td>
           <td>O</td>
-          <td>dualbridge (<code>L293</code>) power off to both motors</td>
+          <td>power off to motor</td>
         </tr>
         <tr>
           <td><br>
@@ -165,7 +155,7 @@
           </td>
           <td><br>
           </td>
-          <td>G</td>
+          <td>\</td>
           <td><em>diagnostics that change frequently</em></td>
         </tr>
         <tr>
@@ -174,9 +164,10 @@
           <td>code</td>
           <td>#</td>
           <td>At program start a string of commands is read from the eeprom.<br>
-            <code>666</code>: save present state as set of commands to reproduce
-            it<br>
-            <code>42</code>: execute init string from <code>EEPROM</code><br>
+            <code>666</code>: save present state as set of commands to run on
+            boot<br>
+            <code>42</code>: execute init string from <code>EEPROM</code> (test
+            what you save)<br>
             <code>0</code>,<code>123</code> used for debugging this feature.<em><br>
             </em></td>
         </tr>
@@ -255,9 +246,6 @@
         second attempted, which might make the driver chip very hot. Whether 0
         is a lockup can be determined by reading the source code, it is
         deterministic just not obvious.</li>
-      <li>the start rate is also the rate at which motion commands are polled
-        for when not moving. This can be fixed, just not until other recent
-        changes are proved to work.</li>
       <li>hardware pin allocations are burned into the code, not configurable in
         the field. <br>
         This includes whether a home sensor exists for a motor. If there is no
