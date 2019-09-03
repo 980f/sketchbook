@@ -68,14 +68,19 @@ void engageMotor() {
 }
 
 #else
-#if L298 == SEEEDV1_2
+
+#if UsingL298 == 1  //seeed on leonardp
 //pinout is not our choice
 FourBanger<8, 11, 12, 13> L298;
-#elif L298 == AndyProMicro
+#elif UsingL298 == 2  //promicro+ standalone
 //pinout is our choice, but 11,12,13 weren't on connectors so we chose ones that were instead of mimicing seeed
 FourBanger<5, 6, 7, 8> L298;
 #else
 #error "you must define a motor interface, see options.h"
+#endif
+
+#ifndef OnlyMotor
+#error "you must define OnlyMotor"
 #endif
 
 DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
@@ -85,7 +90,7 @@ void L298lambda(byte phase) {
 }
 
 void engageMotor() {
-  motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
+  motor[0].start(0, nullptr, nullptr, nullptr);
   motor[1].start(1, L298lambda, nullptr, &motorpower);
 }
 
@@ -114,6 +119,8 @@ void engageMotor() {
 
 //I2C diagnostic
 #include "scani2c.h"
+
+//const char *preinit __attribute__((__section__(".eeprom"))) = "#12,34\\";
 
 void initread(bool forrealz) {
   dbg("Initstring:");
@@ -190,15 +197,17 @@ CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32
 
 void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
   dbg("\ntest:", arg1, ',', arg2);
-  switch(arg1){
-  	case 0:
-  	switch(arg2){
-  		case 0:
-  		break;
-  	}
-  	break;
-  	default:
-  	break;
+  switch (arg1) {
+    case 0:
+      switch (arg2) {
+        case 0-3://# gcc extension but I didn't enable those, curious.
+          dbg("setting L298 to:", arg2);
+          L298(arg2);
+          break;
+      }
+      break;
+    default:
+      break;
   }
 }
 
@@ -207,16 +216,23 @@ void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
 void doKey(char key) {
   Char k(key);
   bool which = k.toUpper();//which of two motors
+#ifndef OnlyMotor
   auto &m(motor[which]);
-
+#else
+  auto &m(motor[OnlyMotor]);
+#endif
   switch (k) {
     case '\\':
       cmd(test);
       break;
 
     case ' '://report status
+#ifndef OnlyMotor
       motor[0].stats(&dbg);
       motor[1].stats(&dbg);
+#else
+      motor[OnlyMotor].stats(&dbg);
+#endif
       break;
 
     //    case '!': //select motor configuration
@@ -224,7 +240,7 @@ void doKey(char key) {
     //      break;
 
     case 'M'://go to position  [speed,]position M
-      m.moveto(cmd.arg, cmd.pushed);      
+      m.moveto(cmd.arg, cmd.pushed);
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
@@ -237,7 +253,7 @@ void doKey(char key) {
       break;
 
     case 'H'://load characteristics
-      m.h.configure(cmd.arg,cmd.pushed);
+      m.h.configure(cmd.arg, cmd.pushed);
       m.home();//no longer automatic on configuration change.
       dbg("starting home procedure at stage ", m.homing);
       break;
@@ -340,10 +356,13 @@ void setup() {
 }
 
 void loop() {
-
   if (MicroTicked) {//on avr this is always true, cortexm0, maybe 50%
+#ifndef OnlyMotor
     motor[0]();
     motor[1]();
+#else
+    motor[OnlyMotor]();
+#endif
   }
   if (MilliTicked) {//non urgent things like debouncing index sensor
     while (char key = dbg.getKey()) {
