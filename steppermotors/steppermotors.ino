@@ -285,14 +285,12 @@ void doKey(char key) {
 
     case 'R'://free run in reverse
       dbg("Run Reverse.");
-      m.run = -1;
-      m.freeRun = true;
+      m.Run(false);
       break;
 
     case 'F'://run forward
       dbg("Run Forward.");
-      m.run = +1;
-      m.freeRun = true;
+      m.Run(true);
       break;
 
     case '#':
