@@ -1,5 +1,6 @@
 #include <Arduino.h> //needed by some IDE's.
 
+
 #include "options.h"
 /* drive stepper motors.
     broken: one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
@@ -201,7 +202,7 @@ void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
     case 0:
       switch (arg2) {
         case 0-3://# gcc extension but I didn't enable those, curious.
-          dbg("setting L298 to:", arg2);
+          dbg(F("setting L298 to:"), arg2);
           L298(arg2);
           break;
       }
@@ -271,7 +272,7 @@ void doKey(char key) {
       break;
 
     case 'S'://set stepping rate to use for slewing
-      m.setTick(cmd.arg);
+      m.setCruise(cmd.arg);
       break;
 
     case 'X': //stop stepping
@@ -300,12 +301,12 @@ void doKey(char key) {
       break;
 
     case 'R'://free run in reverse
-      dbg("Run Reverse.");
+      dbg(F("Run Reverse."));
       m.Run(false);
       break;
 
     case 'F'://run forward
-      dbg("Run Forward.");
+      dbg(F("Run Forward."));
       m.Run(true);
       break;
 
