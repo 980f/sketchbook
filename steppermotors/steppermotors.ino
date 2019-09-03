@@ -2,10 +2,10 @@
 
 #include "options.h"
 /* drive stepper motors.
-    one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
+    broken: one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
+    ... the overlapping pin allocations mess with each other, we're back to compiled in motor selection until we 'new' our selection.
     partially implemented: chaining to another leonardo for a second motor when local only has 1.
     ... to finish the above I need to suppress all local action for the 2nd motor, especially sending feedback to host.
-
 
 */
 ////////////////////////////////////
@@ -40,18 +40,12 @@ Stream *ring = nullptr;
 
 #include "eeprinter.h" //presently only works for AVR  
 
-#if SEEEDV1_2 == 1
-//pinout is not our choice
-FourBanger<8, 11, 12, 13> L298;
-bool unipolar;//else bipolar
-DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
+/////////////////////////////
+#include "steppermotor.h"
 
-void L298lambda(byte phase) {
-  L298(phase);
-}
-#endif
+StepperMotor motor[2];//setup will attach each to pins/
 
-#if UsingSpibridges == 1
+#if UsingSpibridges
 #include "spibridges.h"  //consumes 3..12, which precludes using standard I2C port.
 SpiDualPowerBit p[2] = {0, 1};
 
@@ -65,32 +59,58 @@ template<bool second> void bridgeLambda(byte phase) {
   SpiDualBridgeBoard::setBridge(second, phase);
 }
 
-#endif
 
-/** no jumper == single controller, with jumper dual. This polarity was chosen by which board had jumperable pins handy. */
-InputPin<23> UseSeeed;
+void engageMotor() {
+  SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
 
-///////////////////////////////////////////////////////////////////////////
-#include "steppermotor.h"
-
-StepperMotor motor[2];//setup will attach each to pins/
-
-void selectDriver(bool seeed) {
-  if (seeed) {
-    motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
-    motor[1].start(1, L298lambda, nullptr, &motorpower);
-  } else {
-    SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
-
-    motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
-    motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
-  }
+  motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
+  motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
 }
 
+#else
+#if L298 == SEEEDV1_2
+//pinout is not our choice
+FourBanger<8, 11, 12, 13> L298;
+#elif L298 == AndyProMicro
+//pinout is our choice, but 11,12,13 weren't on connectors so we chose ones that were instead of mimicing seeed
+FourBanger<5, 6, 7, 8> L298;
+#else
+#error "you must define a motor interface, see options.h"
+#endif
+
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
+
+void L298lambda(byte phase) {
+  L298(phase);
+}
+
+void engageMotor() {
+  motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
+  motor[1].start(1, L298lambda, nullptr, &motorpower);
+}
+
+#endif
+//
+///** no jumper == single controller, with jumper dual. This polarity was chosen by which board had jumperable pins handy. */
+//InputPin<23> UseSeeed;
+
+///////////////////////////////////////////////////////////////////////////
+//this doesn't work because the pin assignments are templated and conflict. We need to defer construction rather than just trying to select between two items.
+//void selectDriver(bool seeed) {
+//  if (seeed) {
+//    dbg("L298");
+//    motor[0].start(0, [](byte phase) {}, nullptr, nullptr);
+//    motor[1].start(1, L298lambda, nullptr, &motorpower);
+//  } else {//default/preferred
+//    dbg("L293");
+//    SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
+//
+//    motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
+//    motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
+//  }
+//}
+
 //////////////////////////////////////////////////////////////////////////
-//command line interpreter, up to two RPN unsigned int arguments.
-#include "clirp.h"
-CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
 
 //I2C diagnostic
 #include "scani2c.h"
@@ -100,13 +120,13 @@ void initread(bool forrealz) {
   unsigned addr = 0;
   char key = EEPROM.read(addr);
   if (key == '#') {
-    //    auto x = dbg.nofeeds();
+    auto x = dbg.nofeeds();
     do {
       char key = EEPROM.read(addr);
       if (key == 0) {
         return;
       }
-      dbg(addr, ':', unsigned(key), ' ', char(key));
+      dbg(char(key));
       if (forrealz) {
         accept(key);
       }
@@ -116,72 +136,120 @@ void initread(bool forrealz) {
   }
 }
 
+/** write command strings that will restore the present configuration and some state. */
 void initwriter(ChainPrinter &writer) {
-  writer("#");
+  writer("#");//flag to mark the eeprom as having a block of init strings.
+
   for (auto sm : motor) {
+    writer(sm.g.start, ',', sm.g.accel, sm.which ? 'g' : 'G');
     if (sm.homeSensor != nullptr) { //if motor has a home
-      writer(sm.homeWidth, ',', sm.homeSpeed, sm.which ? 'h' : 'H'); //todo: case matters!
-    } else { //wake up running at speed it was going when burn occurred
-      writer(sm.which ? "xmz" : "XMZ", sm.ticker.duration, sm.which ? "sp" : "SP", sm.run > 0 ? sm.which ? 'f' : 'F' : sm.run < 0 ? sm.which ? 'r' : 'R' : sm.which ? 'x' : 'X'); //definitely regretting using case. it has a virtue-no UI state.
+      writer(sm.h.width, ',', sm.h.rev, sm.which ? 'h' : 'H');
+    } else { //wake up running at speed it was targeted for when burn occurred
+      //1st x deals with potential bad choices in default init of structures
+      //the bare M is 'goto 0', Z says 'you are actually at 0' so there should be no motion afterwards.
+      //setting S deals with potential bad choices in default init of speed logic, much of which depends upon present state
+      //setting P powers up the motor now that its controls are initialized
+      //the runcode is probaly a very bad idea, it allows the system to come up running on power up. That may be useful someday for a normally on situation, but those are usually rare.
+      writer(sm.which ? "xmz" : "XMZ", sm.g.cruise, sm.which ? "sp" : "SP", sm.runcode());
     }
   }
   writer(char(0));//null terminator for readback loops
 }
 
+
+void initmanagement(unsigned arg) {
+  switch (arg) {
+    case 666: {// save initstring to eeprom
+#if HaveEEPrinter
+        EEPrinter eep(0);
+        ChainPrinter writer(eep);
+#else
+        //todo: I2C eeprom as Print
+#endif
+        initwriter(writer);
+      }
+      break;
+    case 123:
+      initwriter(dbg);
+      break;
+    case 0:
+      initread(false);
+      break;
+    case 42:  //execute initstring from eeprom
+      initread(true);
+      break;
+    default:
+      dbg("# takes 666 to burn eeprom, 42 to reload from it, 0 show it");
+      break;
+  }
+}
+///////////////////////////////////////////////////////
+//command line interpreter, up to two RPN unsigned int arguments.
+#include "clirp.h"
+CLIRP<MicroStable::Tick> cmd;//need to accept speeds, both timer families use 32 bit values.
+
+void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
+  dbg("\ntest:", arg1, ',', arg2);
+}
+
+
+
 void doKey(char key) {
   Char k(key);
   bool which = k.toUpper();//which of two motors
+  auto &m(motor[which]);
 
   switch (k) {
+    case '\\':
+      cmd(test);
+      break;
+
     case ' '://report status
       motor[0].stats(&dbg);
       motor[1].stats(&dbg);
       break;
 
-		case '!': //select motor configuration
-		  selectDriver(cmd.arg);
-		  break;
+    //    case '!': //select motor configuration
+    //      selectDriver(cmd.arg);
+    //      break;
 
     case 'M'://go to position  [speed,]position M
-      motor[which].moveto(take(cmd.arg), take(cmd.pushed));
+      m.moveto(cmd.arg, cmd.pushed);
       break;
 
     case 'N'://go to negative position (present cmd processor doesn't do signed numbers, this is first instance of needing a sign )
-      motor[which].moveto(-take(cmd.arg), take(cmd.pushed));
+      m.moveto(-cmd.arg, cmd.pushed);
       break;
 
-    case 'H'://takes advantage of 0 not being a viable value for these optional parameters
-      if (cmd.pushed) {//if 2 args width,speed
-        motor[which].homeWidth = take(cmd.pushed);
-        dbg("set home width to ", motor[which].homeWidth);
-      }
-      if (cmd.arg) {//if 1 arg speed.
-        motor[which].homeSpeed = take(cmd.arg);
-        dbg("set home speed to ", motor[which].homeSpeed);
-      }
-      motor[which].homing = StepperMotor::NotHomed;//will lock up if no sensor present or is broken.
-      dbg("starting home procedure at stage ", motor[which].homing);
+    case 'G': //acceleration configuration
+      m.g.configure(cmd.arg, cmd.pushed);
+      dbg("accel:", m.g.accel, " start:", m.g.start);
+      break;
+
+    case 'H'://load characteristics
+      m.h.configure(cmd.arg,cmd.pushed);
+      dbg("starting home procedure at stage ", m.homing);
       break;
 
     case 'K':
-      motor[which].target -= 1;
+      m.target -= 1;
       break;
     case 'J':
-      motor[which].target += 1;
+      m.target += 1;
       break;
 
     case 'Z'://declare present position is ref
       dbg("marking start");
-      motor[which].pos = 0;
+      m.pos = 0;
       break;
 
     case 'S'://set stepping rate to use for slewing
-      motor[which].setTick(cmd.arg);
+      m.setTick(cmd.arg);
       break;
 
     case 'X': //stop stepping
       dbg("Stopping.");
-      motor[which].freeze();
+      m.freeze();
       break;
 
     //one test system had two relays for switching the motor wiring:
@@ -196,55 +264,28 @@ void doKey(char key) {
 
     case 'P':
       dbg("power on");
-      motor[which].power(1);
+      m.power(1);
       break;
 
     case 'O':
       dbg("power off");
-      motor[which].power(0);
+      m.power(0);
       break;
 
     case 'R'://free run in reverse
       dbg("Run Reverse.");
-      motor[which].run = -1;
-      motor[which].freeRun = true;
+      m.run = -1;
+      m.freeRun = true;
       break;
 
     case 'F'://run forward
       dbg("Run Forward.");
-      motor[which].run = +1;
-      motor[which].freeRun = true;
-      break;
-
-    case 'G'://whatever
-      dbg("inputs:", motor[0].edgy, ",", motor[1].edgy);
+      m.run = +1;
+      m.freeRun = true;
       break;
 
     case '#':
-      switch (cmd.arg) {
-        case 666: {// save initstring to eeprom
-#if HaveEEPrinter
-            EEPrinter eep(0);
-            ChainPrinter writer(eep);
-#else
-            //todo: I2C eeprom as Print
-#endif
-            initwriter(writer);
-          }
-          break;
-        case 123:
-          initwriter(dbg);
-          break;
-        case 0:
-          initread(false);
-          break;
-        case 42:  //execute initstring from eeprom
-          initread(true);
-          break;
-        default:
-          dbg("# takes 666 to burn eeprom, 42 to reload from it, 0 show it");
-          break;
-      }
+      cmd(initmanagement);
       break;
     case '?':
       scanI2C(dbg);
@@ -259,6 +300,7 @@ void doKey(char key) {
       }
       dbg("Ignored:", char(key), " (", unsigned(key), ") ", cmd.arg, ',', cmd.pushed);
   }
+  dbg.endl();
 }
 
 //keep separate, we will feed from eeprom as init technique
@@ -280,9 +322,11 @@ void doString(const char *initstring) {
 void setup() {
   Serial.begin(115200);
   dbg("setup");
-
-	selectDriver(UseSeeed);
-
+#ifdef SerialRing
+  SerialRing.begin(115200);
+#endif
+  //  selectDriver(UseSeeed);//jumper based config
+  engageMotor();
   doString("42#");// 42# is "execute eeprom"
 }
 
