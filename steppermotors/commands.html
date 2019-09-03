@@ -46,6 +46,17 @@
             presently saved with <code>666#</code>.</td>
         </tr>
         <tr>
+          <td>start speed</td>
+          <td>acceleration</td>
+          <td>G</td>
+          <td>acceleration is usec/step, nonlinear but steppers are fine with
+            it. It is a cheap way to trade off starting torque for getting up to
+            speed quickly.<br>
+            start speed is the speed used for the first step of every motion,
+            and also affects latency in reacting to commands. The latter is a
+            quirk.</td>
+        </tr>
+        <tr>
           <td>[width]</td>
           <td>[usec per step]</td>
           <td>H</td>
@@ -242,8 +253,11 @@
       <li>If the steprate ever becomes zero either motion is permanently
         disabled or so fast that nothing actually occurs, as in 100k steps per
         second attempted, which might make the driver chip very hot. Whether 0
-        is a lock up can be determined by reading the source code, it is
+        is a lockup can be determined by reading the source code, it is
         deterministic just not obvious.</li>
+      <li>the start rate is also the rate at which motion commands are polled
+        for when not moving. This can be fixed, just not until other recent
+        changes are proved to work.</li>
       <li>hardware pin allocations are burned into the code, not configurable in
         the field. <br>
         This includes whether a home sensor exists for a motor. If there is no
@@ -260,33 +274,41 @@
         S. You can stop with X without having to send MZ again, but might as
         well.</li>
     </ul>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
-    <p><br>
-    </p>
     <ul>
       <ul>
         <li>use S to set speed and R and F to change direction and start motion.</li>
       </ul>
     </ul>
+    <br>
+    <hr>
+    <h3>updating program without Arduino IDE</h3>
+    <code>sudo apt install avrdude</code><br>
+    You may need to find the <code>avrdude.conf</code>, probably in <code>/etc</code>
+    or in the <code>avrdude</code> program directory, and change it for some
+    boards.<br>
+    <br>
+    For each download you may have to use <code>dmesg</code> to figure if the
+    board is <code>ttyACM0</code> or <code>ttyACM1</code>, and you may have to
+    hardware reset it if it is spewing data to the USB. You already have this
+    problem in just trying to talk to it.<br>
+    <br>
+    To hardware reset the board open the port with baudrate==1200. If the board
+    is still listening to USB commands this will cause a "jump to zero" class of
+    reset. <br>
+    <br>
+    <code>avrdude -C</code>{someotherpath/}<code>avrdude.conf -v -patmega32u4
+      -cavr109 -P/dev/ttyACM1 -b57600 -D -Uflash:w:</code>{yetanotherpath/}<em>steppermotors.ino.hex</em><code>:i
+      <br><br>
+    </code>You can leave off the -C option and see if the default suits you.<br>
+    <p>If you have lots of difficulties doing this the ModemManager might be
+      running on the system. Hunt that down and keeeel it. Ubuntu comes with
+      that on despite modems being rare these days. The ModemManager grabs evern
+      tty-ish thing that appears and the timing is such that the "reset by
+      setting baud to 1200" is a race that the downloader rarely wins.</p>
+    <p>Note the raspbian repo has a build of avrdude that supports programming
+      using GPIO connected to the ICSP pins. This is handy for unbricking the
+      arduino.</p>
+    <hr>This is the end of this file.<br>
     <br>
     <p><br>
     </p>
