@@ -68,7 +68,7 @@ void engageMotor() {
   motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
 }
 
-#else
+#elif defined(UsingL298)
 
 #if UsingL298 == 1  //seeed on leonardp
 //pinout is not our choice
@@ -76,6 +76,22 @@ FourBanger<8, 11, 12, 13> L298;
 #elif UsingL298 == 2  //promicro+ standalone
 //pinout is our choice, but 11,12,13 weren't on connectors so we chose ones that were instead of mimicing seeed
 FourBanger<5, 6, 7, 8> L298;
+
+#elif UsingL298 == 3  //I2C via 8574
+#include "pcf8574.h"
+
+PCF8574 dev(0);//todo: match jumpers on board!
+/** 4 wire 2 phase unipolar drive. bipolar complementary drive and unipolar fullwave both can use this. */
+void i2clambda(byte phase){
+ byte pattern=0;
+ 
+ pattern |= 1<< greylsb(step);
+ pattern |= 4<< greymsb(step);
+    
+ //power bits!
+};
+
+
 #else
 #error "you must define a motor interface, see options.h"
 #endif

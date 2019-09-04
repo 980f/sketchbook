@@ -24,6 +24,7 @@ ln -sf lib/millievent.cpp millievent.cpp
 ln -sf ../shared/millievent.h millievent.h
 ln -sf ../shared/ezcpp/minimath.h minimath.h
 ln -sf lib/motordrivers.h motordrivers.h
+ln -sf lib/pcf8574.h pcf8574.h
 ln -sf ../shared/pinclass.h pinclass.h
 ln -sf ../shared/pinuser.h pinuser.h
 ln -sf lib/rompointer.h rompointer.h
