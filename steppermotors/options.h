@@ -12,6 +12,8 @@
 #ifdef ARDUINO_AVR_LEONARDO
 #define Serial4Debug Serial
 #define MotorDebug Serial
+//#define Pcf8574Debug Serial
+
 //SerialRing used 972 code bytes and ~200 ram bytes.
 //#define SerialRing Serial1
 #endif

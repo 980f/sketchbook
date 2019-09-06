@@ -19,7 +19,7 @@ bool led;
 #endif
 
 #include "cheaptricks.h"
-
+#include "bitbanger.h"
 #include "easyconsole.h"
 EasyConsole<decltype(Serial4Debug)> dbg(Serial4Debug, true /*autofeed*/);
 
@@ -93,37 +93,21 @@ DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L2
 */
 class I2CL298 {
     PCF8574 dev;
-    byte phase;// retain last for power setting
-    bool powerflag[2];
-    void sendem(void) {
-      byte pattern = 0;
-      //somewhat obtuse, but allows matching code to the comment
-      pattern |= (1 << 0) << greylsb(phase);//set one of two bits, other left at zero
-      pattern |= (1 << 3) << greymsb(phase);//... coz that is how this chip works.
 
-      //power bits
-      if (powerflag[0]) {
-        pattern |= (1 << 6);
-      }
-      if (powerflag[1]) {
-        pattern |= (1 << 7);
-      }
-      dev = pattern;
-    };
-
-  public:
-    //todo: match jumpers on board!
+  public:    
     I2CL298(uint8_t which): dev(which) {
-      dev.setInput((1 << 6) | (1 << 7));
+      dev.setInput(bits(6,7));
     }
-
 
     /** matching FourBanger interface as best we can */
     void operator()(byte phase) {
-      this->phase = phase;
-      sendem();
-    }
+      byte pattern = 0;
+      //somewhat obtuse, but allows matching code to the comment
+      pattern |= bit(0) << greylsb(phase);//set one of two bits, other left at zero
+      pattern |= bit(3) << greymsb(phase);//... coz that is how this chip works.
 
+      dev.merge(pattern, bits(0,1,3,4));
+    }
 
     class PowerWidget: public BoolishRef {
         I2CL298 &parent;
@@ -131,12 +115,10 @@ class I2CL298 {
       public:
         PowerWidget(I2CL298 &parent): parent(parent) {}
         operator bool() const {
-          return parent.powerflag[0];
+          return bitFrom(parent.dev.cachedBits() ,2);//trust that 2 and 5 are the same
         }
         bool operator =(bool on) const {
-          parent.powerflag[0] = 1;
-          parent.powerflag[1] = 1;
-          parent.sendem();
+          parent.dev.merge(on ? bits(2,5) : 0, bits(2,5)); 
           return on;
         }
     };
