@@ -17,6 +17,7 @@ millievent.h
 minimath.h
 pinclass.h
 pinuser.h
+scani2c.h
 textkey.cpp
 textkey.h
 unsignedrecognizer.h

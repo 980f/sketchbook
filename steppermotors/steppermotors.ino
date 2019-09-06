@@ -73,25 +73,78 @@ void engageMotor() {
 #if UsingL298 == 1  //seeed on leonardp
 //pinout is not our choice
 FourBanger<8, 11, 12, 13> L298;
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
+
 #elif UsingL298 == 2  //promicro+ standalone
 //pinout is our choice, but 11,12,13 weren't on connectors so we chose ones that were instead of mimicing seeed
 FourBanger<5, 6, 7, 8> L298;
+DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
 
 #elif UsingL298 == 3  //I2C via 8574
 #include "pcf8574.h"
 
-PCF8574 dev(0);//todo: match jumpers on board!
-/** 4 wire 2 phase unipolar drive. bipolar complementary drive and unipolar fullwave both can use this. */
-void i2clambda(byte phase){
- byte pattern=0;
- 
- pattern |= 1<< greylsb(step);
- pattern |= 4<< greymsb(step);
-    
- //power bits!
+/**
+  byte I2C expander attached to L298
+  M1: 0,1 legs, 2 power,
+  M2: 3,4 legs, 5 power , 6,7 for home sensor
+
+  Note 3,4 are probably swapped compared to other implementors of this interface, motor might go in reverse direction when switching from one to the other.
+  since you are already changing wires to change controller you can swap the motor leads if this is a problem.
+*/
+class I2CL298 {
+    PCF8574 dev;
+    byte phase;// retain last for power setting
+    bool powerflag[2];
+    void sendem(void) {
+      byte pattern = 0;
+      //somewhat obtuse, but allows matching code to the comment
+      pattern |= (1 << 0) << greylsb(phase);//set one of two bits, other left at zero
+      pattern |= (1 << 3) << greymsb(phase);//... coz that is how this chip works.
+
+      //power bits
+      if (powerflag[0]) {
+        pattern |= (1 << 6);
+      }
+      if (powerflag[1]) {
+        pattern |= (1 << 7);
+      }
+      dev = pattern;
+    };
+
+  public:
+    //todo: match jumpers on board!
+    I2CL298(uint8_t which): dev(which) {
+      dev.setInput((1 << 6) | (1 << 7));
+    }
+
+
+    /** matching FourBanger interface as best we can */
+    void operator()(byte phase) {
+      this->phase = phase;
+      sendem();
+    }
+
+
+    class PowerWidget: public BoolishRef {
+        I2CL298 &parent;
+
+      public:
+        PowerWidget(I2CL298 &parent): parent(parent) {}
+        operator bool() const {
+          return parent.powerflag[0];
+        }
+        bool operator =(bool on) const {
+          parent.powerflag[0] = 1;
+          parent.powerflag[1] = 1;
+          parent.sendem();
+          return on;
+        }
+    };
+
 };
 
-
+I2CL298 L298(0);
+I2CL298::PowerWidget  motorpower(L298);
 #else
 #error "you must define a motor interface, see options.h"
 #endif
@@ -99,8 +152,6 @@ void i2clambda(byte phase){
 #ifndef OnlyMotor
 #error "you must define OnlyMotor"
 #endif
-
-DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
 
 void L298lambda(byte phase) {
   L298(phase);
@@ -144,7 +195,7 @@ void initread(bool forrealz) {
   unsigned addr = 0;
   char key = EEPROM.read(addr);
   if (key == '#') {
-    auto x = dbg.nofeeds();
+    auto pop = dbg.stackFeeder(false);
     do {
       char key = EEPROM.read(addr);
       if (key == 0) {
@@ -168,12 +219,12 @@ void initwriter(ChainPrinter &writer) {
     writer(sm.g.start, ',', sm.g.accel, sm.which ? 'g' : 'G');
     if (sm.homeSensor != nullptr) { //if motor has a home
       writer(sm.h.width, ',', sm.h.rev, sm.which ? 'h' : 'H');
-    } else { //wake up running at speed it was targeted for when burn occurred
+    } else {
       //1st x deals with potential bad choices in default init of structures
       //the bare M is 'goto 0', Z says 'you are actually at 0' so there should be no motion afterwards.
       //setting S deals with potential bad choices in default init of speed logic, much of which depends upon present state
       //setting P powers up the motor now that its controls are initialized
-      //the runcode is probaly a very bad idea, it allows the system to come up running on power up. That may be useful someday for a normally on situation, but those are usually rare.
+      //the runcode is probably a very bad idea, it allows the system to come up running on power up. That may be useful someday for a normally on situation, but those are usually rare.
       writer(sm.which ? "xmz" : "XMZ", sm.g.cruise, sm.which ? "sp" : "SP", sm.runcode());
     }
   }

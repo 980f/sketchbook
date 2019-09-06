@@ -45,4 +45,5 @@ stopwatch.h
 textkey.cpp
 textkey.h
 unsignedrecognizer.h
+wirewrapper.cpp
 wirewrapper.h

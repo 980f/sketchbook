@@ -40,4 +40,5 @@ ln -sf lib/stopwatch.h stopwatch.h
 ln -sf ../shared/ezcpp/textkey.cpp textkey.cpp
 ln -sf lib/ezcpp/textkey.h textkey.h
 ln -sf ../shared/unsignedrecognizer.h unsignedrecognizer.h
+ln -sf lib/wirewrapper.cpp wirewrapper.cpp
 ln -sf ../shared/wirewrapper.h wirewrapper.h

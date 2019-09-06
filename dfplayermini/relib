@@ -18,6 +18,7 @@ ln -sf lib/millievent.h millievent.h
 ln -sf lib/ezcpp/minimath.h minimath.h
 ln -sf lib/pinclass.h pinclass.h
 ln -sf lib/pinuser.h pinuser.h
+ln -sf lib/scani2c.h scani2c.h
 ln -sf lib/ezcpp/textkey.cpp textkey.cpp
 ln -sf lib/ezcpp/textkey.h textkey.h
 ln -sf lib/unsignedrecognizer.h unsignedrecognizer.h

@@ -23,6 +23,10 @@ EasyConsole<decltype(SerialUSB)> dbg(SerialUSB, true /*autofeed*/);
 #include "clirp.h"
 CLIRP<uint16_t> cmd;//params are 16 bits.
 
+
+//I2C diagnostic
+#include "scani2c.h"
+
 DFRobotDFPlayerMini mplayer;
 
 void onReply(uint8_t opcode, uint16_t param) {
@@ -60,6 +64,13 @@ void doKey(char key) {
     case 'D':
       mplayer.ACK(0);//trying to match example packet to determine what checksum should be.
       mplayer.outputDevice(Medium::FLASH);
+      break;
+
+    case '?':
+      scanI2C(dbg);
+#if UsingEDSir
+      dbg("IR device is ", IRRX.isPresent() ? "" : "not", " present");
+#endif
       break;
   }
 }
