@@ -70,7 +70,7 @@ void engageMotor() {
 
 #elif defined(UsingL298)
 
-#if UsingL298 == 1  //seeed on leonardp
+#if UsingL298 == 1  //seeed on leonardo
 //pinout is not our choice
 FourBanger<8, 11, 12, 13> L298;
 DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
@@ -94,9 +94,9 @@ DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L2
 class I2CL298 {
     PCF8574 dev;
 
-  public:    
+  public:
     I2CL298(uint8_t which): dev(which) {
-      dev.setInput(bits(6,7));
+      dev.setInput(bits(6, 7));
     }
 
     /** matching FourBanger interface as best we can */
@@ -106,7 +106,7 @@ class I2CL298 {
       pattern |= bit(0) << greylsb(phase);//set one of two bits, other left at zero
       pattern |= bit(3) << greymsb(phase);//... coz that is how this chip works.
 
-      dev.merge(pattern, bits(0,1,3,4));
+      dev.merge(pattern, bits(0, 1, 3, 4));
     }
 
     class PowerWidget: public BoolishRef {
@@ -115,10 +115,10 @@ class I2CL298 {
       public:
         PowerWidget(I2CL298 &parent): parent(parent) {}
         operator bool() const {
-          return bitFrom(parent.dev.cachedBits() ,2);//trust that 2 and 5 are the same
+          return bitFrom(parent.dev.cachedBits() , 2); //trust that 2 and 5 are the same
         }
         bool operator =(bool on) const {
-          parent.dev.merge(on ? bits(2,5) : 0, bits(2,5)); 
+          parent.dev.merge(on ? bits(2, 5) : 0, bits(2, 5));
           return on;
         }
     };
@@ -251,8 +251,10 @@ void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
     case 0:
       switch (arg2) {
         case 0-3://# gcc extension but I didn't enable those, curious.
+#if defined(UsingL298)
           dbg(F("setting L298 to:"), arg2);
           L298(arg2);
+#endif
           break;
       }
       break;

@@ -2,8 +2,10 @@
 
 //#define UsingL298 1 //SEEEDV1_2
 //#define UsingL298 2 //AndyProMicro
-#define UsingL298 3 //PCF8574 I2C
-#define UsingSpibridges 0
+//#define UsingL298 3 //PCF8574 I2C
+
+//dual motor board uses SPI to get to two H-bridges:
+#define UsingSpibridges 1
 
 //getting spammed by the motor not in use.
 #define OnlyMotor 1
