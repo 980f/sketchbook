@@ -63,14 +63,14 @@ template<bool second> void bridgeLambda(byte phase) {
 
 void engageMotor() {
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
-
-  motor[0].start(0, bridgeLambda<0>, &zeroMarker, &p[0]); //uppercase
+//couldn't get sensor working in time for the show.S
+  motor[0].start(0, bridgeLambda<0>, nullptr/*&zeroMarker*/, &p[0]); //uppercase
   motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
 }
 
 #elif defined(UsingL298)
 
-#if UsingL298 == 1  //seeed on leonardo
+#if UsingL298 == 1  //seeed on leonardp
 //pinout is not our choice
 FourBanger<8, 11, 12, 13> L298;
 DuplicateOutput<9, 10> motorpower; //pwm OK. These are the ENA and ENB of the L298 and are PWM
@@ -131,9 +131,6 @@ I2CL298::PowerWidget  motorpower(L298);
 #error "you must define a motor interface, see options.h"
 #endif
 
-#ifndef OnlyMotor
-#error "you must define OnlyMotor"
-#endif
 
 void L298lambda(byte phase) {
   L298(phase);
@@ -199,16 +196,16 @@ void initwriter(ChainPrinter &writer) {
 
   for (auto sm : motor) {
     writer(sm.g.start, ',', sm.g.accel, sm.which ? 'g' : 'G');
-    if (sm.homeSensor != nullptr) { //if motor has a home
-      writer(sm.h.width, ',', sm.h.rev, sm.which ? 'h' : 'H');
-    } else {
-      //1st x deals with potential bad choices in default init of structures
+    
+//1st x deals with potential bad choices in default init of structures
       //the bare M is 'goto 0', Z says 'you are actually at 0' so there should be no motion afterwards.
       //setting S deals with potential bad choices in default init of speed logic, much of which depends upon present state
       //setting P powers up the motor now that its controls are initialized
       //the runcode is probably a very bad idea, it allows the system to come up running on power up. That may be useful someday for a normally on situation, but those are usually rare.
-      writer(sm.which ? "xmz" : "XMZ", sm.g.cruise, sm.which ? "sp" : "SP", sm.runcode());
-    }
+    writer(sm.which ? "xmz" : "XMZ", sm.g.cruise, sm.which ? "sp" : "SP");//, sm.runcode());
+//    if (sm.homeSensor != nullptr) { //if motor has a home
+//      writer(sm.h.width, ',', sm.h.rev, sm.which ? 'h' : 'H');
+//    }
   }
   writer(char(0));//null terminator for readback loops
 }
@@ -267,12 +264,9 @@ void test(decltype(cmd)::Value arg1, decltype(cmd)::Value arg2) {
 
 void doKey(char key) {
   Char k(key);
-  bool which = k.toUpper();//which of two motors
-#ifndef OnlyMotor
+  bool which = k.toUpper();//which of two motors, whuch wilkl be true for LOWER case ()
   auto &m(motor[which]);
-#else
-  auto &m(motor[OnlyMotor]);
-#endif
+
   switch (k) {
     case '\\':
       cmd(test);
@@ -372,7 +366,7 @@ void doKey(char key) {
       break;
 
     default:
-      if (key == 255) {
+      if (key == char(255)) {
         //some jerk is sending this when the shift key is hit all by its lonesome. Looking at you arduino serial monitor!
       }
       dbg("Ignored:", char(key), " (", unsigned(key), ") ", cmd.arg, ',', cmd.pushed);
@@ -404,6 +398,7 @@ void setup() {
 #endif
   //  selectDriver(UseSeeed);//jumper based config
   engageMotor();
+  doString("250000,10000g");//todo: doesn't stick in eeprom
   doString("42#");// 42# is "execute eeprom"
 }
 

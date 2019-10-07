@@ -8,7 +8,7 @@
 #define UsingSpibridges 1
 
 //getting spammed by the motor not in use.
-#define OnlyMotor 1
+//#define OnlyMotor 1
 
 
 #ifdef ARDUINO_AVR_LEONARDO
