@@ -63,7 +63,7 @@ template<bool second> void bridgeLambda(byte phase) {
 
 void engageMotor() {
   SpiDualBridgeBoard::start(true);//using true during development, low power until program is ready to run
-//couldn't get sensor working in time for the show.S
+  //couldn't get sensor working in time for the show.S
   motor[0].start(0, bridgeLambda<0>, nullptr/*&zeroMarker*/, &p[0]); //uppercase
   motor[1].start(1, bridgeLambda<1>, nullptr, &p[1]); //lower case
 }
@@ -133,14 +133,14 @@ void initwriter(ChainPrinter &writer) {
   writer("#");//flag to mark the eeprom as having a block of init strings.
 
   for (auto sm : motor) {
-    	//1st x deals with potential bad choices in default init of structures
-      //the bare M is 'goto 0', Z says 'you are actually at 0' so there should be no motion afterwards.
-      //setting S deals with potential bad choices in default init of speed logic, much of which depends upon present state
-      //setting P powers up the motor now that its controls are initialized      
-    writer(sm.which ? "xmz" : "XMZ",sm.g.start, ',', sm.g.accel, sm.which ? 'g' : 'G', sm.g.cruise, sm.which ? "sp" : "SP");
-    if (sm.h.width != 0) { //if motor has a home essentially configured
-      writer(sm.h.width, ',', sm.h.rev, sm.which ? 'h' : 'H');
+    if (sm.h.isValid()) { //if motor has a home essentially configured
+      writer(sm.h.rev, ',', sm.h.width, sm.which ? 'h' : 'H');
     }
+    //1st x deals with potential bad choices in default init of structures
+    //the bare M is 'goto 0', Z says 'you are actually at 0' so there should be no motion afterwards.
+    //setting S deals with potential bad choices in default init of speed logic, much of which depends upon present state
+    //setting P powers up the motor now that its controls are initialized
+    writer(sm.which ? "xmz" : "XMZ", sm.g.start, ',', sm.g.accel, sm.which ? 'g' : 'G', sm.g.cruise, sm.which ? "sp" : "SP");
   }
   writer(char(0));//null terminator for readback loops
 }
