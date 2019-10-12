@@ -25,6 +25,9 @@
       steps in a selected direction.<br>
       Homing state machine is explained after the table of commands, and
       overrides the above.</p>
+    <p>Note: the input parser accepts '~' <em>following</em> a number to
+      complement it, 0~ yields 'not a number' for many of these fields-
+      disabling the feature.</p>
     <table width="100%" border="1">
       <tbody>
         <tr>
@@ -40,7 +43,8 @@
           <td>G</td>
           <td>acceleration is usec/step, nonlinear but steppers are fine with
             it. It is a cheap way to trade off starting torque for getting up to
-            speed quickly.<br>
+            speed quickly. A value of plain 0 disables the associated logic and
+            speeds given are instantly applied.<br>
             start speed is the speed used for the first step of every motion,
             and also affects latency in reacting to commands. The latter is a
             quirk.</td>
@@ -49,7 +53,8 @@
           <td>steps per rev</td>
           <td>width</td>
           <td>H</td>
-          <td>Starts procedure to find the home mark and go to the center of it.<br>
+          <td>Configure and start procedure to find the home mark and go to the
+            center of it.<br>
             width and rev are <strong><em>planned to be</em></strong> used as
             nominal timeouts on the motion.</td>
         </tr>
@@ -58,7 +63,16 @@
           <td>location</td>
           <td>M</td>
           <td>move to location at speed usec/step. if usec/step is omitted then
-            last speed used is used, which should be 'start speed'.</td>
+            last speed of any command is used.</td>
+        </tr>
+        <tr>
+          <td>usec per step</td>
+          <td>location</td>
+          <td>N</td>
+          <td>the parser only supports unsigned numbers at the moment but
+            location can be negative, use this command instead of M for your
+            negative locations, such as when motor is reversed from what you
+            desire.</td>
         </tr>
         <tr>
           <td><br>
@@ -66,14 +80,15 @@
           <td>usec per step</td>
           <td>S</td>
           <td>sets rate for subsequent commands that don't have a rate option. <strong>Note:</strong>
-            will change the rate while motion is in progress.</td>
+            will change the rate while motion is in progress, especially when
+            'free running'. Acceleration applies.</td>
         </tr>
         <tr>
           <td>pwm freq</td>
           <td>pwm ratio</td>
           <td>W</td>
-          <td>set power controls, when stopped these fiddle the motor power
-            control</td>
+          <td><strong>NYI:</strong> set power controls, when stopped these
+            fiddle the motor power control</td>
         </tr>
         <tr>
           <td><br>
@@ -92,14 +107,6 @@
           <td>Z</td>
           <td>clear position counter. Note: If target is not 0 then a move will
             begin.</td>
-        </tr>
-        <tr>
-          <td>usec per step</td>
-          <td>location</td>
-          <td>N</td>
-          <td>the parser only supports unsigned numbers at the moment but
-            location can be negative, use this command for your negative
-            locations.</td>
         </tr>
         <tr>
           <td><br>
@@ -139,7 +146,7 @@
           <td><br>
           </td>
           <td>R</td>
-          <td>free run in reverse</td>
+          <td>free run in reverse, position updates but target does not.</td>
         </tr>
         <tr>
           <td><br>
@@ -147,7 +154,7 @@
           <td><br>
           </td>
           <td>F</td>
-          <td>free run forward</td>
+          <td>free run forward, position updates but target does not.</td>
         </tr>
         <tr>
           <td><br>
