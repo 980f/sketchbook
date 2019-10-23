@@ -3,6 +3,10 @@
    Someday will merge and run directly on an ESP module of some kind, but those were pin tight for this application.
    Works on an ESP-01 with 512K (uses around ~320k).
 
+	the url, which only works on the same wifi network as the device, is formed from 
+	the name and port number given to the server module via construction(the port number) and the MDNS.begin() command for the name as:
+	name.local:port e.g. bigbender.local:1859
+
 */
 
 #include <ESP8266WiFi.h>
@@ -23,12 +27,14 @@ struct Login {
 
 };
 
-
 Login known[] = {
-	{"Matt's iPhone XS", "sizzlamofo", 9000},
-  {"honeypot", "brigadoon-will-be-back-soon", 4500},
+//	{"honeypot", "brigadoon-will-be-back-soon", 4500},
   {"Verizon-MiFi7730L-7D50", "5532f44d", 9000},
+  {"Matt's iPhone XS", "sizzlamofo", 9000},
+  {"honeypot", "brigadoon-will-be-back-soon", 4500},
+  
 };
+
 #include "limitedpointer.h"
 LimitedPointer<Login> logins(known, countof(known));
 
@@ -214,6 +220,9 @@ MonoStable timedOut;
 MonoStable pollStatus(500);//inherited value from some examples.
 
 void login() {
+	if(!logins.isValid()){
+		logins.rewind();
+	}
   dnserver = &logins.next();
   dbg("\nTrying ", dnserver->ssid, ' ', dnserver->password);
   WiFi.begin(dnserver->ssid, dnserver->password);
