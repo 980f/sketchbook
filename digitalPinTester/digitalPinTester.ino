@@ -44,7 +44,6 @@ bool led; //this is one of the advantages of the DigitalXX classes, you can repl
 #include "cheaptricks.h"
 
 #include "millievent.h"
-Using_MilliTicker
 
 BiStable toggler(250, 550);
 
