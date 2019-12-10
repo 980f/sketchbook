@@ -19,4 +19,7 @@
 
 //SerialRing used 972 code bytes and ~200 ram bytes.
 //#define SerialRing Serial1
+#else  //hope these work well enough for you to debug what really should go here
+#define Serial4Debug Serial
+#define MotorDebug Serial
 #endif

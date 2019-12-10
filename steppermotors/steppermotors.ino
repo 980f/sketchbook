@@ -1,7 +1,7 @@
 #include <Arduino.h> //needed by some IDE's.
 
 
-#include "options.h"
+#include"options.h"
 /* drive stepper motors.
     broken: one or two depending upon jumper, L298 for single, 2 with L293 common arduino shields.
     ... the overlapping pin allocations mess with each other, we're back to compiled in motor selection until we 'new' our selection.
@@ -108,6 +108,7 @@ void engageMotor() {
 //////////////////////////////////////
 // eeprom for "startup sane"
 void initread(bool forrealz) {
+	#if HaveEEprinter==1     //todo: find platform define for presence of EE or wrap this usage in a class and dummy it up there.
   dbg("Initstring:");
   unsigned addr = 0;
   char key = EEPROM.read(addr);
@@ -126,6 +127,7 @@ void initread(bool forrealz) {
   } else {
     dbg("not present or corrupt header");
   }
+  #endif
 }
 
 /** write command strings that will restore the present configuration and some state. */
@@ -150,12 +152,8 @@ void initwriter(ChainPrinter &writer) {
 void initmanagement(unsigned arg) {
   switch (arg) {
     case 666: {// save initstring to eeprom
-#if HaveEEPrinter
         EEPrinter eep(0);
         ChainPrinter writer(eep);
-#else
-        //todo: I2C eeprom as Print
-#endif
         initwriter(writer);
       }
       break;
