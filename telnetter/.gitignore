@@ -11,6 +11,7 @@ index.h
 lardls
 lib
 millichecker.h
+millievent.cpp
 millievent.h
 minimath.h
 nvblock.h

@@ -10,8 +10,8 @@ ln -sf ../shared/ezcpp/cstr.h cstr.h
 ln -sf ../shared/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/ezcpp/index.h index.h
 ln -sf ../shared/lardls lardls
-ln -sf ../shared lib
 ln -sf ../shared/millichecker.h millichecker.h
+ln -sf lib/millievent.cpp millievent.cpp
 ln -sf ../shared/millievent.h millievent.h
 ln -sf ../shared/ezcpp/minimath.h minimath.h
 ln -sf ../shared/nvblock.h nvblock.h

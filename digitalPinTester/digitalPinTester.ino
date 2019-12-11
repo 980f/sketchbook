@@ -14,8 +14,15 @@ DigitalOutput b(17);
 DigitalOutput c(16);
 
 //you can make arrays:
+
+#ifdef ESP_PLATFORM
+const DigitalOutput nib[] = {{5}, {4}, {3}};
+const DigitalInput quad[] = {{9} , {8}, {7}, {6}};
+#else
 const DigitalOutput nib[] = {{18}, {17}, {16}};
 const DigitalInput quad[] = {{23} , {20}, {21}, {24}};
+#endif
+
 bool last[4];
 
 class EdgyInput {
@@ -85,7 +92,7 @@ void loop() {
   //  //  	}
 
   if (MilliTicked) {//slow down check to minimize worst of switch bounce.
-    for (unsigned i = 3; i-- > 0;) {
+    for (unsigned i = countof(nib); i-- > 0;) {
       if (changed(last[i], quad[i])) {
         dbg( i + 1, " changed to ", last[i]);
         nib[i] = last[i];

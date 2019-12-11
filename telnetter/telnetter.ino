@@ -11,7 +11,14 @@
 
 */
 
+
+#ifndef ARDUINO_ARCH_ESP8266
+#define UseESP32
+#include <WiFi.h>
+#include <IPAddress.h>
+#else
 #include <ESP8266WiFi.h>
+#endif
 
 Stream &debug(Serial);
 
@@ -22,8 +29,9 @@ Stream &debug(Serial);
 #include "pinclass.h"
 
 //a pin used to enable extra debug spew:
-const InputPin<D7, LOW> Verbose;
-const InputPin<D8, LOW> Initparams;
+const InputPin<2, LOW> Verbose;
+//a pin used to enable reload some params from eeprom
+const InputPin<0, LOW> Initparams;
 
 #include "strz.h"
 
@@ -32,11 +40,13 @@ Credentials cred;
 
 
 #include "nvblock.h"
+//static ip set for ease of debug, instead of hunting something down via mDNS
+IPAddress mystaticip {192, 168, 12, 65}; //65=='A'
 
-IPAddress mystaticip(192, 168, 12, 65); //65=='A'
 const unsigned CredAddress = 0;
 
 const Nvblock keepip = Nvblock::For(mystaticip, 128); //todo: allocation scheme to ensure no overlap, without wrapping with a struct.
+//const Nvblock keepip2 <IPAddress>(mystaticip, 128); //todo: allocation scheme to ensure no overlap, without wrapping with a struct.
 
 const char *Hostname = "980FMesher";
 
@@ -70,21 +80,21 @@ const char *Chatter::hostname() {
 void setup() {
   Serial.begin(115200);
 
-//can't find dox on this  EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
+  //can't find dox on this  EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
   cred.load(CredAddress);
   keepip.load();
 
-  if(Verbose){
-    dbg("\nStored Credentials:",cred.ssid,cred.password);
-    dbg("\nStored IP: ",mystaticip);
+  if (Verbose) {
+    dbg("\nStored Credentials:", cred.ssid, cred.password);
+    dbg("\nStored IP: ", mystaticip);
   }
-      
+
   if (Initparams) {
     cred.setID("honeypot");
     cred.setPWD("brigadoon-will-be-back-soon");
-    mystaticip=IPAddress (192, 168, 12, 65); //65=='A'
+    mystaticip = IPAddress (192, 168, 12, 65); //65=='A'
     cred.save(CredAddress);
-    dbg("\nSaved credentials at ",CredAddress);
+    dbg("\nSaved credentials at ", CredAddress);
     keepip.save();
   }
 
