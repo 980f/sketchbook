@@ -1,0 +1,4 @@
+garbage=nothing
+target_package=esp32
+target_platform=esp32
+board=esp32wrover
