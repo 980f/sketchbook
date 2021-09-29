@@ -1,0 +1,13 @@
+## recreate links to library sources
+ln -sf ../shared/arduous arduous
+ln -sf ../shared/chainprinter.h chainprinter.h
+ln -sf lib/ezcpp/cheaptricks.cpp cheaptricks.cpp
+ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
+ln -sf lib/digitalpin.h digitalpin.h
+ln -sf lib/ezcpp/eztypes.h eztypes.h
+ln -sf ../shared/lardls lardls
+ln -sf lib/millievent.cpp millievent.cpp
+ln -sf lib/millievent.h millievent.h
+ln -sf lib/ezcpp/minimath.cpp minimath.cpp
+ln -sf lib/ezcpp/minimath.h minimath.h
+ln -sf lib/pinuser.h pinuser.h

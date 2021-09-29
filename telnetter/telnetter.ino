@@ -9,6 +9,8 @@
   There is a note as to where to insert a prefix indicating source of data, but I'd rather let that be in any protocol that uses
   this as spoofing is generally a benefit for my intended uses.
 
+  todo: update board select ifdef's to warn on board selected not 8266 or esp32
+
 */
 
 
