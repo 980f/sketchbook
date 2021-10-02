@@ -4,6 +4,7 @@ ln -sf ../shared/chainprinter.h chainprinter.h
 ln -sf lib/ezcpp/cheaptricks.cpp cheaptricks.cpp
 ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf lib/digitalpin.h digitalpin.h
+ln -sf lib/edgyinput.h edgyinput.h
 ln -sf lib/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/lardls lardls
 ln -sf lib/millievent.cpp millievent.cpp

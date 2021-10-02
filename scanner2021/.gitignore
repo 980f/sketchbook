@@ -3,6 +3,7 @@ chainprinter.h
 cheaptricks.cpp
 cheaptricks.h
 digitalpin.h
+edgyinput.h
 eztypes.h
 lardls
 millievent.cpp

@@ -13,6 +13,11 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 DigitalInput nearend(2, LOW);
 DigitalInput farend(3, LOW);
 
+
+#include "edgyinput.h"
+EdgyInput homesense(farend);
+EdgyInput awaysense(nearend);
+
 //2 for the motor
 DigitalOutput scan(18);
 DigitalOutput away(17);
@@ -21,7 +26,7 @@ DigitalOutput lights(16);
 //not yet sure what else we will do
 DigitalOutput other(19);
 
-
+//////////////////////////////////////////////////
 //these should probably come from eeprom
 bool idleNear;   //if true then idle near the motor, else idle at far end.
 MilliTick outbound;//time from starting moving scanner bar away from motor to stopping.
@@ -49,6 +54,7 @@ unsigned scanpass=0;
 
 void setup() {
   //todo: read options from EEprom 
+  Serial.begin(115200);
 }
 
 void loop() {
@@ -57,7 +63,46 @@ void loop() {
   //todo: if scanpass is not zero and we are not moving start moving
   //todo: if scanpass is not zero and we are moving then if related timer done reverse or stop
   //todo: other timers may expire and here is where we service them  
-  
+    if(homesense.changed()){
+      dbg(homesense?'H':'h');
+    }
+    if(awaysense.changed()){
+      dbg(awaysense?'F':'f');
+    }
+   
   }
   //todo: if serial do some test thing
+  if(Serial){
+    auto key= Serial.read();
+    switch(key){
+      case 'f': case 'F':
+        away=0;
+        break;
+      case 'b':case 'B':
+        away = 1;
+        break;
+      case 'r':case 'R':
+        scan = 1;
+        break;
+      case 'l':case 'L':
+        lights = 1;
+        break;
+      case 'o':case 'O':
+        lights = 0;
+        break;
+      case 'q':case 'Q':
+        other = 1;
+        break;
+      case 'a':case 'A':
+        other = 0;
+        break;  
+      //////////////////////////////////////  
+      default: //any unknown key == panic
+        scan=0;
+        away=0;
+        lights=0;
+        break;
+        
+    }
+  }
 }
