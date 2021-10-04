@@ -19,8 +19,8 @@ EdgyInput homesense(farend);
 EdgyInput awaysense(nearend);
 
 //2 for the motor
-DigitalOutput scan(18);
-DigitalOutput away(17);
+DigitalOutput scan(17);
+DigitalOutput away(18);
 //lights are separate so that we can force them on as work lights, and test them without motion.
 DigitalOutput lights(16);
 //not yet sure what else we will do
@@ -74,6 +74,8 @@ void loop() {
   //todo: if serial do some test thing
   if(Serial){
     auto key= Serial.read();
+    if(key>0){
+    dbg("key:",key);
     switch(key){
       case 'f': case 'F':
         away=0;
@@ -98,11 +100,12 @@ void loop() {
         break;  
       //////////////////////////////////////  
       default: //any unknown key == panic
+        dbg(" panic!");
         scan=0;
         away=0;
         lights=0;
         break;
-        
+    }
     }
   }
 }
