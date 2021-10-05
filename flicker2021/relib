@@ -1,0 +1,3 @@
+## recreate links to library sources
+ln -sf ../shared/arduous arduous
+ln -sf ../shared/lardls lardls
