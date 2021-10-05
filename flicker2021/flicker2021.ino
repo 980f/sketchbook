@@ -84,7 +84,7 @@ void packout() {
   }
   if (station9.seemsOk()) {//deferred test for debug
     if (station9.cachedBits() != newly) {
-      station9 = newly;
+      station9 = newly; //this outputs to I2C
     }
   }
 }
@@ -96,7 +96,7 @@ void setup() {
     led[count].setup();
   }
   dbg("setup I2C");
-  station9.begin();
+  station9.begin(400000);
 
   if (station9.isPresent()) {
     packout();
@@ -106,8 +106,6 @@ void setup() {
   randomSeed(202142);
   dbg("setup complete");
 }
-
-//unsigned spewer = 0;
 
 unsigned testitem = 0; //index into led[]
 
@@ -119,10 +117,6 @@ void loop() {
 
     //copy bits out to I2C
     packout();
-    //was approx 1/second, not 10 times. the print might be too expensive
-    //    if (0 == ++spewer % 100) {
-    //      dbg("Tick:", MilliTicked.recent());
-    //    }
   }
   if (Serial) {
     int key = Serial.read();
