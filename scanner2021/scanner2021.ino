@@ -196,7 +196,7 @@ void loop() {
           break;
         case ' ':
           debugSensors();
-          breakl
+          break;
         //////////////////////////////////////
         default: //any unknown key == panic
           dbg(" panic!");
