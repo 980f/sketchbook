@@ -136,6 +136,16 @@ class MotionManager {
 
 MotionManager Motion;
 
+/** peek at sensor inputs */
+void debugSensors() {
+  dbg(farend ? 'H' : 'h', nearend ? 'F' : 'f', trigger ? 'T' : 't');
+}
+
+void debugOutputs() {
+  dbg(scan ? 'S' : 's', away? 'A' : 'a', lights? 'L' : 'l', other ? 'O':'o');//two more for flicker lights?
+}
+
+
 ////////////////////////////////////////////////
 
 void setup() {
@@ -148,14 +158,7 @@ void loop() {
     Motion.onTick();
     //audio.onTick();
     //todo: other timers may expire and here is where we service them
-#if 0
-    if (homesense.changed()) {
-      dbg(homesense ? 'H' : 'h');
-    }
-    if (awaysense.changed()) {
-      dbg(awaysense ? 'F' : 'f');
-    }
-#endif
+
   }
 
   //todo: if serial do some test thing
@@ -164,6 +167,9 @@ void loop() {
     if (key > 0) {
       dbg("key:", key);
       switch (key) {
+        case 't': case 'T':
+          Motion.enterState(triggered);
+          break;
         case 'f': case 'F':
           away = 0;
           break;
@@ -188,6 +194,9 @@ void loop() {
         case 'a': case 'A':
           other = 0;
           break;
+        case ' ':
+          debugSensors();
+          breakl
         //////////////////////////////////////
         default: //any unknown key == panic
           dbg(" panic!");
