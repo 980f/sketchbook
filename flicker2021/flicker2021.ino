@@ -1,101 +1,102 @@
-#include "RBD_Timer.h"
+#include "chainprinter.h"
+ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
+
+#include "millievent.h"
 
 struct Flickery {
-  bool ison; 
+  bool ison;
   unsigned range[2];
-  RBD::Timer Led_On;
-  RBD::Timer Led_Off;
+  MonoStable duration;
 
-  Flickery(unsigned ontime, unsigned offtime):Led_On(ontime), Led_Off(offtime){
-    ison=false;
-    range[0]=offtime;
-    range[1]=ontime;
+  Flickery(unsigned ontime, unsigned offtime) {
+    ison = false;
+    range[0] = offtime;
+    range[1] = ontime;
   }
 
   void setup() {
-    Led_On.onExpired(); // clears the registry for initialization
-    Led_Off.onExpired();
-    Led_Off.restart(); // restarts the off cycle timer
+    be(true);//autostart
   }
-  
+
   void onTick() {
-    if (Led_Off.onExpired()) { // runs this code each time the timer expires
-      be(false);
-      Serial.println("LED %d On" /*,Led_Pin*/);
-      Led_On.setTimeout(random(range[0],range[1])); // starts the timer for the on duration
+    if (duration.hasFinished()) {
+      be(!ison);//just toggle, less code and random is random.
+      duration = (random(range[0], range[1]));
     }
-
-    if (Led_On.onExpired()) { // runs this code each time the timer expires
-      be(true);
-      Serial.println("LED %d Off" /*,Led_Pin*/);
-      Led_Off.setTimeout(random(range[0],range[1])); 
-    }
-
   }
 
-  virtual void be(bool on){
-    ison=on;
+  virtual void be(bool on) {
+    ison = on;
   }
 };
 
+/**
+  flicker a pin
+*/
 struct FlickeryPin: public Flickery {
   int Led_Pin;
-  FlickeryPin(int apin, unsigned ontime, unsigned offtime):Flickery(ontime, offtime),Led_Pin(apin){
+  FlickeryPin(int apin, unsigned ontime, unsigned offtime): Flickery(ontime, offtime), Led_Pin(apin) {
     //nada.
   }
- virtual void be(bool on){
+  virtual void be(bool on) {
     Flickery::be(on);
-    digitalWrite(Led_Pin, on?HIGH:LOW); 
-    if(on){
-      Led_On.restart();
-    } else {
-      Led_Off.restart();
-    }   
+    digitalWrite(Led_Pin, on ? HIGH : LOW);
+    dbg("Pin ", Led_Pin, on ? "HIGH " : "LOW ");
   }
 };
 
-FlickeryPin led[]={
-  {13,201,400},
-  {12,302,500},
-  {11,100,703},
-  {10,204,500},
+FlickeryPin led[] = {
+  {13, 201, 400}, //for debug
+  //station 4 will use one of these, scanner hallway two, station 9 all four but copied over I2C.
+  { 10, 201, 400},
+  { 9, 302, 500},
+  { 8, 100, 703},
+  { 7, 204, 500},
+
 };
 
-static const int numleds=sizeof(led)/sizeof(FlickeryPin);
+static const int numleds = sizeof(led) / sizeof(FlickeryPin);
 
 //import PCF7475 class here and pack the led array into it.
+#include "pcf8574.h"
 
-unsigned packed=0;
+PCF8574 station9(0);//9th status panel, operand is jumper settings
 
-void packout(){
-  unsigned newly=0;
-  for(unsigned count=numleds;count-->0;){
-    if(led[count].ison){
-      newly |= 3<<(1+2*count);//this is how a particular board is wired, setting pairs of pins in case we need to boost drive.
+void packout() {
+  unsigned newly = 0;
+  for (unsigned count = numleds; count-- > 0;) {
+    if (led[count].ison) {
+      newly |= 3 << (1 + 2 * count); //this is how a particular board is wired, setting pairs of pins in case we need to boost drive.
     }
   }
-  if(packed!=newly){
-    packed=newly;
-    //todo: send packed to I2C.
+  if (station9.seemsOk()) {//deferred test for debug
+    if (station9.cachedBits() != newly) {
+      station9 = newly;
+    }
   }
 }
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("Begin setup");
-  for(unsigned count=numleds;count-->0;){
+  Serial.begin(115200);//used by dbg()
+  dbg("setup flickerers");
+  for (unsigned count = numleds; count-- > 0;) {
     led[count].setup();
   }
+  dbg("setup I2C");
+  station9.begin();
   
-  packed=~0;//will force output
-  packout();
-  
-  Serial.println("setup complete");
+  if (station9.isPresent()) {
+    packout();
+  } else {
+    dbg("I2C failed");
+  }
+
+  dbg("setup complete");
 }
 
 void loop() {
   //todo: only run the loop once a millisecond to lower power consumption, might be able to run on batteries if we do instead of needing another P/S.
-  for(unsigned count=numleds;count-->0;){
+  for (unsigned count = numleds; count-- > 0;) {
     led[count].onTick();
   }
 
