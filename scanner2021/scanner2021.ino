@@ -37,8 +37,8 @@ DigitalOutput other(19);
 static const MilliTick Breaker = 75;  //time to ensure one relay has gone off before turning another on
 static const MilliTick Maker = 100;   //time to ensure relay is on before trusting that action is occuring.
 static const MilliTick Fullrail = 10000; //timeout for homing, slightly greater than scan
-static const MilliTick Scanout = 9000;  //time from start to turnaround point
-static const MilliTick Scanback = 9200; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
+static const MilliTick Scanout = 13000;  //time from start to turnaround point
+static const MilliTick Scanback = 13400; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
 static const MilliTick TriggerDelay = 5310; //taste setting, time from button press to scan start.
 //////////////////////////////////////////////////
 
