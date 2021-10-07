@@ -2,8 +2,8 @@
 #if 1 //8684/606 with debug 7616/483 without, so around 1k of debug statments 
 ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 //eventually these will be made editable by Serial
-const bool dbgi2c = 0;
-const bool dbgpin = 0;
+bool dbgi2c = 0;
+bool dbgpin = 0;
 #else
 #define dbg(...)
 #endif
@@ -12,13 +12,12 @@ const bool dbgpin = 0;
 
 struct Flickery {
   bool ison;
-  unsigned range[2];
+  //these are used as MilliTicks, but since we want flicker we can use a shorter int to save on ram.
+  unsigned mintime, maxtime;
   MonoStable duration;
 
-  Flickery(unsigned ontime, unsigned offtime) {
-    ison = false;
-    range[0] = offtime;
-    range[1] = ontime;
+  Flickery(unsigned mintime, unsigned maxtime): ison(true), mintime(mintime), maxtime(maxtime) {
+    //#nada
   }
 
   virtual void setup() {
@@ -29,7 +28,7 @@ struct Flickery {
   void onTick() {
     if (duration.hasFinished()) {
       be(!ison);//just toggle, less code and random is random.
-      duration = (random(range[0], range[1]));
+      duration = random(mintime, maxtime);
     }
   }
 
@@ -48,7 +47,7 @@ struct Flickery {
 */
 struct FlickeryPin: public Flickery {
   int Led_Pin;
-  FlickeryPin(int apin, unsigned ontime, unsigned offtime): Flickery(ontime, offtime), Led_Pin(apin) {
+  FlickeryPin(int apin, unsigned mintime, unsigned maxtime): Flickery(mintime,  maxtime), Led_Pin(apin) {
     //nada.
   }
 
@@ -61,16 +60,16 @@ struct FlickeryPin: public Flickery {
   void be(bool on) {
     Flickery::be(on);
     digitalWrite(Led_Pin, on ? HIGH : LOW);
-    if (dbgpin) dbg("Pin ", Led_Pin, '=', on ? "HIGH " : "LOW ");
+    if (dbgpin) dbg("Pin ", Led_Pin, '=', on ? "HIGH " : "LOW ", " for ", MilliTick(duration));
   }
 };
 
 const FlickeryPin led[] = {
   //station 4 will use one of these, scanner hallway two, station 9 all four but copied over I2C.
-  { 10, 1201, 1400},
-  { 9, 1302, 1500},
-  { 8, 1100, 1703},
-  { 7, 1204, 1325},
+  { 10, 100, 1000},
+  { 9, 150, 1250},
+  { 8, 175, 1500},
+  { 7, 200, 1750},
 
 };
 
@@ -104,6 +103,10 @@ void packout() {
     }
   }
 }
+/////////////////////////////////////////////////
+
+#include "scani2c.h"  //not a proper h/cpp file combo
+
 
 void setup() {
   Serial.begin(115200);//used by dbg()
@@ -119,6 +122,7 @@ void setup() {
     packout();
     dbg("I2C worked");
   } else {
+    scanI2C(dbg, 0x27, 0x20);
     dbg("I2C failed");
   }
   randomSeed(202142);
@@ -139,16 +143,24 @@ void loop() {
   if (Serial) {
     int key = Serial.read();
     if (key > 0) {
-      switch (key) {
-        case '-': led[testitem].be(false);
+      switch (tolower(key)) {
+        case '-':
+          led[testitem].be(false);
           break;
-        case '=': led[testitem].be(true);
+        case '=':
+          led[testitem].be(true);
           break;
-        case '!':
+        case '!': //stop activity so that we can test individual events
           freezeAll();
           break;
-        case '@':
+        case '@': //soft reset
           setup();
+          break;
+        case 'p':
+          dbgpin = isupper(key);
+          break;
+        case 'i':
+          dbgi2c = isupper(key);
           break;
         default:
           if (key >= '0' && key < '0' + numleds) {
