@@ -7,5 +7,6 @@ ln -sf ../shared/lardls lardls
 ln -sf lib/millievent.cpp millievent.cpp
 ln -sf lib/millievent.h millievent.h
 ln -sf lib/pcf8574.h pcf8574.h
+ln -sf lib/scani2c.h scani2c.h
 ln -sf lib/wirewrapper.cpp wirewrapper.cpp
 ln -sf lib/wirewrapper.h wirewrapper.h

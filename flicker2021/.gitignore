@@ -6,5 +6,6 @@ lardls
 millievent.cpp
 millievent.h
 pcf8574.h
+scani2c.h
 wirewrapper.cpp
 wirewrapper.h
