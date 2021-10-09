@@ -66,10 +66,10 @@ struct FlickeryPin: public Flickery {
 
 const FlickeryPin led[] = {
   //station 4 will use one of these, scanner hallway two, station 9 all four but copied over I2C.
-  { 10, 100, 1000},
+  { 10, 100, 759},
   { 9, 150, 1250},
-  { 8, 175, 1500},
-  { 7, 200, 1750},
+  { 8, 175, 1431},
+  { 7, 139, 750},
 
 };
 

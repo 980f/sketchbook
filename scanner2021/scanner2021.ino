@@ -14,14 +14,14 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 #include "digitalpin.h"
 
 //switches on leadscrew/rail:
-DigitalInput nearend(2, LOW);
+DigitalInput nearend(2,  LOW);
 DigitalInput farend(3, LOW);
-DigitalInput trigger(5, LOW);
+DigitalInput triggerIn(5, LOW);
 
 #include "edgyinput.h"
 EdgyInput homesense(farend);
 EdgyInput awaysense(nearend);
-
+EdgyInput trigger(triggerIn);
 //and how do we deal with trigger?
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
@@ -37,8 +37,8 @@ DigitalOutput other(19);
 static const MilliTick Breaker = 75;  //time to ensure one relay has gone off before turning another on
 static const MilliTick Maker = 100;   //time to ensure relay is on before trusting that action is occuring.
 static const MilliTick Fullrail = 10000; //timeout for homing, slightly greater than scan
-static const MilliTick Scanout = 13000;  //time from start to turnaround point
-static const MilliTick Scanback = 13400; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
+static const MilliTick Scanout = 10400;  //time from start to turnaround point
+static const MilliTick Scanback = 10600; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
 static const MilliTick TriggerDelay = 5310; //taste setting, time from button press to scan start.
 //////////////////////////////////////////////////
 
@@ -82,16 +82,36 @@ enum MotionState {
   oopsiedaisy //should never get here!
 };
 
+
+const char  * const statetext[] = {
+  "powerup", //natural value for power up of program
+  "homing",
+  "idle",
+  "triggered",
+  "run_away",
+  "stopping",
+  "running_home",
+  "got_home",
+  "home_early",
+  "chill",
+
+  "oopsiedaisy" //should never get here!
+
+};
+
 class MotionManager {
+  public: //for debug output
     MonoStable timer;
     MotionState activity;
   public:
     //if we need multiple passes: unsigned scanpass = 0;
-    void enterState(MotionState newstate) {
+    void enterState(MotionState newstate, const char *reason) {
       StateParams &params = stab[newstate];
       scan = params.scan;
       away = params.away;
+      lights = params.lights;
       timer = params.delaytime;
+      dbg("To ", statetext[newstate], " From: ", statetext[activity], " due to:", reason);
       activity = newstate;
     }
 
@@ -99,35 +119,53 @@ class MotionManager {
       //read event inputs once for programming convenience
       bool amdone = timer.hasFinished(); //which disables timer
       bool amhome = homesense;
-
+      bool triggerEvent = trigger.changed() && triggerIn;
       switch (activity) {
+        case powerup:
+          if (triggerEvent) {
+            if (amhome) {
+              enterState(triggered, " first trigger");
+            } else {
+              enterState(homing, " first trigger");
+            }
+          }
+          break;
         case idle: //must be here to honor trigger
-          if (trigger) {
-            enterState(triggered);
+          if (triggerEvent) {
+            enterState(triggered, " trigger input");
           }
           //todo: if not at home we are fucked?
+          if (!amhome) {
+            enterState(powerup, " lost home");
+          }
           break;
         case running_home:
           if (amhome) { //then we are done with this part of the effect.
-            enterState(home_early);//todo: rename state
+            enterState(home_early, " found home switch"); //todo: rename
           } else if (amdone) {//we got stuck in the middle
-            enterState(homing);
-            //todo: deal with this error!
+            enterState(homing, " timed out");
             dbg("Short!");
           }
           break;
 
         case homing:
           if (amhome) {
-            enterState(idle);
+            enterState(idle, " homed OK");
           } else if (amdone) {
             //we got stuck in the middle
-            enterState(oopsiedaisy);//todo: deal with this error!
+            enterState(powerup, " failed to home");
           }
+          break;
+        case chill:
+          enterState(idle, " scan completed");
           break;
         default:
           if (amdone) { //only true if timer was both relevant and has completed
-            enterState(activity + 1);
+            enterState(activity + 1, " timer done");
+          } else if (scan && amhome) { //safeguard
+            scan = 0;
+            //todo:we should go to some state
+            enterState(powerup, " home unexpectedly");
           }
           break;
       }
@@ -136,13 +174,15 @@ class MotionManager {
 
 MotionManager Motion;
 
+
+
 /** peek at sensor inputs */
 void debugSensors() {
-  dbg(farend ? 'H' : 'h', nearend ? 'F' : 'f', trigger ? 'T' : 't');
+  dbg(farend ? 'H' : 'h', nearend ? 'F' : 'f', triggerIn ? 'T' : 't', '\t', statetext[Motion.activity]);
 }
 
 void debugOutputs() {
-  dbg(scan ? 'S' : 's', away? 'A' : 'a', lights? 'L' : 'l', other ? 'O':'o');//two more for flicker lights?
+  dbg(scan ? 'S' : 's', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); //two more for flicker lights?
 }
 
 
@@ -167,8 +207,11 @@ void loop() {
     if (key > 0) {
       dbg("key:", key);
       switch (key) {
+        case '$':
+          Motion.enterState(homing, " $ key");
+          break;
         case 't': case 'T':
-          Motion.enterState(triggered);
+          Motion.enterState(triggered, "t key");
           break;
         case 'f': case 'F':
           away = 0;
@@ -197,6 +240,10 @@ void loop() {
         case ' ':
           debugSensors();
           break;
+        case ',':
+          debugOutputs();
+          break;
+
         //////////////////////////////////////
         default: //any unknown key == panic
           dbg(" panic!");
