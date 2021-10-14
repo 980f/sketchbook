@@ -9,7 +9,9 @@ bool dbgpin = 0;
 #endif
 
 #include "millievent.h"
+
 const MilliTick offtime=50;
+
 struct Flickery {
   bool ison;
   //these are used as MilliTicks, but since we want flicker we can use a shorter int to save on ram.
@@ -64,8 +66,8 @@ struct FlickeryPin: public Flickery {
   }
 };
 
-const FlickeryPin led[] = {
-  //station 4 will use one of these, scanner hallway two, station 9 all four but copied over I2C.
+FlickeryPin led[] = {
+  //station 4 will use one of these, scanner hallway two, station 9 all four
   { 10, 100, 759},
   { 9, 150, 1250},
   { 8, 175, 1431},
@@ -79,33 +81,9 @@ void freezeAll() {
   for (unsigned count = numleds; count-- > 0;) {
     led[count].freeze();
   }
-
 }
 
-#include "pcf8574.h"
-
-PCF8574 station9(0, 0, 100); //for 9th status panel, operand is jumper settings, bus 0, 100 kHz is its max bus rate
-
-void packout() {
-  unsigned newly = 0;
-  for (unsigned count = numleds; count-- > 0;) {
-    if (led[count].ison) {
-      newly |= 3 << (2 * count); //this is how a particular board is wired, setting pairs of pins in case we need to boost drive.
-      //dbg("Packing:",HEXLY(newly));
-    }
-  }
-  newly &= 0xFF; //only use lower 4 leds. Else we get perpetual miscompares.
-  if (station9.seemsOk()) {//deferred test for debug
-    auto cached = station9.cachedBits();
-    if (cached != newly) {
-      station9 = newly; //this outputs to I2C
-      if (dbgi2c) dbg("I2C:", HEXLY(newly), " from:", HEXLY(cached));
-    }
-  }
-}
-/////////////////////////////////////////////////
-
-#include "scani2c.h"  //not a proper h/cpp file combo
+//we burned out the chip and instead ran another cable out of the display so that we could use the mcu gpio pins.
 
 
 void setup() {
@@ -115,16 +93,6 @@ void setup() {
     led[count].setup();
   }
   dbg("setup I2C");
-  station9.setInput(0);//no inputs
-  station9.begin();
-
-  if (station9.isPresent()) {
-    packout();
-    dbg("I2C worked");
-  } else {
-    scanI2C(dbg, 0x27, 0x20);
-    dbg("I2C failed");
-  }
   randomSeed(202142);
   dbg("setup complete");
 }
@@ -136,9 +104,6 @@ void loop() {
     for (unsigned count = numleds; count-- > 0;) {
       led[count].onTick();
     }
-
-    //copy bits out to I2C
-    packout();
   }
   if (Serial) {
     int key = Serial.read();
