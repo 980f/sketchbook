@@ -26,48 +26,54 @@ EdgyInput awaysense(nearend);
 EdgyInput trigger(triggerIn);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
-DigitalOutput lights(16);
+DigitalOutput lights(18);
 //2 for the motor
-DigitalOutput scan(17); //a.k.a run
-DigitalOutput away(18, LOW); //a.k.a direction
+DigitalOutput back(17); //a.k.a run
+DigitalOutput away(19); //a.k.a direction
 
 //not yet sure what else we will do
-DigitalOutput other(19);
+DigitalOutput other(16);//relay is broken!
 //////////////////////////////////////////////////
 //finely tuned parameters
-static const MilliTick Breaker = 75;  //time to ensure one relay has gone off before turning another on
+static const MilliTick Breaker = 150;  //time to ensure one relay has gone off before turning another on
 static const MilliTick Maker = 100;   //time to ensure relay is on before trusting that action is occuring.
 //full rail jams the light cord:static const MilliTick Fullrail = 10000; //timeout for homing, slightly greater than scan
 static const MilliTick Scantime = 11400;  //time from start to turnaround point
-static const MilliTick Scanmore = 100; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
 static const MilliTick TriggerDelay = 5310; //taste setting, time from button press to scan start.
-static const unsigned numPasses = 2;
+
+//made variable for debug:
+static MilliTick Scanmore = 0; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
+static unsigned numPasses = 2;
+void debugValues() {
+  dbg("passes (n): ", numPasses, " hysteresis(h): ", Scanmore);
+}
 //////////////////////////////////////////////////
 
 struct StateParams {
   bool lights;
-  bool scan;
+  bool back;
   bool away;
   MilliTick delaytime;
 };
 
 StateParams stab[] {
-  //L, S, away
+  //L, back, away
   {0, 0, 0, Breaker}, //powerup
-  {0, 1, 0, Scantime + Scanmore}, //homing
-  {0, 0, 1, BadTick}, //idle
-  {1, 0, 1, TriggerDelay}, //triggered  delay is from trigger active to scan starts
-  {1, 1, 1, Scantime}, //run away
+  {0, 1, 0, Scantime}, //homing
+  {0, 0, 0, BadTick}, //idle
+  {1, 0, 0, TriggerDelay}, //triggered  delay is from trigger active to scan starts
+  {1, 0, 1, Scantime}, //run away
   {1, 0, 0, Breaker}, //stopping  //can turn both off together, no race
-  {1, 1, 0, Scantime + Scanmore}, //running home, a little extra to tend to drift.
+  {1, 1, 0, Scantime}, //running home, a little extra to tend to drift.
   {1, 0, 0, Breaker}, //got home  //!!! actually means didn't get all the way home!
-  {1, 0, 1, Maker}, //another_pass
+  {1, 0, 0, Maker}, //another_pass
   {1, 0, 0, Breaker}, //home_early  //actually this is the prefered/normal way to get home
-  {0, 0, 1, Maker}, //chill, ignores trigger until this expires
+  {0, 0, 0, Maker}, //chill, ignores trigger until this expires
   //we go to idle from above
   {0, 0, 0, BadTick}, //unused/guard table
 
 };
+
 
 
 //program states, above are hardware state
@@ -116,11 +122,11 @@ class MotionManager {
     void enterState(MotionState newstate, const char *reason) {
       StateParams &params = stab[newstate];
       //fyi: these assignments actually manipulate hardware:
-      scan = params.scan;
+      back = params.back;
       away = params.away;
       lights = params.lights;
       //back to normal variables.
-      timer = params.delaytime;
+      timer = params.delaytime + (params.back ? Scanmore : 0); //have to add scanmore dynamically to appease debug access
       dbg("To ", statetext[newstate], " From: ", statetext[activity], " due to:", reason, " at ", since.elapsed());
       if (newstate == run_away) {
         ++passcount;
@@ -206,8 +212,8 @@ class MotionManager {
           break;
       }
       //home seems incoherent
-      if (sensorWorks && scan && !away && amhome) { //safeguard
-        scan = 0;
+      if (sensorWorks && back && !away && amhome) { //safeguard
+        back = 0;
         //todo: we should go to some state
         enterState(idle, " home unexpectedly");
       }
@@ -225,7 +231,7 @@ void debugSensors() {
 }
 
 void debugOutputs() {
-  dbg(scan ? 'S' : 's', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); //two more for flicker lights?
+  dbg(back ? 'B' : 'b', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); //two more for flicker lights?
 }
 
 
@@ -240,6 +246,88 @@ void setup() {
   Motion.enterState(powerup, "RESTARTED"); //don't trust C init.
 }
 
+/** streams kept separate for remote controller, where we do cross the streams. */
+#include "unsignedrecognizer.h"
+
+UnsignedRecognizer<unsigned> numberparser;
+//for 2 parameter commands, gets value from param.
+unsigned arg = 0;
+unsigned pushed = 0;
+
+void doKey(char key) {
+  if (key == 0) { //ignore nulls, might be used for line pacing.
+    return;
+  }
+  //test digits before ansi so that we can have a numerical parameter for those.
+  if (numberparser(key)) { //part of a number, do no more
+    return;
+  }
+  arg = numberparser; //read and clear, regardless of whether used.
+  switch (tolower (key)) {
+    case '$':
+      Motion.enterState(homing, " $ key");
+      break;
+    case '@':
+      setup();
+      break;
+    case 'n':
+      numPasses = arg;
+      break;
+    case 'h':
+      Scanmore = arg;
+      break;
+    case 't': case 'T':
+      Motion.enterState(triggered, "t key");
+      break;
+    case 'f': case 'F':
+      back = 0;
+      away = 1;
+      break;
+    case 'b': case 'B':
+      away = 0;
+      back = 1;
+      break;
+    case 'r': case 'R':
+      // scan = 1;
+      break;
+    case 'e': case 'E':
+      away = 0;
+      back = 0;
+      break;
+    case 'l': case 'L':
+      lights = 1;
+      break;
+    case 'o': case 'O':
+      lights = 0;
+      break;
+    case 'q': case 'Q':
+      other = 1;
+      break;
+    case 'a': case 'A':
+      other = 0;
+      break;
+    case ' ':
+      debugSensors();
+      break;
+    case ',':
+      debugOutputs();
+      break;
+    case '/':
+      debugValues();
+      break;
+
+    //////////////////////////////////////
+    default: //any unknown key == panic
+      dbg(" panic!");
+      back = 0;
+      away = 0;
+      lights = 0;
+      break;
+  }
+}
+
+
+
 void loop() {
   if (MilliTicked) { //nothing need be fast and the processor may be in a tight enclosure
     Motion.onTick();
@@ -253,52 +341,7 @@ void loop() {
     auto key = Serial.read();
     if (key > 0) {
       dbg("key:", char(key), '(', key, ')');
-      switch (key) {
-        case '$':
-          Motion.enterState(homing, " $ key");
-          break;
-        case 't': case 'T':
-          Motion.enterState(triggered, "t key");
-          break;
-        case 'f': case 'F':
-          away = 1;
-          break;
-        case 'b': case 'B':
-          away = 0;
-          break;
-        case 'r': case 'R':
-          scan = 1;
-          break;
-        case 'e': case 'E':
-          scan = 0;
-          break;
-        case 'l': case 'L':
-          lights = 1;
-          break;
-        case 'o': case 'O':
-          lights = 0;
-          break;
-        case 'q': case 'Q':
-          other = 1;
-          break;
-        case 'a': case 'A':
-          other = 0;
-          break;
-        case ' ':
-          debugSensors();
-          break;
-        case ',':
-          debugOutputs();
-          break;
-
-        //////////////////////////////////////
-        default: //any unknown key == panic
-          dbg(" panic!");
-          scan = 0;
-          away = 0;
-          lights = 0;
-          break;
-      }
+      doKey(key);
     }
   }
 }

@@ -9,7 +9,7 @@ bool dbgpin = 0;
 #endif
 
 #include "millievent.h"
-
+const MilliTick offtime=50;
 struct Flickery {
   bool ison;
   //these are used as MilliTicks, but since we want flicker we can use a shorter int to save on ram.
@@ -28,7 +28,7 @@ struct Flickery {
   void onTick() {
     if (duration.hasFinished()) {
       be(!ison);//just toggle, less code and random is random.
-      duration = random(mintime, maxtime);
+      duration = ison ? random(mintime, maxtime) : offtime;
     }
   }
 
@@ -69,7 +69,7 @@ const FlickeryPin led[] = {
   { 10, 100, 759},
   { 9, 150, 1250},
   { 8, 175, 1431},
-  { 7, 139, 750},
+  { 7, 25, 330},
 
 };
 
