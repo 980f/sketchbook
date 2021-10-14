@@ -1,7 +1,6 @@
 
 
 /*****
-   done via changing default of digitalpin class: pullup switch inputs
    todo: count triggers and report on number of failed scans
 */
 
@@ -12,27 +11,26 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 #include "millievent.h"
 #include "digitalpin.h"
 
-//bool sensorWorks = true;// added new switch
-
 //switches on leadscrew/rail:
-DigitalInput nearend(2,  LOW);
+DigitalInput nearend(2,  LOW);  //BROKEN
 DigitalInput farend(3, LOW);
 //switch in command center
 DigitalInput triggerIn(5, LOW);
 
 #include "edgyinput.h"
-EdgyInput homesense(farend, 3); //seems to bounce on change
-EdgyInput awaysense(nearend);//BROKEN HARDWARE
-EdgyInput trigger(triggerIn, 5);
+EdgyInput homesense(farend.number, 3); //seems to bounce on change
+EdgyInput awaysense(nearend.number);//BROKEN HARDWARE
+EdgyInput trigger(triggerIn.number, 7);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
 DigitalOutput lights(14, LOW); // ssr White
 //2 for the motor
-DigitalOutput back(17); //a.k.a run
-DigitalOutput away(19); //a.k.a direction
+DigitalOutput back(17); //a.k.a go towards home
+DigitalOutput away(19); //a.k.a go away from home
 
 //not yet sure what else we will do
-DigitalOutput other(15, LOW); //relays 16,18 are broken!
+DigitalOutput other(15, LOW);
+//NOTE: relays 16,18 are broken
 //////////////////////////////////////////////////
 //finely tuned parameters
 static const MilliTick Breaker = 250;  //time to ensure one relay has gone off before turning another on
@@ -43,6 +41,7 @@ static const MilliTick TriggerDelay = 5310; //taste setting, time from button pr
 //made variable for debug:
 static MilliTick Scanmore = 0; //extra time used on first out and last back
 static unsigned numPasses = 2;
+
 void debugValues() {
   dbg("passes (n): ", numPasses, " hysteresis(h): ", Scanmore);
 }
@@ -115,8 +114,9 @@ class MotionManager {
     MonoStable timer;
     MonoStable since;
     MotionState activity;
-    unsigned passcount;
+    unsigned passcount = 0;
   public:
+    bool freeze = false;
 
     void enterState(MotionState newstate, const char *reason, bool more = false) {
       StateParams &params = stab[newstate];
@@ -137,8 +137,20 @@ class MotionManager {
     void onTick() {
       //read event inputs once for programming convenience
       bool amdone = timer.hasFinished(); //which disables timer if it is done.
-      bool amhome = homesense; //read level once for logical coherence since we aren't debouncing
-      bool triggerEvent = triggerIn;// trigger.changed() && triggerIn;//also an edge sense and we only care about activation,
+      bool amhome = homesense; //read level once since we are debouncing off of this read
+      if (homesense.changed()) {
+        debugSensors();
+      }
+
+      bool triggerEvent = trigger; //read level once since we are debouncing off of this read
+      if (trigger.changed()) {
+        debugSensors();
+      }
+
+      if (freeze) {
+        return;
+      }
+
       bool lastpass = passcount >= numPasses;
       switch (activity) {
         case powerup:
@@ -227,7 +239,7 @@ MotionManager Motion;
 
 /** peek at sensor inputs */
 void debugSensors() {
-  dbg(farend ? 'H' : 'h', nearend ? 'F' : 'f', triggerIn ? 'T' : 't', '\t', statetext[Motion.activity]);
+  dbg(farend ? 'H' : 'h', triggerIn ? 'T' : 't', '\t', " DEB:", bool(homesense) ? 'H' : 'h', homesense.debouncer , trigger ? 'T' : 't', '\t', statetext[Motion.activity]);
 }
 
 void debugOutputs() {
@@ -241,9 +253,35 @@ void setup() {
   //todo: read timing values from EEprom
   Serial.begin(115200);
   dbg("-------------------------------");
+  homesense.begin();
+  awaysense.begin();
+  trigger.begin();
+
   debugSensors();
   debugOutputs();
-  Motion.enterState(powerup, "RESTARTED"); //don't trust C init.
+  debugValues();
+  Motion.freeze = false;
+  Motion.activity = oopsiedaisy; //somehow run_away was being reported
+  Motion.enterState(powerup, "RESTARTED");
+
+
+  Motion.freeze = true;
+
+  for (unsigned lc = 10; lc-- > 0;) {
+    bool amhome = homesense; //read level once since we are debouncing off of this read
+    if (homesense.changed()) {
+      dbg("Loop-h: ", 10 - lc);
+      debugSensors();
+    }
+
+    bool triggerEvent = trigger; //read level once since we are debouncing off of this read
+    if (trigger.changed()) {
+      dbg("Loop-t: ", 10 - lc);
+      debugSensors();
+    }
+
+  }
+
 }
 
 /** streams kept separate for remote controller, where we do cross the streams. */
@@ -264,6 +302,10 @@ void doKey(char key) {
   }
   arg = numberparser; //read and clear, regardless of whether used.
   switch (tolower (key)) {
+    case 27://escape key
+      Motion.freeze = true; //USE SETUP TO CLEAR THIS
+      break;
+
     case '$':
       Motion.enterState(homing, " $ key");
       break;
