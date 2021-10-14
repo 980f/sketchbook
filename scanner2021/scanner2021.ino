@@ -12,7 +12,7 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 #include "millievent.h"
 #include "digitalpin.h"
 
-bool sensorWorks = 0;
+//bool sensorWorks = true;// added new switch
 
 //switches on leadscrew/rail:
 DigitalInput nearend(2,  LOW);
@@ -21,28 +21,27 @@ DigitalInput farend(3, LOW);
 DigitalInput triggerIn(5, LOW);
 
 #include "edgyinput.h"
-EdgyInput homesense(farend);
-EdgyInput awaysense(nearend);
-EdgyInput trigger(triggerIn);
+EdgyInput homesense(farend, 3); //seems to bounce on change
+EdgyInput awaysense(nearend);//BROKEN HARDWARE
+EdgyInput trigger(triggerIn, 5);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
-DigitalOutput lights(18);
+DigitalOutput lights(14, LOW); // ssr White
 //2 for the motor
 DigitalOutput back(17); //a.k.a run
 DigitalOutput away(19); //a.k.a direction
 
 //not yet sure what else we will do
-DigitalOutput other(16);//relay is broken!
+DigitalOutput other(15, LOW); //relays 16,18 are broken!
 //////////////////////////////////////////////////
 //finely tuned parameters
-static const MilliTick Breaker = 150;  //time to ensure one relay has gone off before turning another on
+static const MilliTick Breaker = 250;  //time to ensure one relay has gone off before turning another on
 static const MilliTick Maker = 100;   //time to ensure relay is on before trusting that action is occuring.
-//full rail jams the light cord:static const MilliTick Fullrail = 10000; //timeout for homing, slightly greater than scan
 static const MilliTick Scantime = 11400;  //time from start to turnaround point
 static const MilliTick TriggerDelay = 5310; //taste setting, time from button press to scan start.
 
 //made variable for debug:
-static MilliTick Scanmore = 0; //time from turnaround back to home, different from above due to hysterisis in both motion and the home sensor
+static MilliTick Scanmore = 0; //extra time used on first out and last back
 static unsigned numPasses = 2;
 void debugValues() {
   dbg("passes (n): ", numPasses, " hysteresis(h): ", Scanmore);
@@ -118,15 +117,15 @@ class MotionManager {
     MotionState activity;
     unsigned passcount;
   public:
-    //if we need multiple passes: unsigned scanpass = 0;
-    void enterState(MotionState newstate, const char *reason) {
+
+    void enterState(MotionState newstate, const char *reason, bool more = false) {
       StateParams &params = stab[newstate];
       //fyi: these assignments actually manipulate hardware:
       back = params.back;
       away = params.away;
       lights = params.lights;
       //back to normal variables.
-      timer = params.delaytime + (params.back ? Scanmore : 0); //have to add scanmore dynamically to appease debug access
+      timer = params.delaytime + (more ? Scanmore : 0); //have to add scanmore dynamically to appease debug access
       dbg("To ", statetext[newstate], " From: ", statetext[activity], " due to:", reason, " at ", since.elapsed());
       if (newstate == run_away) {
         ++passcount;
@@ -140,10 +139,11 @@ class MotionManager {
       bool amdone = timer.hasFinished(); //which disables timer if it is done.
       bool amhome = homesense; //read level once for logical coherence since we aren't debouncing
       bool triggerEvent = triggerIn;// trigger.changed() && triggerIn;//also an edge sense and we only care about activation,
+      bool lastpass = passcount >= numPasses;
       switch (activity) {
         case powerup:
           if (triggerEvent) {
-            if (!sensorWorks || amhome) {
+            if (amhome) {
               enterState(triggered, " first trigger");
             } else {
               enterState(homing, " first trigger");
@@ -162,13 +162,13 @@ class MotionManager {
           passcount = 0;
           if (triggerEvent) {
             enterState(triggered, " trigger input");
-          } else if (sensorWorks && !amhome) { //todo: if not at home we are fucked?
+          } else if (!amhome) { //todo: if not at home we are fucked?
             enterState(powerup, " lost home");
           }
           break;
         case triggered:
           if (amdone) {
-            enterState(run_away, " time done");
+            enterState(run_away, " time done", true);
           }
           break;
         case run_away:
@@ -179,22 +179,22 @@ class MotionManager {
 
         case stopping:
           if (amdone) {
-            enterState(running_home, " time done");
+            enterState(running_home, " time done", lastpass);
           }
           break;
 
         case running_home:
-          if (sensorWorks && amhome) { //then we are done with this part of the effect.
-            enterState(home_early, " found home switch"); //todo: rename state, it is normal- not early
+          if (amhome) { //then we are done with this part of the effect.
+            enterState(home_early, " found home switch");
           } else if (amdone) {//we got stuck in the middle
-            enterState(got_home, " timed out");
+            enterState(powerup, " timed out home sense");
           }
           break;
 
         case got_home:
         case home_early://todo: fix this when sensor works
           if (amdone) {
-            if (passcount >= numPasses) {
+            if (lastpass) {
               enterState(chill, " scan completed");
             } else {
               enterState(run_away, " more passes");
@@ -212,7 +212,7 @@ class MotionManager {
           break;
       }
       //home seems incoherent
-      if (sensorWorks && back && !away && amhome) { //safeguard
+      if (back && amhome) { //safeguard
         back = 0;
         //todo: we should go to some state
         enterState(idle, " home unexpectedly");
