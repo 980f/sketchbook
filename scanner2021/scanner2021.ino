@@ -193,6 +193,9 @@ class MotionManager {
     void onTick() {
       //read event inputs once for programming convenience
       bool amdone = timer.hasFinished(); //which disables timer if it is done.
+      if (amdone) {
+        dbg("Timer finished ", MilliTick(timer));
+      }
       bool amhome = homesense; //read level once since we are debouncing off of this read
       if (homesense.changed()) {
         debugSensors();
@@ -204,6 +207,9 @@ class MotionManager {
       }
 
       if (freeze) {
+        if (amdone) {
+          dbg("Ignoring timer, frozen");
+        }
         return;
       }
 
@@ -299,7 +305,7 @@ void debugSensors() {
 }
 
 void debugOutputs() {
-  dbg("Outputs: ", back ? 'B' : 'b', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); 
+  dbg("Outputs: ", back ? 'B' : 'b', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]);
 }
 
 
@@ -319,24 +325,6 @@ void setup() {
   Motion.freeze = false;
   Motion.activity = oopsiedaisy; //somehow run_away was being reported
   Motion.enterState(powerup, "RESTARTED");
-
-
-  Motion.freeze = true;
-
-  for (unsigned lc = 10; lc-- > 0;) {
-    bool amhome = homesense; //read level once since we are debouncing off of this read
-    if (homesense.changed()) {
-      dbg("Loop-h: ", 10 - lc);
-      debugSensors();
-    }
-
-    bool triggerEvent = trigger; //read level once since we are debouncing off of this read
-    if (trigger.changed()) {
-      dbg("Loop-t: ", 10 - lc);
-      debugSensors();
-    }
-
-  }
 
 }
 
@@ -359,10 +347,16 @@ void doKey(char key) {
   arg = numberparser; //read and clear, regardless of whether used.
   switch (tolower (key)) {
     case 27://escape key
+      dbg("freezing motion");
       Motion.freeze = true; //USE SETUP TO CLEAR THIS
+      away = 0;
+      back = 0;
       break;
-
+    case '`':
+      dbg("MS: ", statetext[Motion.activity], " timer: ", Motion.timer.elapsed(), (Motion.timer.isRunning() ? " R " : " X "), "since: ", Motion.since.elapsed());
+      break;
     case '$':
+      Motion.freeze = false;
       Motion.enterState(homing, " $ key");
       break;
     case '@':
@@ -416,10 +410,7 @@ void doKey(char key) {
 
     //////////////////////////////////////
     default: //any unknown key == panic
-      dbg(" panic!");
-      back = 0;
-      away = 0;
-      lights = 0;
+      dbg("ignored:", char(key), '(', key, ')');
       break;
   }
 }
@@ -438,7 +429,6 @@ void loop() {
   if (Serial) {
     auto key = Serial.read();
     if (key > 0) {
-      dbg("key:", char(key), '(', key, ')');
       doKey(key);
     }
   }
