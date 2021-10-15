@@ -30,7 +30,7 @@ DigitalOutput away(19); //a.k.a go away from home
 
 //not yet sure what else we will do
 DigitalOutput other(15, LOW);
-//NOTE: relays 16,18 are broken
+//NOTE: relays 16,18 are broken. 14,15 are now wired to SSR outlet box.
 //////////////////////////////////////////////////
 //finely tuned parameters
 static const MilliTick Breaker = 250;  //time to ensure one relay has gone off before turning another on
@@ -45,6 +45,62 @@ static unsigned numPasses = 2;
 void debugValues() {
   dbg("passes (n): ", numPasses, " hysteresis(h): ", Scanmore);
 }
+
+//////////////////////////////////////////////////
+#include "flickery.h"
+
+/** flicker 'other' relay for some periods of time */
+
+
+class HallwayManager {
+    enum {triggerDelay = 7000, flickerfor = 2300, waitafter = 2021};
+    unsigned state = 0;
+
+  public:
+    MonoStable timer;
+    Flickery erratic{250, 150, 150}; //flicker slowly until we learn what the lamp can handle
+
+  public:
+    void onTick() {
+      bool amdone = timer.hasFinished(); //which disables timer if it is done.
+
+      switch (state) {
+        case triggerDelay:
+          if (amdone) {
+            state = flickerfor;
+            timer = flickerfor;
+          }
+          break;
+        case flickerfor:
+          if (amdone) {
+            state = waitafter;
+            timer = waitafter;
+
+          } else {
+            erratic.onTick();
+            other = erratic;
+          }
+          break;
+        case waitafter:
+          if (amdone) {
+            state = 0;
+          }
+          break;
+        default: {
+            bool triggerEvent = trigger; //this causes double sampling of trigger input,so double the debounce time.
+            if (triggerEvent) {
+              state = triggerDelay;
+              timer = triggerDelay;
+            }
+          } break;
+      }
+    }
+};
+
+HallwayManager hallway;
+
+
+
 //////////////////////////////////////////////////
 
 struct StateParams {
@@ -373,7 +429,7 @@ void doKey(char key) {
 void loop() {
   if (MilliTicked) { //nothing need be fast and the processor may be in a tight enclosure
     Motion.onTick();
-    //audio.onTick();
+    hallway.onTick();
     //todo: other timers may expire and here is where we service them
 
   }

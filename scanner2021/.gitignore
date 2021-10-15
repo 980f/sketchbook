@@ -10,6 +10,8 @@ digitalpin.h
 easyconsole.h
 edgyinput.h
 eztypes.h
+flickery.h
+index.cpp
 index.h
 lardls
 millievent.cpp
