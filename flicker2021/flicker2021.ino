@@ -1,49 +1,19 @@
 #include "chainprinter.h"
+/**
+ * flicker some pins.
+ * todo: import unsignedrecognizer and finish live editing via serial debug. EEprom should be included else there is little value in this.
+*/
+
 #if 1 //8684/606 with debug 7616/483 without, so around 1k of debug statments 
 ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 //eventually these will be made editable by Serial
-bool dbgi2c = 0;
 bool dbgpin = 0;
 #else
 #define dbg(...)
 #endif
 
 #include "millievent.h"
-
-const MilliTick offtime=50;
-
-struct Flickery {
-  bool ison;
-  //these are used as MilliTicks, but since we want flicker we can use a shorter int to save on ram.
-  unsigned mintime, maxtime;
-  MonoStable duration;
-
-  Flickery(unsigned mintime, unsigned maxtime): ison(true), mintime(mintime), maxtime(maxtime) {
-    //#nada
-  }
-
-  virtual void setup() {
-    be(true);//autostart
-    duration = 750;//value chosen for debug
-  }
-
-  void onTick() {
-    if (duration.hasFinished()) {
-      be(!ison);//just toggle, less code and random is random.
-      duration = ison ? random(mintime, maxtime) : offtime;
-    }
-  }
-
-  virtual void be(bool on) {
-    ison = on;
-  }
-
-  //to ease some testing we kill the timer then toggle bits manually
-  void freeze() {
-    duration.stop();
-  }
-};
-
+#include "flickery.h"
 /**
   flicker a pin
 */
@@ -66,13 +36,13 @@ struct FlickeryPin: public Flickery {
   }
 };
 
+//not const so that we can manipulate from debugger
 FlickeryPin led[] = {
   //station 4 will use one of these, scanner hallway two, station 9 all four
-  { 10, 100, 759},
-  { 9, 150, 1250},
-  { 8, 175, 1431},
-  { 7, 25, 330},
-
+  { 10, 759, 100},
+  { 9, 1250, 150},
+  { 8, 1431, 175},
+  { 7, 330, 25},
 };
 
 static const int numleds = sizeof(led) / sizeof(FlickeryPin);
@@ -92,10 +62,10 @@ void setup() {
   for (unsigned count = numleds; count-- > 0;) {
     led[count].setup();
   }
-  dbg("setup I2C");
   randomSeed(202142);
   dbg("setup complete");
 }
+
 
 unsigned testitem = 0; //index into led[]
 
@@ -124,9 +94,9 @@ void loop() {
         case 'p':
           dbgpin = isupper(key);
           break;
-        case 'i':
-          dbgi2c = isupper(key);
-          break;
+//        case 'i':
+//          dbgi2c = isupper(key);
+//          break;
         default:
           if (key >= '0' && key < '0' + numleds) {
             testitem = key - '0';
