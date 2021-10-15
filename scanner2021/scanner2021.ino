@@ -18,9 +18,9 @@ DigitalInput farend(3, LOW);
 DigitalInput triggerIn(5, LOW);
 
 #include "edgyinput.h"
-EdgyInput homesense(farend.number, 3); //seems to bounce on change
-EdgyInput awaysense(nearend.number);//BROKEN HARDWARE
-EdgyInput trigger(triggerIn.number, 7);
+EdgyInput homesense(farend, 3); //seems to bounce on change
+EdgyInput awaysense(nearend);//BROKEN HARDWARE
+EdgyInput trigger(triggerIn, 7);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
 DigitalOutput lights(14, LOW); // ssr White
@@ -295,11 +295,11 @@ MotionManager Motion;
 
 /** peek at sensor inputs */
 void debugSensors() {
-  dbg(farend ? 'H' : 'h', triggerIn ? 'T' : 't', '\t', " DEB:", bool(homesense) ? 'H' : 'h', homesense.debouncer , trigger ? 'T' : 't', '\t', statetext[Motion.activity]);
+  dbg("Pins:", farend ? 'H' : 'h', triggerIn ? 'T' : 't', '\t', " DEB:", bool(homesense) ? 'H' : 'h', homesense.debouncer , trigger ? 'T' : 't', '\t', statetext[Motion.activity]);
 }
 
 void debugOutputs() {
-  dbg(back ? 'B' : 'b', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); //two more for flicker lights?
+  dbg("Outputs: ", back ? 'B' : 'b', away ? 'A' : 'a', lights ? 'L' : 'l', other ? 'O' : 'o', '\t', statetext[Motion.activity]); 
 }
 
 
