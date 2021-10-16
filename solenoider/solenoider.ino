@@ -50,7 +50,7 @@ struct Solenoider {
   void setRate(AnalogValue av) {
     if (changed(rate, av)) {
       Console("\nRate=", percent(rate));
-      board.T1.setPwmBase(av * 2, cs);
+      board.T1.setPwmBase(av.bits() * 2, cs);
     }
   }
 
