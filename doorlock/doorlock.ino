@@ -7,9 +7,6 @@
 	todo: implement fallback to holding value after a time.
   todo: add checking jumpers for pulse time.
 
-
-
-
 */
 
 
@@ -23,9 +20,16 @@ const DigitalInput stableswitch(7, LOW);
 //this is toggle, used when you can see the mechanism
 const DigitalInput momentary(6, LOW);
 
+const DigitalInput pulseopen(5, LOW);
+const DigitalInput pulseclose(4, LOW);
+
+
+
 //debounce is good, we don't want to rapidly dick with the mechanism, although the first use could get away with that.
 EdgyInput stable(stableswitch, 15);
 EdgyInput toggler(momentary, 30);
+EdgyInput pulseopener(pulseopen, 30);
+EdgyInput pulsecloser(pulseclose, 30);
 
 
 using Moveit =   L298Bridge::Code ; // 'Code' was too generic, L298Brdige might get replaced with L293 in a more generic build
@@ -71,21 +75,31 @@ PulsedMotor driver;
 void setup() {
   stable.begin();
   toggler.begin();
+  pulseopener.begin();
+  pulsecloser.begin();
+
   driver.begin(300);//todo: parameter at top of file or EEProm
 }
 
 
 void loop() {
   if (MilliTicked) {
-    if (toggler.onTick()) {
-      driver .toggleif( toggler);
-      stable.onTick();//debounce it even if overriding/ignoring.
-    } else { //only check stable
-      if (stable.onTick()) {
-        driver = stable ? Moveit::Forward : Moveit::Backward; //if this is backwards swap the wires to the device :)
-      }
-    }
+    //debounce all even if overriding/ignoring.
+    auto togglerticked = toggler.onTick();
+    auto stableticked = stable.onTick();
+    auto openerticked = pulseopener.onTick();
+    auto closerticked = pulsecloser.onTick();
 
+    //priority scan, only honor one per millitick. Simultaneous means some may get ignored.
+    if (togglerticked && toggler) { //tested first as the othes are idempotent, repeating them gets the same action.
+      driver.toggleif( toggler);
+    } else if (openerticked && pulseopener) { //could drop the trailing term to fire on release as well as press
+      driver = Moveit::Forward;
+    } else if (closerticked && pulsecloser) {
+      driver = Moveit::Backward;
+    } else  if (stable.onTick()) {
+      driver = stable ? Moveit::Forward : Moveit::Backward; //if this is backwards swap the wires to the device :)
+    }
   }
 }
 
