@@ -50,18 +50,16 @@ struct PulsedMotor {
   void operator =(Moveit newstate) {
     lastCommand = newstate;
     driver = newstate;
-    //    driver.one.enable = newstate != Off;
     holder.start();
   }
 
   /** if toggleit then if last issued command was a direction go in other directio, else if off go to hold */
-  void toggleif (bool toggleit) {
-    if (toggleit) {
-      if (lastCommand != Moveit::Off) { //if off leave off, do not go to hold
-        *this = 3 - lastCommand; //reverse direction or if held then off.
-      }
+  void toggle (bool toggleit = true) {
+    if (toggleit && lastCommand != Moveit::Off) { //if off leave off, do not go to hold
+      *this = L298Bridge::reverseof(lastCommand);
     }
   }
+
 
   void onTick() {
     if (holder.hasFinished()) {
@@ -92,7 +90,7 @@ void loop() {
 
     //priority scan, only honor one per millitick. Simultaneous means some may get ignored.
     if (togglerticked && toggler) { //tested first as the othes are idempotent, repeating them gets the same action.
-      driver.toggleif( toggler);
+      driver.toggle(toggler);
     } else if (openerticked && pulseopener) { //could drop the trailing term to fire on release as well as press
       driver = Moveit::Forward;
     } else if (closerticked && pulsecloser) {
