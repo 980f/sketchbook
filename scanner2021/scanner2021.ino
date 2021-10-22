@@ -18,9 +18,9 @@ DigitalInput farend(3, LOW);
 DigitalInput triggerIn(5, LOW);
 
 #include "edgyinput.h"
-EdgyInput homesense(farend, 3); //seems to bounce on change
+EdgyInput homesense(farend, 0); //seems to bounce on change
 EdgyInput awaysense(nearend);//BROKEN HARDWARE
-EdgyInput trigger(triggerIn, 7);
+EdgyInput trigger(triggerIn, 0);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
 DigitalOutput lights(14, LOW); // ssr White
@@ -287,7 +287,7 @@ class MotionManager {
       }
       //home seems incoherent
       if (back && amhome) { //safeguard
-        back = 0;
+        back = false;
         //todo: we should go to some state
         enterState(idle, " home unexpectedly");
       }
@@ -349,8 +349,8 @@ void doKey(char key) {
     case 27://escape key
       dbg("freezing motion");
       Motion.freeze = true; //USE SETUP TO CLEAR THIS
-      away = 0;
-      back = 0;
+      away = false;
+      back = false;
       break;
     case '`':
       dbg("MS: ", statetext[Motion.activity], " timer: ", Motion.timer.elapsed(), (Motion.timer.isRunning() ? " R " : " X "), "since: ", Motion.since.elapsed());
@@ -372,31 +372,31 @@ void doKey(char key) {
       Motion.enterState(triggered, "t key");
       break;
     case 'f': case 'F':
-      back = 0;
-      away = 1;
+      back = false;
+      away = true;
       break;
     case 'b': case 'B':
-      away = 0;
-      back = 1;
+      away = false;
+      back = true;
       break;
     case 'r': case 'R':
       // scan = 1;
       break;
     case 'e': case 'E':
-      away = 0;
-      back = 0;
+      away = false;
+      back = false;
       break;
     case 'l': case 'L':
-      lights = 1;
+      lights = true;
       break;
     case 'o': case 'O':
-      lights = 0;
+      lights = false;
       break;
     case 'q': case 'Q':
-      other = 1;
+      other = true;
       break;
     case 'a': case 'A':
-      other = 0;
+      other = false;
       break;
     case ' ':
       debugSensors();
