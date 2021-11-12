@@ -20,9 +20,13 @@ const DigitalInput stableswitch(7, LOW);
 //this is toggle, used when you can see the mechanism
 const DigitalInput momentary(6, LOW);
 
+#ifdef ARDUINO_ESP8266_GENERIC
+const DigitalInput pulseopen(2, LOW);
+const DigitalInput pulseclose(0, LOW);
+#else
 const DigitalInput pulseopen(5, LOW);
 const DigitalInput pulseclose(4, LOW);
-
+#endif
 
 
 //debounce is good, we don't want to rapidly dick with the mechanism, although the first use could get away with that.
