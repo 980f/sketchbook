@@ -52,13 +52,26 @@
 */
 #define arraySize(arrayname) sizeof(arrayname)/sizeof(arrayname[0])
 
+////////////////////////////////////////////////////////////
 //tidbits of timer support to match 980f's milli services, eventually use those instead of inlining pieces here.
-using MilliTick = unsigned long;
+using MilliTick = decltype(millis());//unsigned long;
+
+/** test and clear on a timer value */
+bool timerDone(MilliTick &timer, MilliTick now) {
+  if (timer && timer <= now) {
+    timer = 0;
+    return true;
+  } else {
+    return false;
+  }
+
+}
+
+///////////////////////////
 
 #define BlinkerPin 13 //board led
 
 #include <EEPROM.h>
-
 
 //////////////////////////////
 
@@ -230,9 +243,8 @@ struct TriggerInput {
 
   operator bool() {
     MilliTick now = millis(); //will be MilliTick.recent();
-    if (removeout && now >= removeout) {
+    if (timerDone(removeout , now) ) {
       digitalWrite(outpin, HIGH);
-      removeout = 0;
     }
     if (!IS_HOT) {
       return false;
@@ -570,7 +582,7 @@ struct Sequencer {
     if (doNext && now >= start + 100) {//abusing doNext to indicate both playback and recording
       digitalWrite(pin.trigger(2), HIGH); //fixed with daisy chain trigger
     }
-    if (doNext && now >= doNext) {
+    if (timerDone(doNext , now)) {
       if (amRecording) {
         record(pattern);
       } else {
@@ -580,15 +592,13 @@ struct Sequencer {
     }
   }
 
+  /** @returns where it is still recording. */
   bool record(byte pattern) {
     if (current >= SAMPLE_COUNT) { //we should not be running
       return false;
     }
-    if (doNext == 0) {
-      return false;
-    }
     auto &sample = samples[current];
-    if (pattern != sample.pattern || sample.frames == 255) { //new because of change or max time reached
+    if (pattern != sample.pattern || sample.frames == 255) { //new sample record is needed because of change or max time reached
       ++current;
       if (current == SAMPLE_COUNT) {
         endRecording(true);
@@ -600,8 +610,9 @@ struct Sequencer {
     } else {
       ++sample.frames;
       ++frames;
-      doNext = fs(frames, start);
     }
+    doNext = fs(frames, start);
+    return true;
   }
 
   void startRecording() {
@@ -770,12 +781,12 @@ struct CommandLineInterpreter {
           expecting = Datum;
           break;
         case Datum: //incoming binary data has arrived
+          //todo: here is where to isnert a detector for repeated '@' chars, 4 in a row is not possible with a well formed program.
           switch (pending) {
             case 'S': //receive step datum
-              EEPROM.write(sofar++, bytish);
+              EEPROM.write(sofar++, bytish); //todo: receive to ram then burn en masse.
               if (sofar >= expected ) {//then that was the lat byte
                 saveConfig();//deferred in case we bail out on receive
-
                 expecting = At;
                 stream.print(F("received "));
                 stream.print(O.hi_sample);
@@ -851,12 +862,10 @@ struct Blinker {
   MilliTick onAt; //delayed start
 
   void onTick(MilliTick now) {
-    if (offAt && now >= offAt) {
-      offAt = 0;
+    if (timerDone(offAt , now)) {
       digitalWrite(BlinkerPin, LOW);
     }
-    if (onAt && now >= onAt) {
-      onAt = 0;
+    if (timerDone(onAt , now)) {
       digitalWrite(BlinkerPin, HIGH);
     }
   }
@@ -953,6 +962,49 @@ struct Cloner {
 };
 
 ///////////////////////////////////////////////////////
+/** send a break to a hareware serial port, which excludes USB */
+
+struct LineBreaker {
+  HardwareSerial *port = nullptr;
+  uint32_t baud;
+  unsigned txpin = ~0;
+
+  MilliTick breakMillis;
+
+  void attach(HardwareSerial &port, uint32_t baudafter, unsigned pin, unsigned overkill = 1) {
+    txpin = pin;
+    baud = baudafter;
+    breakMillis = ceil((11000.0F * overkill) / baud);//11 bits and 1000 millis per second over bits per second
+    this->port = &port;
+  }
+
+  MilliTick breakEnds = 0;
+  MilliTick okToUse = 0;
+
+  void engage(MilliTick now) {
+    if (port && txpin != ~0) {
+      port->end();
+      pinMode(txpin, OUTPUT); //JIC serial.end() mucked with it
+      digitalWrite(txpin, HIGH);
+      breakEnds = now + breakMillis;
+    }
+  }
+
+  /** @returns true once when break is completed*/
+  bool onTick(MilliTick now) {
+    if (timerDone(breakEnds , now)) {
+      digitalWrite(txpin, LOW);
+      port->begin(baud);
+      okToUse = now + 1; //too convoluted to wait just one bit time
+      return false;
+    }
+    return timerDone(okToUse , now);
+  }
+
+
+};
+
+///////////////////////////////////////////////////////
 
 void setup() {
   //read config from eeprom
@@ -1007,3 +1059,4 @@ void loop() {
     }
   }
 }
+//end of octoid, firmware upgrade to octobanger that includes picoboo style support with one or two boards.
