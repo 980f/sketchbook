@@ -466,7 +466,7 @@ void saveConfig() {
   ensure .pattern is fresh (in case you don't debounce it while idle)
   set amRecoding (do not call startRecording())
   invoke trigger by whatever means you choose, such as the actual trigger or a cli "@T" or even calling trigger()
-  while recording update .pattern 
+  while recording update .pattern
 
 */
 struct Sequencer {
@@ -638,8 +638,8 @@ struct CommandLineInterpreter {
   enum Expecting {
     At = 0,
     Letter,
-    Hilength,
     LoLength,
+    HiLength,
     Datum
   } expecting;
 
@@ -735,7 +735,7 @@ struct CommandLineInterpreter {
             switch (pending) {
               case 'S':
               case 'U':
-                expecting = Hilength;
+                expecting = LoLength;
                 break;
               case 'M':
                 expecting = Datum;
@@ -743,11 +743,11 @@ struct CommandLineInterpreter {
             }
           }
           break;
-        case Hilength:
-          expected = bytish << 8; //big endian counts
-          expecting = LoLength;
-          break;
         case LoLength:
+          expected = bytish;
+          expecting = HiLength;
+          break;
+        case HiLength:
           expected += bytish;
           switch (pending) {
             case 'S': //receive step datum
@@ -881,6 +881,76 @@ struct Blinker {
 
 } blink;
 
+///////////////////////////////////////////////////////
+/** transmit progam et al to another octoid
+
+*/
+struct Cloner {
+  Stream *target = nullptr;
+  //background sending
+  void *tosend = nullptr;
+  unsigned sendingLeft = 0;
+
+  /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
+  bool sendCommand(char letter, unsigned more = ~0 ) {
+    unsigned also = 0;
+    switch (letter) {
+      case 'S': case 'U': also = 2; break;
+      case 'M': also = 1; break;
+    }
+    if (target && target->availableForWrite() >= also) { //avert delays between essetial bytes of a command, for old systems that did blocking reception
+      target->write('@');
+      target->write(letter);
+      while (also-- > 0) {
+        target->write(more);//little endian
+        more >>= 8;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  bool sendChunk(char letter, void *thing, size_t sizeofthing) {
+    tosend = thing;
+    sendingLeft = sizeofthing;
+    if (!sendCommand(letter, sendingLeft)) {
+      sendingLeft = 0;
+      return false;
+    }
+    return true;
+  }
+
+
+  //user msut confirm versions match before calling this
+  bool sendConfig() {
+    return sendChunk('U', &O.B, sizeof(O.B));
+  }
+
+  bool sendFrames() {
+    return sendChunk('S', &S.samples, sizeof(S.samples));
+  }
+
+  //and since we are mimicing OctoField programmer:
+  void sendTrigger() {
+    sendCommand('T');
+  }
+
+  void sendPattern(byte pattern) {
+    sendCommand('M', pattern);
+  }
+
+  /// call while
+  void onTick(MilliTick ignored) {
+    if (!target || !tosend || !sendingLeft) {
+      return;
+    }
+
+    auto wrote = target->write( reinterpret_cast<byte *> (tosend), sendingLeft);//cast needed due to poor choice of type in Arduino stream library.
+    tosend += wrote;
+    sendingLeft -= wrote;
+  }
+
+};
 
 ///////////////////////////////////////////////////////
 
@@ -912,9 +982,9 @@ void setup() {
 void loop() {
   auto now = millis();
   cli.check();
-  if(S.check(now)){//active frame event.
+  if (S.check(now)) { //active frame event.
     //new frame
-    if(S.amRecording){
+    if (S.amRecording) {
       //here is where we update S.pattern with data to record.
       // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recirding and playing
     }
