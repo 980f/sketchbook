@@ -458,15 +458,30 @@ void saveConfig() {
 
 ///////////////////////////////////
 // a step towards having more than one sequence table in a processor.
+/**
+  if not recording then trigger() starts playback
+  if are recording then trigger() starts recording with present state as first record
+
+  To record:
+  ensure .pattern is fresh (in case you don't debounce it while idle)
+  set amRecoding (do not call startRecording())
+  invoke trigger by whatever means you choose, such as the actual trigger or a cli "@T" or even calling trigger()
+  while recording update .pattern 
+
+*/
 struct Sequencer {
 
-  static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2; 
+  static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2;
 
   unsigned current = ~0;
   unsigned used = 0;
   uint32_t frames = 0;
   MilliTick start = 0;
   MilliTick doNext = 0;
+
+  //for recording
+  bool amRecording = false;
+  byte pattern;
 
   //cache of program content, will try to eliminate except as download buffer.
   struct Step {
@@ -485,8 +500,15 @@ struct Sequencer {
     }
   }
 
+  void burn() {
+    for (unsigned i = used; i < used; ++i)    {
+      EEPROM.put(i * 2, samples[i]);
+    }
+  }
+
+
   uint32_t duration() {
-    uint32_t frames = 0; //1000 samples, 255 frames each possible
+    frames = 0; //1000 samples, 255 frames each possible
     for (int i = 0; i < used; i++) {
       frames += samples[i].frames ;
     }
@@ -516,10 +538,20 @@ struct Sequencer {
     } else {
       Serial.println(F("Sequence complete, Ready"));
     }
+  }
 
+  /** common to start recording and start playing */
+  void whenStarting() {
+    start = millis();
+    audio.PlayScare();
+    digitalWrite(pin.trigger(2), LOW); //trigger audio ???
   }
 
   bool trigger() {
+    if (amRecording) {
+      startRecording();
+      return true;
+    }
     if (used == 0) {
       return false; //zero length program
     }
@@ -527,22 +559,66 @@ struct Sequencer {
     if (current >= used) {
       current = 0;
       frames = 0;
-      start = millis();
-      audio.PlayScare();
-      digitalWrite(pin.trigger(2), LOW); //trigger audio ???
       return true;
     } else { //retrigger not yet allowed
       return false;
     }
   }
 
-  void check(MilliTick now) {
-    if (doNext && now >= start + 100) {
+  /** @returns whether a frame tick occured */
+  bool check(MilliTick now) {
+    if (doNext && now >= start + 100) {//abusing doNext to indicate both playback and recording
       digitalWrite(pin.trigger(2), HIGH); //fixed with daisy chain trigger
     }
     if (doNext && now >= doNext) {
-      advance();
+      if (amRecording) {
+        record(pattern);
+      } else {
+        advance();
+      }
+      return true;
     }
+  }
+
+  bool record(byte pattern) {
+    if (current >= SAMPLE_COUNT) { //we should not be running
+      return false;
+    }
+    if (doNext == 0) {
+      return false;
+    }
+    auto &sample = samples[current];
+    if (pattern != sample.pattern || sample.frames == 255) { //new because of change or max time reached
+      ++current;
+      if (current == SAMPLE_COUNT) {
+        endRecording(true);
+        return false;
+      } else {//start new sample
+        samples[current].pattern = pattern;
+        samples[current].frames = 1;
+      }
+    } else {
+      ++sample.frames;
+      ++frames;
+      doNext = fs(frames, start);
+    }
+  }
+
+  void startRecording() {
+    frames = 0;
+    current = 0;
+    samples[current].pattern = pattern;
+    samples[current].frames = 1;//haven't actually sampled yet.
+    doNext = fs(frames, start);
+  }
+
+  void endRecording(bool fromOverflow = false) {
+    if (!fromOverflow) {
+      ++current;//else we lose the accumulating frame
+    }
+    used = current;
+    doNext = 0;//this ends recording
+    amRecording = false;
   }
 
 } S;
@@ -833,11 +909,19 @@ void setup() {
   Serial.println(F("Ready"));
 }
 
-
 void loop() {
   auto now = millis();
   cli.check();
-  S.check(now);
+  if(S.check(now)){//active frame event.
+    //new frame
+    if(S.amRecording){
+      //here is where we update S.pattern with data to record.
+      // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recirding and playing
+    }
+  }
+
+  //if recording panel is installed:
+
 
   blink.onTick(now);
 
@@ -846,9 +930,9 @@ void loop() {
       cli.stream.println(F("Playing sequence..."));
     }
   }
+
   if (~T) {//then it is suppressed or otherwise not going to fire
     if (!blink) {
-      Serial.print('.');//interferes with config printing if we do that in background
       blink.pulse(450, 550);
     }
   }
