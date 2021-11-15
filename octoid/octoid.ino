@@ -223,6 +223,10 @@ struct TriggerInput {
     if (now < suppressUntil) {
       return false;
     }
+    if (suppressUntil) {
+      suppressUntil = 0;
+      CliSerial.println(F("Ready for Trigger"));
+    }
     bool presently = digitalRead(inpin) == highactive;
     if (presently != lastStable) {
       if (lastChecked < now) {
@@ -243,35 +247,28 @@ struct TriggerInput {
   }
 } T;
 
-//outside of Opts until configurable:
-//if frame rate accuracy is needed then add a reference clock to the hardware, errors are likely to be temperature dependant.
-static const float MILLIS_PER_FRAME = 50.0; //49.595; //default is 20 frames per sec (50 ms each)
-
-static const float TIMING_OFFSETS[] = { -.405, 0};
-static const int TIMING_OFFSET_TYPE_COUNT = arraySize(TIMING_OFFSETS);
-
+/////////
+//
 
 struct FrameSynch {
-  /** Internal and Generate use the legacy tweak on millis(). External watches a pin that is trusted to be glitch-free.
-    The external synch will be used as an interruipt and the sequence step will execute in the ISR to minimize jitter */
-  enum Mode {Internal, External, Generate} mode;
+  static const float MILLIS_PER_FRAME = 50.0; //49.595; //default is 20 frames per sec (50 ms each)
   /** millitick expected at given frame from sequence start */
-  byte &tweakSelect;
   MilliTick operator()(uint32_t frame, MilliTick startingat) {
-    return startingat + round(frame * (MILLIS_PER_FRAME + TIMING_OFFSETS[tweakSelect]));//legacy issue: using round() makes minor changes to timing compared to legacy, with less cumulative error
+    return startingat + round(frame * MILLIS_PER_FRAME);//legacy issue: using round() makes minor changes to timing compared to legacy, with less cumulative error
   }
 
   float nominal(uint32_t frames) {
     return round(frames * MILLIS_PER_FRAME / 1000.0);
   }
 
-  FrameSynch(byte &tweaker): tweakSelect(tweaker) {}
+  FrameSynch() {}
+
 };
 
 //IDE failed to make a prototype for this:
 void reportFrames(Stream &printer);
 
-;
+
 /////////////////////////////////////////////////
 // this struct contains all config that is saved in EEPROM
 struct Opts  {
@@ -287,15 +284,11 @@ struct Opts  {
     byte BOOT_DELAY_SECS = 0 ;
     byte spare3 = 22 ; //if not 1..30 use 15
     byte trigger_type = 1 ;
-    byte timingOffsetType = 0 ; //some arduinos have timing issues that must be offset, there are two options
+    byte dropped1 = 0 ; //some arduinos have timing issues that must be offset, there are two options
 
     void makeValid() {
       pin_map = //we might choose to NOT coerce this value, as we now have a separate 'active pinmap' variable.
         pin.selectPins(pin_map);
-
-      if (timingOffsetType > TIMING_OFFSET_TYPE_COUNT - 1) {
-        timingOffsetType = 0; //cannot point to non-existent element
-      }
     }
   } B ;
 
@@ -374,11 +367,7 @@ struct Opts  {
     }
     printer.print(F("Trigger Pin Out: "));
     format_pin_print(pin.trigger(1), printer);
-    printer.print(F("Media Serial Pin: ")); //bad text
-    format_pin_print(pin.trigger(2), printer);
 
-    printer.print(F("Timing Offset ms: "));
-    printer.println(TIMING_OFFSETS[B.timingOffsetType], 3);
 
     printer.print(F("TTL PINS:  "));
     for (int i = 0; i < TTL_COUNT; i++) {
@@ -410,7 +399,7 @@ struct Opts  {
 } __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
 
-FrameSynch fs(O.B.timingOffsetType);
+FrameSynch fs;
 
 ////////////////////////////////////////////
 // legacy snippets
@@ -1018,8 +1007,9 @@ void setup() {
 
 void loop() {
   auto now = millis();
+  blink.onTick(now);
 
-  cli.check();
+  cli.check();//unlike other checks this guy doesn't need any millis.
   if (S.check(now)) { //active frame event.
     //new frame
     if (S.amRecording) {
@@ -1028,16 +1018,15 @@ void loop() {
     }
   }
 
-  //if recording panel is installed:
-
-
-  blink.onTick(now);
-
   if (T) {//trigger is active
     if (S.trigger()) {//ignores trigger being active while sequence is active
       cli.stream.println(F("Playing sequence..."));
     }
   }
+
+  //if recording panel is installed:
+  //todod: debounce user input into pattern byte.
+
 
   if (~T) {//then it is suppressed or otherwise not going to fire
     if (!blink) {
@@ -1045,4 +1034,4 @@ void loop() {
     }
   }
 }
-//end of octoid, firmware upgrade to octobanger that includes picoboo style support with one or two boards.
+//end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.
