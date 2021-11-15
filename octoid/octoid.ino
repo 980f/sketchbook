@@ -90,20 +90,10 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 #include <EEPROM.h>
 
 //////////////////////////////
+//MediaPlayer removed as it needs a bunch of rework and we don't actually have units with them present.
+//we are going to abstract outputs and a reworked non-blocking player can be installed with a virtual boolean to trigger it.
+//this frees up config space for per-unit maps without compiling, which is handy for dealing with burned out relays without redoing the program.
 
-#if __has_include("MiniMedia.h")
-#include "MiniMedia.h"  //uses low level avr asm code to make a software uart. Needs some help with indentation ;)
-#else  //stub the class. //todo: remove totally once we generalize outputs.
-struct MiniMedia {  //stub class.
-  void Init(...) {}
-  void PlayAmbient() {}
-  void ReportConfig() {}
-  void PlayScare() {}
-};
-#endif
-
-//some kind of audio player:
-MiniMedia audio;
 //////////////////////////////////////////////////////////////
 
 struct VersionInfo {
@@ -139,16 +129,14 @@ struct VersionInfo {
 };
 
 VersionInfo stamp;
-static const byte VersionInfo::buff[5] = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
+const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
+static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0}; //holder for stamp, 8 tells PC app that we have 8 channels
 
 
 //1019-1023 stamp
 static const int STAMP_OFFSET = 1024 - sizeof(stamp.buff);// ~1019; //start byte of stamp
 
 //////////////////////////////////////////////////////////////
-//replaces: #include "PinMaps.h"
-// 8 = 8 channels
-const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
 
 using Pinset = byte[11];
 static const Pinset PIN_MAPS[] = {
@@ -165,7 +153,6 @@ static const Pinset PIN_MAPS[] = {
 #endif
 };
 const unsigned PIN_MAP_COUNT = arraySize(PIN_MAPS); //default, shield , custom
-
 
 struct PinMappings {
   static const int TRIGGER_PIN_COUNT = 3; //in , daisy chain, audio
@@ -427,8 +414,6 @@ struct Opts  {
     printer.print(F("Media Serial Pin: ")); //bad text
     format_pin_print(pin.trigger(2), printer);
 
-    audio.ReportConfig();
-
     printer.print(F("Timing Offset ms: "));
     printer.println(TIMING_OFFSETS[B.timingOffsetType], 3);
 
@@ -560,7 +545,7 @@ struct Sequencer {
 
   void finish() {
     set_ambient_out();
-    audio.PlayAmbient();
+    
     if (O.B.RESET_DELAY_SECS > 0) {
       T.suppress(round(O.B.RESET_DELAY_SECS * 1000));
       CliSerial.print(F("Waiting delay secs: "));
@@ -572,9 +557,7 @@ struct Sequencer {
 
   /** common to start recording and start playing */
   void whenStarting() {
-    start = millis();
-    audio.PlayScare();
-    digitalWrite(pin.trigger(2), LOW); //trigger audio ???
+    start = millis();    
   }
 
   bool trigger() {
@@ -1054,8 +1037,6 @@ void setup() {
   T.setup(pin.trigger(0), pin.trigger(1), O.B.trigger_type);
   blink.setup();
 
-  audio.Init(pin.trigger(2), O.B.volume, O.B.mediaType, O.B.mediaDelay);
-  audio.PlayAmbient();
 
   CliSerial.begin(115200); //we talk to the PC at 115200
   if (CliSerial != RealSerial) {
