@@ -1,10 +1,6 @@
 /*
-   reworked from OctoBanger_TTL for best practices of 2021 by github/980f (Andy H.)
-
-   ) there were unnecessary blocking delays in many places. Then there is code to try to get back in synch with any host. This is beyond simple remediation.
-   ) delays in Serial output are badly done, see https://www.arduino.cc/reference/en/language/functions/communication/serial/availableforwrite/ for how to check whether you are overrunning serial. Using blocking delays to block for a fixed time whether or not one needs to delay at all is just stupid.
-   ) volatile is only needed if interrupt service routines manipulate the same multibyte values as code called from setup() or loop(). There is none so all volatiles are superfluous.
-   ) factored the crap out of the code to make variable names simpler and as preparation for making it a module that can be used from other programs.
+   inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
+   There were unnecessary blocking delays in many places.
 
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
   note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
@@ -21,34 +17,6 @@
   In fact, twiddling the timer reload value of the hardware timer fixes the frequency issue for the whole application.
   todo: finish up the partial implementation of FrameSynch class.
 
-
-  Original file header, downloaded 12nov2021
-*************Octo Banger TTL*********
-  01/21/2017 this is a Banger with 8 channels.
-  Output is targeted at simple TTL for 2 of the the 4 relay modules
-*** 01/22/2017 Adding frame-based state data storage per Joe AKA wickedbeernut
-
-  I am going to start by fixing FPS at 20fps, or 50ms per frame.
-  frame state data is going to be stored in pairs, where:
-  1) byte 1 represents the state byte (like always)
-  2) byte 2 represents the delay (in number of frames) to persist the current state
-    before moving on to the next pair
-  The above approach will also free up another byte of eeprom that represents FPS, since
-  it is now fixed.
-
-		//20170122 MJN testing with a metronome track tonight is revealing an innacuracy in
-		// the 50 ms per frame deal. Maybe a flaw with millis() or timer 0?
-		//Anyway, using 49.595 below seems to make it dead on 20fps
-		//changed from 49.6 to 49.595 based on this post: http://www.avrfreaks.net/forum/uno-clock-running-slow
-		//user Gavin Andrews measured with a scope and found this:
-		//Firstly I realised that it wasn't running fast it was running slow... If a real worldworld 60 seconds measures as 59.514 seconds Arduino time that must mean the Arduino clock is SLOW not fast.
-        //They concluded that this may be a clone issue.  If this is the case, should I allow
-		// for configurable compensation?
-  THE CONSTANT MILLIS_PER_FRAME IS NOW A FLOAT TO COMPENSATE FOR THE ABOVE.
-  TWEAK IF YOUR TIMING IS OFF.
-  09/04/2018 - K. Short:  Changed type declaration of variable "sample_ticker" from "uint8_t" to " unsigned int" to ensure
-                        play_sequence exits (endless looping). For example, if "O.hi_sample" is 150, it will wrap the variable
-                        (upper bound was 254) and never exit the "while" scare sequence!
 */
 
 /////////////////////////////////
@@ -153,7 +121,6 @@ static const Pinset PIN_MAPS[] = {
 #endif
 };
 const unsigned PIN_MAP_COUNT = arraySize(PIN_MAPS); //default, shield , custom
-
 struct PinMappings {
   static const int TRIGGER_PIN_COUNT = 3; //in , daisy chain, audio
 
@@ -314,21 +281,17 @@ struct Opts  {
   struct Slots { //legacy name
     byte pin_map = 0; //tells us what our pin mapping strategy is
     byte TTL_TYPE_BYTE = 0xFF ; //polarity bits
-    byte mediaType = 0;
-    byte mediaDelay = 0;
+    byte spare1 = 0;
+    byte spare2 = 0;
     byte RESET_DELAY_SECS = 30 ;
     byte BOOT_DELAY_SECS = 0 ;
-    byte volume = 22 ; //if not 1..30 use 15
+    byte spare3 = 22 ; //if not 1..30 use 15
     byte trigger_type = 1 ;
     byte timingOffsetType = 0 ; //some arduinos have timing issues that must be offset, there are two options
 
     void makeValid() {
       pin_map = //we might choose to NOT coerce this value, as we now have a separate 'active pinmap' variable.
         pin.selectPins(pin_map);
-
-      if (volume < 1 || volume > 30) {
-        volume = 15;
-      }
 
       if (timingOffsetType > TIMING_OFFSET_TYPE_COUNT - 1) {
         timingOffsetType = 0; //cannot point to non-existent element
@@ -545,7 +508,7 @@ struct Sequencer {
 
   void finish() {
     set_ambient_out();
-    
+
     if (O.B.RESET_DELAY_SECS > 0) {
       T.suppress(round(O.B.RESET_DELAY_SECS * 1000));
       CliSerial.print(F("Waiting delay secs: "));
@@ -557,7 +520,7 @@ struct Sequencer {
 
   /** common to start recording and start playing */
   void whenStarting() {
-    start = millis();    
+    start = millis();
   }
 
   bool trigger() {
