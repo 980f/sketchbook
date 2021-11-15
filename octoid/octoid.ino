@@ -1,18 +1,18 @@
 /*
-   reworked for best practices of 2021 by github/980f (Andy H.)
+   reworked from OctoBanger_TTL for best practices of 2021 by github/980f (Andy H.)
 
    ) there were unnecessary blocking delays in many places. Then there is code to try to get back in synch with any host. This is beyond simple remediation.
    ) delays in Serial output are badly done, see https://www.arduino.cc/reference/en/language/functions/communication/serial/availableforwrite/ for how to check whether you are overrunning serial. Using blocking delays to block for a fixed time whether or not one needs to delay at all is just stupid.
    ) volatile is only needed if interrupt service routines manipulate the same multibyte values as code called from setup() or loop(). There is none so all volatiles are superfluous.
    ) factored the crap out of the code to make variable names simpler and as preparation for making it a module that can be used from other programs.
 
-  todo: the two trigger outputs have gotten messed up, need to read original code to fix 'em
-  note: a suppressed trigger suppresses the trigger out.
-  note: trigger held active results in a loop.  Consider adding config for edge vs level trigger.
+  todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
+  note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
   todo: package into a single class so that can coexist with other code, such as the flicker code.
   todo: receive program into ram, only on success burn eeprom. suppress operation during download OR use EEPROM in operation
+  else: drop program buffer, so that other code has some resources. Present programming of EEPROM while running is not useful vs cost.
   todo: receive config into ram, only on success burn eeprom.
-  todo: restore timeout on host abandoning program download. Even better is to setup a resynch sequence such as 4 '@' in a row to break out of a download without some timeout
+  test: instead of timeout on host abandoning program download allow a sequence of 5 '@' in a row to break device out of download.
 
   Timer tweaking:
   The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
@@ -50,7 +50,23 @@
                         play_sequence exits (endless looping). For example, if "O.hi_sample" is 150, it will wrap the variable
                         (upper bound was 254) and never exit the "while" scare sequence!
 */
+
+/////////////////////////////////
+// different names for HardwareSerial depending upon board
+// RealSerial is output for programmed device
+// CliSerial is input for banger
+#if defined(AVR_LEONARDO)
+#define RealSerial Serial1
+#define CliSerial SerialUSB
+#else  //same as default: #elif defined(ARDUINO_AVR_NANO)
+#define CliSerial Serial
+#define RealSerial Serial
+#endif
+
+
 #define arraySize(arrayname) sizeof(arrayname)/sizeof(arrayname[0])
+//for when an integer has no value, we use the least useful value:  (Not a Value)
+#define NaV ~0U
 
 ////////////////////////////////////////////////////////////
 //tidbits of timer support to match 980f's milli services, eventually use those instead of inlining pieces here.
@@ -233,14 +249,15 @@ struct TriggerInput {
     if (lastStable)  {
       suppress(30000); //this will give the user 30 seconds to upload a different config, such as one with a different polarity trigger,
       //before getting stuck in an endless trigger loop. (which would not be a problem if commands were not blocked while running.)
-      Serial.println(F("Trigger detected on startup-"));
-      Serial.println(F("Going cold for 30 secs"));
+      CliSerial.println(F("Trigger detected on startup-"));
+      CliSerial.println(F("Going cold for 30 secs"));
     } else {
       suppressUntil = 0;
     }
     IS_HOT = true;
   }
 
+  /** @returns true while trigger is active */
   operator bool() {
     MilliTick now = millis(); //will be MilliTick.recent();
     if (timerDone(removeout , now) ) {
@@ -282,7 +299,7 @@ static const int TIMING_OFFSET_TYPE_COUNT = arraySize(TIMING_OFFSETS);
 
 struct FrameSynch {
   /** Internal and Generate use the legacy tweak on millis(). External watches a pin that is trusted to be glitch-free.
-    The external synch will be used as an interruipt and the seuence step will execute in the ISR to minimize jitter */
+    The external synch will be used as an interruipt and the sequence step will execute in the ISR to minimize jitter */
   enum Mode {Internal, External, Generate} mode;
   /** millitick expected at given frame from sequence start */
   byte &tweakSelect;
@@ -300,15 +317,16 @@ struct FrameSynch {
 //IDE failed to make a prototype for this:
 void reportFrames(Stream &printer);
 
+;
 /////////////////////////////////////////////////
 // this struct contains all config that is saved in EEPROM
-struct Opts {
+struct Opts  {
   static const int SAMPLE_END = 1000;
   uint16_t hi_sample;
 
   struct Slots { //legacy name
     byte pin_map = 0; //tells us what our pin mapping strategy is
-    byte TTL_TYPE_BYTE = ~0U ; //will bust into bits
+    byte TTL_TYPE_BYTE = 0xFF ; //polarity bits
     byte mediaType = 0;
     byte mediaDelay = 0;
     byte RESET_DELAY_SECS = 30 ;
@@ -441,7 +459,7 @@ struct Opts {
     }
   }
 
-} O;
+} __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
 
 FrameSynch fs(O.B.timingOffsetType);
@@ -485,7 +503,7 @@ struct Sequencer {
 
   static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2;
 
-  unsigned current = ~0;
+  unsigned current = NaV;
   unsigned used = 0;
   uint32_t frames = 0;
   MilliTick start = 0;
@@ -545,10 +563,10 @@ struct Sequencer {
     audio.PlayAmbient();
     if (O.B.RESET_DELAY_SECS > 0) {
       T.suppress(round(O.B.RESET_DELAY_SECS * 1000));
-      Serial.print(F("Waiting delay secs: "));
-      Serial.println(O.B.RESET_DELAY_SECS);
+      CliSerial.print(F("Waiting delay secs: "));
+      CliSerial.println(O.B.RESET_DELAY_SECS);
     } else {
-      Serial.println(F("Sequence complete, Ready"));
+      CliSerial.println(F("Sequence complete, Ready"));
     }
   }
 
@@ -681,6 +699,9 @@ struct CommandLineInterpreter {
         stamp.print(stream);
         stream.println();
         break;
+      case 'O': //is the stamp OK?
+        stream.println(stamp.ok ? F("OK") : F("NO"));
+        break;
       case 'H': //go hot
         T.IS_HOT = true;
         stream.println(F("Ready"));
@@ -689,35 +710,41 @@ struct CommandLineInterpreter {
         T.IS_HOT = false;
         stream.println(F("Standby..."));
         break;
+      case 'T': //trigger test
+        S.trigger();
+        break;
       case 'D': //send program eeprom contents back to Serial
         tx_memory();
         break;
       case 'F': //send just the config eeprom contents back to Serial
         tx_config();
         break;
+      case 'P': //ping back
+        O.report(stream);
+        break;
       case 'S':  //expects 16 bit size followed by associated number of bytes, ~2*available program steps
         return true;//need more
       case 'U': //expects 16 bit size followed by associated number of bytes, ~9
         return true;//need more
-      case 'P': //ping back
-        O.report(stream);
-        break;
-      case 'T': //trigger test
-        S.trigger();
-        break;
       case 'M': //expects 1 byte of packed outputs //manual TTL state command
         return true;//need more
-      case 'O': //is the stamp OK?
-        stream.println(stamp.ok ? F("OK") : F("NO"));
+      case '@':
         break;
       default:
         stream.print(F("unk char:"));
         stream.print(letter);
-        clear_rx_buffer();//todo: debate this, disallows resynch
+        //        clear_rx_buffer();//todo: debate this, disallows resynch
         break;
     }
     return false;
   }
+
+  /* in the binary of a program two successive steps with count of 64 and the same pattern is gratuitous, it can be merged into a single step
+      with count of 128. As such the sequence @@@@@ will always contain two identical counts with identical patterns regardless of where in the
+      pattern/count alternation we are.
+  */
+  unsigned resynch = 0;
+  static const unsigned Resunk = 5;
 
 
   /**
@@ -730,8 +757,8 @@ struct CommandLineInterpreter {
   */
 
   void check() {
-    int bytish = stream.read();
-    if (bytish != ~0) {
+    unsigned int bytish = stream.read(); //returns all ones on 'nothing there', traditionally quoted as -1 but that is the only negative value returned so let us use unsigned.
+    if (bytish != NaV) {
       switch (expecting) {
         case At:
           if (bytish == '@') {
@@ -752,6 +779,8 @@ struct CommandLineInterpreter {
                 expecting = Datum;
                 break;
             }
+          } else {
+            expecting = At;
           }
           break;
         case LoLength:
@@ -781,7 +810,16 @@ struct CommandLineInterpreter {
           expecting = Datum;
           break;
         case Datum: //incoming binary data has arrived
-          //todo: here is where to isnert a detector for repeated '@' chars, 4 in a row is not possible with a well formed program.
+          if (bytish == '@') {
+            if (++resynch >= Resunk) {
+              resynch = 0;
+              expecting = At;
+              sendingMemory = NaV;
+              return;
+            }
+          } else {
+            resynch = 0;
+          }
           switch (pending) {
             case 'S': //receive step datum
               EEPROM.write(sofar++, bytish); //todo: receive to ram then burn en masse.
@@ -851,7 +889,7 @@ struct CommandLineInterpreter {
 
 };
 
-CommandLineInterpreter cli{Serial}; //todo: allocate one each for USB if present and rx/tx.
+CommandLineInterpreter cli{CliSerial}; //todo: allocate one each for USB if present and rx/tx.
 
 
 ///////////////////////////////////////////////////////
@@ -901,7 +939,7 @@ struct Cloner {
   unsigned sendingLeft = 0;
 
   /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
-  bool sendCommand(char letter, unsigned more = ~0 ) {
+  bool sendCommand(char letter, unsigned more = NaV ) {
     unsigned also = 0;
     switch (letter) {
       case 'S': case 'U': also = 2; break;
@@ -967,7 +1005,7 @@ struct Cloner {
 struct LineBreaker {
   HardwareSerial *port = nullptr;
   uint32_t baud;
-  unsigned txpin = ~0;
+  unsigned txpin = NaV;
 
   MilliTick breakMillis;
 
@@ -982,7 +1020,7 @@ struct LineBreaker {
   MilliTick okToUse = 0;
 
   void engage(MilliTick now) {
-    if (port && txpin != ~0) {
+    if (port && txpin != NaV) {
       port->end();
       pinMode(txpin, OUTPUT); //JIC serial.end() mucked with it
       digitalWrite(txpin, HIGH);
@@ -1000,7 +1038,6 @@ struct LineBreaker {
     }
     return timerDone(okToUse , now);
   }
-
 
 };
 
@@ -1020,7 +1057,11 @@ void setup() {
   audio.Init(pin.trigger(2), O.B.volume, O.B.mediaType, O.B.mediaDelay);
   audio.PlayAmbient();
 
-  Serial.begin(115200); //we talk to the PC at 115200
+  CliSerial.begin(115200); //we talk to the PC at 115200
+  if (CliSerial != RealSerial) {
+    RealSerial.begin(115200); //we talk to the PC at 115200
+  }
+
   cli.setup();
 
   O.report(cli.stream);//must follow S init to get valid duration
@@ -1028,11 +1069,12 @@ void setup() {
   if (O.B.BOOT_DELAY_SECS > 0)  {
     T.suppress(O.B.BOOT_DELAY_SECS * 1000);
   }
-  Serial.println(F("Ready"));
+  CliSerial.println(F("Ready"));
 }
 
 void loop() {
   auto now = millis();
+
   cli.check();
   if (S.check(now)) { //active frame event.
     //new frame
