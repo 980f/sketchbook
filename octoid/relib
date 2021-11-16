@@ -1,5 +1,6 @@
 ## recreate links to library sources
 ln -sf ../shared/arduous arduous
+ln -sf lib/chainprinter.h chainprinter.h
 ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf lib/digitalpin.h digitalpin.h
 ln -sf lib/edgyinput.h edgyinput.h

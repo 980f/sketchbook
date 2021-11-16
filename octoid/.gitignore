@@ -1,10 +1,13 @@
 
 *~
 arduous
+chainprinter.h
 cheaptricks.h
 digitalpin.h
 edgyinput.h
 eztypes.h
+*.inot
 lardls
+lib
 linearmap.h
 pinuser.h

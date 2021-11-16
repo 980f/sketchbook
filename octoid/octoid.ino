@@ -53,6 +53,10 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 }
 
 ///////////////////////////
+#include "chainprinter.h"
+
+void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
+///////////////////////////
 #include "digitalpin.h"
 #define BlinkerPin 13 //board led
 
@@ -86,7 +90,7 @@ struct VersionInfo {
     }
   }
 
-  void print(Stream &printer, bool longform = false) {
+  void print(Print &printer, bool longform = false) {
     for (int i = 0; i < longform ? sizeof(buff) : 3; i++) {
       if (i) {
         printer.print(".");
@@ -190,57 +194,50 @@ struct Opts  {
       }
     }
 
-    void report(Stream & printer) {//legacy format
-      printer.print(F("OctoBanger TTL v"));
-      stamp.print(printer, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
+
+    void reportPins(Print &printer, const char*header, bool polarity) {
+      printer.print(header);
+      for (int i = 0; i < TTL_COUNT; i++) {
+        if (!i) {
+          printer.print(",");
+        }
+        auto pindef = output[i];
+        printer.print(polarity ? pindef.active : pindef.index);
+      }
+      printer.println();
+
+    }
+
+    void report(ChainPrinter & printer) {//legacy format
+      printer(F("OctoBanger TTL v"));
+      stamp.print(printer.raw, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
+
       reportFrames(printer);
 
-      printer.print(F("Reset Delay Secs: "));
-      printer.println(deadbandSeconds);
+      printer(F("Reset Delay Secs: "), deadbandSeconds);
       if (bootSeconds != 0)  {
-        printer.print(F("Boot Delay Secs: "));
-        printer.println(bootSeconds);
+        printer(F("Boot Delay Secs: "), bootSeconds);
       }
 
-      printer.println(F("Pinmap table no longer supported"));
-      printer.print(F("Trigger Pin in: "));
-      format_pin_print(triggerIn.index, printer);
-      printer.print(F("Trigger Ambient Type: "));
-      if (triggerIn.active) {//this might be perfectly inverted from legacy
-        printer.println(F("Low (PIR or + trigger)"));
-      } else {
-        printer.println(F("Hi (to gnd trigger)"));
-      }
-      printer.print(F("Trigger Pin Out: "));
-      format_pin_print(triggerOut.index, printer);
+      printer(F("Pinmap table no longer supported"));
+      printer(F("Trigger Pin in: "), triggerIn.index);
+      //this might be perfectly inverted from legacy"
+      printer(F("Trigger Ambient Type: "), triggerIn.active ? F("Low (PIR or + trigger)") : F("Hi (to gnd trigger)"));
 
-      printer.print(F("TTL PINS:  "));
-      for (int i = 0; i < TTL_COUNT; i++) {
-        if (!i) {
-          printer.print(",");
-        }
-        printer.print(output[i].index);
-      }
-      printer.println();
+      printer(F("Trigger Pin Out: "), triggerOut.index); //todo:1 show extension of polarity
 
-      printer.print(F("TTL TYPES: "));
-      for (int i = 0; i < TTL_COUNT; i++) {
-        if (!i) {
-          printer.print(",");
-        }
-        printer.print(output[i].active);
-      }
-      printer.println();
+      reportPins(printer.raw, F("TTL PINS:  "), false);
+      reportPins(printer.raw, F("TTL TYPES: "), true);
     }
 
-    void format_pin_print(uint8_t inpin, Stream & printer) {
-      if (inpin >= A0) {
-        printer.print("A");
-        printer.println((inpin - A0));
-      } else {
-        printer.println(inpin);
-      }
-    }
+    //    void format_pin_print(uint8_t inpin, Stream & printer) {
+    //      if (inpin >= A0) {
+    //        printer.print("A");
+    //        printer.println((inpin - A0));
+    //      } else {
+    //        printer.println(inpin);
+    //      }
+    //    }
 
 } __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
@@ -287,8 +284,6 @@ struct Trigger {
     if (triggerPin)  {
       suppress(30000); //this will give the user 30 seconds to upload a different config, such as one with a different polarity trigger,
       //before getting stuck in an endless trigger loop. (which would not be a problem if commands were not blocked while running.)
-      CliSerial.println(F("Trigger detected on startup-"));
-      CliSerial.println(F("Going cold for 30 secs"));
     } else {
       suppressUntil = 0;
     }
@@ -309,7 +304,6 @@ struct Trigger {
     }
     if (suppressUntil) {
       suppressUntil = 0;
-      CliSerial.println(F("Ready for Trigger"));
     }
 
     if (trigger) { //then we have a trigger
@@ -320,6 +314,11 @@ struct Trigger {
     }
     return false;
   }
+
+  MilliTick liveIn()const {
+    return suppressUntil - millis();
+  }
+
 } T;
 
 /////////
@@ -339,10 +338,6 @@ struct FrameSynch {
   FrameSynch() {}
 
 };
-
-//IDE failed to make a prototype for this:
-void reportFrames(Stream &printer);
-
 
 FrameSynch fs;
 
@@ -535,15 +530,11 @@ struct Sequencer {
       }
     }
 
-
     void finish() {
       Send(0);
       if (O.deadbandSeconds) {
         T.suppress(round(O.deadbandSeconds * 1000));
-        CliSerial.print(F("Waiting delay secs: "));
-        CliSerial.println(O.deadbandSeconds);
-      } else {
-        CliSerial.println(F("Sequence complete, Ready"));
+        return true;
       }
     }
 
@@ -584,20 +575,17 @@ struct Sequencer {
       for (int i = sizeof(O.output); i-- > 0;) {
         output[i].configure(O.output[i]);
       }
-
     }
 
 } S;
 
 ////////////////////////////////////////////
-void reportFrames(Stream & printer) {
+
+void reportFrames(ChainPrinter & printer) {
   unsigned used = 0;
   auto duration = S.duration(used);
-  printer.print(F("Frame Count: "));
-  printer.println(used * 2); //legacy 2X
-
-  printer.print(F("Seq Len Secs: "));
-  printer.println(fs.nominal(duration));
+  printer(F("Frame Count: "), used * 2); //legacy 2X
+  printer(F("Seq Len Secs: "), fs.nominal(duration));
 }
 
 ////////////////////////////////////////////
@@ -628,7 +616,9 @@ struct CommandLineInterpreter {
   /** comm stream, usually a HardwareSerial but could be a SerialUSB or some custom channel such as an I2C slave */
   Stream &stream;
 
-  CommandLineInterpreter (Stream &someserial): stream(someserial) {}
+  ChainPrinter printer;
+
+  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true) {}
 
   void onBadSizeGiven() {
     //todo: send error message
@@ -650,15 +640,15 @@ struct CommandLineInterpreter {
         stream.println();
         break;
       case 'O': //is the stamp OK?
-        stream.println(stamp.ok ? F("OK") : F("NO"));
+        printer(stamp.ok ? F("OK") : F("NO"));
         break;
       case 'H': //go hot
         T.IS_HOT = true;
-        stream.println(F("Ready"));
+        printer(F("Ready"));
         break;
       case 'C': //go cold
         T.IS_HOT = false;
-        stream.println(F("Standby..."));
+        printer(F("Standby..."));
         break;
       case 'T': //trigger test
         S.trigger(millis());
@@ -670,7 +660,7 @@ struct CommandLineInterpreter {
         tx_config();
         break;
       case 'P': //ping back
-        O.report(stream);
+        O.report(printer);
         break;
       case 'S':  //expects 16 bit size followed by associated number of bytes, ~2*available program steps
         return true;//need more
@@ -681,8 +671,7 @@ struct CommandLineInterpreter {
       case '@':
         break;
       default:
-        stream.print(F("unk char:"));
-        stream.print(letter);
+        printer(F("unk char:"), letter);
         //        clear_rx_buffer();//todo: debate this, disallows resynch
         break;
     }
@@ -742,15 +731,13 @@ struct CommandLineInterpreter {
           switch (pending) {
             case 'S': //receive step datum
               if (expected > 1000 ) {
-                stream.print(F("Unknown program size received: "));
-                stream.println(expected);
+                printer(F("Unknown program size received: "), expected);
                 onBadSizeGiven();
               }
               break;
             case 'U'://receive config flag
               if (expected != sizeof(O) ) {
-                stream.print(F("Unknown config length passed: "));
-                stream.println(expected);
+                printer(F("Unknown config length passed: "), expected);
                 onBadSizeGiven();
               }
               break;
@@ -771,13 +758,12 @@ struct CommandLineInterpreter {
           switch (pending) {
             case 'S': //receive step datum
               EEPROM.write(sofar++, bytish); //todo: receive to ram then burn en masse.
-              if (sofar >= expected ) {//then that was the lat byte
+              if (sofar >= expected ) {//then that was the last byte
                 saveConfig();//deferred in case we bail out on receive
                 expecting = At;
-                stream.print(F("received "));
-                stream.print(sofar);
-                reportFrames(stream);
-                stream.println(F("Saved, Ready"));
+                printer(F("received "), sofar);
+                reportFrames(printer);
+                printer(F("Saved, Ready"));
               }
               break;
             case 'U'://receive config flag
@@ -793,9 +779,7 @@ struct CommandLineInterpreter {
               if (sofar == expected) {
                 saveConfig();
 
-                stream.print(F("Received "));
-                stream.print(expected);
-                stream.println(F(" config bytes"));
+                printer(F("Received "), expected, F(" config bytes"));
                 //                stream.println(F("Please reconnect"));
                 //                if (!stamp.ok)  {
                 //                  O.hi_sample = 0;
@@ -841,7 +825,7 @@ struct CommandLineInterpreter {
   //called at end of setup
   void setup() {
     //original did a clear_rx
-    stream.println(F(".OBC")); //spit this back immediately tells PC what it just connected to
+    printer(F(".OBC")); //spit this back immediately tells PC what it just connected to
   }
 
 };
@@ -1026,9 +1010,8 @@ void setup() {
 
   S.Send(0);
 
-  T.setup( O);
+  T.setup(O);
   blink.setup();
-
 
   CliSerial.begin(115200); //we talk to the PC at 115200
   if (CliSerial != RealSerial) {
@@ -1037,14 +1020,18 @@ void setup() {
 
   cli.setup();
 
-  O.report(cli.stream);//must follow S init to get valid duration
+  O.report(cli.printer);//must follow S init to get valid duration
 
   if (O.bootSeconds > 0)  {
     T.suppress(O.bootSeconds * 1000);
-  } else {
-    cli.stream.println(F("Ready"));
   }
-  cli.stream.println(F("Alive"));
+
+  if (~T) {
+    cli.printer(F("Trigger will go hot in "), T.liveIn(), " ms");
+  } else {
+    cli.printer(F("Ready"));
+  }
+  cli.printer(F("Alive"));
 }
 
 void loop() {
@@ -1062,7 +1049,7 @@ void loop() {
 
   if (T.check(now)) {//trigger is active
     if (S.trigger(now)) {//ignores trigger being active while sequence is active
-      cli.stream.println(F("Playing sequence..."));
+      cli.printer(F("Playing sequence..."));
     }
   }
 
