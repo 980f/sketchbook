@@ -32,10 +32,11 @@
 #endif
 
 
+////////////////////////////////////////////////////////////
+//C++ language missing pieces:
 #define arraySize(arrayname) sizeof(arrayname)/sizeof(arrayname[0])
 //for when an integer has no value, we use the least useful value:  (Not a Value)
 #define NaV ~0U
-
 ////////////////////////////////////////////////////////////
 //tidbits of timer support to match 980f's milli services, eventually use those instead of inlining pieces here.
 using MilliTick = decltype(millis());//unsigned long;
@@ -52,10 +53,11 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 }
 
 ///////////////////////////
-
+#include "digitalpin.h"
 #define BlinkerPin 13 //board led
 
 #include <EEPROM.h>
+using EEAddress = unsigned ;
 
 //////////////////////////////
 //MediaPlayer removed as it needs a bunch of rework and we don't actually have units with them present.
@@ -66,11 +68,10 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 
 struct VersionInfo {
   bool ok = false;//formerly init to "OK" even though it is not guaranteed to be valid via C startup code.
-  bool had_bad_pin_map = false;
   //version info, sometimes only first 3 are reported.
   static const byte buff[5];//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
-  bool verify(unsigned eeaddress) {
+  bool verify(EEAddress eeaddress) {
     for (int i = 0; i < sizeof(buff); i++)  {
       if (EEPROM.read(eeaddress++) != buff[i]) {
         return false;
@@ -79,7 +80,7 @@ struct VersionInfo {
     return true;
   }
 
-  void burn(unsigned eeaddress) {
+  void burn(EEAddress eeaddress) {
     for (int i = 0; i < sizeof(buff); i++) {
       EEPROM.write(eeaddress++, buff[i]);
     }
@@ -97,82 +98,169 @@ struct VersionInfo {
 };
 
 VersionInfo stamp;
+
 const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
 static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0}; //holder for stamp, 8 tells PC app that we have 8 channels
 
 
-//1019-1023 stamp
-static const int STAMP_OFFSET = 1024 - sizeof(stamp.buff);// ~1019; //start byte of stamp
-
 //////////////////////////////////////////////////////////////
+// abstracting output types:
+// 00..7F indentify mechanism
+// FF..80 invert activity level (1's complement)
 
-using Pinset = byte[11];
-static const Pinset PIN_MAPS[] = {
-  { 2, 3, 4, 5, 6, 7, 8, 9,
-    11, 10, 12
-  },
-  { 7, 6, 5, 4, 8, 9, 10, 11,
-    A0, A1, A2
-  },  // Shield
-#if __has_include("my_pinsets.h")
-  {
-#include "my_pinsets.h"
-  };
-#endif
-};
-const unsigned PIN_MAP_COUNT = arraySize(PIN_MAPS); //default, shield , custom
-struct PinMappings {
-  static const int TRIGGER_PIN_COUNT = 3; //in , daisy chain, audio
 
-  int out(unsigned which) const {
-    return PIN_MAPS[current][which];
-  }
+//output descriptors for the 8 bts of program data
+struct Channel {
+  struct Definition {
+    unsigned index: 5; //value used by group
+    unsigned group: 2; //derived from config code
+    unsigned active: 1; //polarity to send for active
+  } def;
 
-  int trigger(unsigned which) const {
-    return PIN_MAPS[current][which + TTL_COUNT];
-  }
-
-  byte selectPins(byte preferred) {
-    if (preferred > (PIN_MAP_COUNT - 1))  {
-      return current = 0; //revert to default on a bad setting
+  void operator = (bool activate) {
+    bool setto = activate ^ def.active ;
+    switch (def.group) {
+      case 0://pin
+        digitalWrite(def.index, setto);
+        break;
+      case 1://PCF858x (I2C)
+        //todo: implement one
+        break;
+      case 2://MCP2xs17 SPI
+        //todo: implement one
+        break;
+      case 3:
+      //todo: compile time plugin module of some sort
+      //such as the legacy audio player which gets a pulse to fire it up.
+      default:
+        break;
     }
-    //if someone sets to custom, and the custom pin buffer is not set to a legitimate pin, revert to default
-    for (int i = 0; i < TTL_COUNT; i++) {
-      auto pincode = PIN_MAPS[preferred ][i];
-      //allow D2 thru A7 (A6 and A7 exist on the nano)
-      if ((pincode < 2) || (pincode > A7)) { //2 should probably be D2, this is an attempt to protect the serial port.
-        return current = 0;
+  }
+
+  void configure(Definition adef) {
+    def = adef;
+  }
+
+  byte code() const {
+    return *reinterpret_cast<const byte *>(&def);
+  }
+
+};
+
+
+/////////////////////////////////////////////////
+// this struct contains all config that is saved in EEPROM
+struct Opts  {
+    static const EEAddress SAMPLE_END = 1000;
+
+    //1019-1023 stamp
+    static const EEAddress STAMP_OFFSET = 1024 - sizeof(stamp.buff);// ~1019; //start byte of stamp
+
+
+    /** having obsoleted most of the configuration we still want to honor old programmer SW sending us a block of bytes.
+        we will therefore interpret incoming bytes where we still have something similar
+    */
+    enum LegacyIndex {OutPins = 0, OutPolarities = 1, ResetDelay = 4, BootDelay = 5, TriggerPolarity = 7,};
+
+    byte bootSeconds;
+    byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
+
+    Channel::Definition triggerIn;
+    Channel::Definition triggerOut;
+    Channel::Definition output[TTL_COUNT];
+
+    //5 bytes left with legacy eeprom layout
+
+  public:
+    void save() const {
+      EEPROM.put(SAMPLE_END, *this);
+    }
+
+    void fetch() {
+      EEPROM.get(SAMPLE_END, *this);
+    }
+
+
+    bool read() {
+      if (stamp.verify(STAMP_OFFSET)) {
+        fetch();
+        return true;
+      } else {
+        return false;
       }
     }
-    return current = preferred;
-  }
 
-  mutable byte current = 0;
+    void report(Stream & printer) {//legacy format
+      printer.print(F("OctoBanger TTL v"));
+      stamp.print(printer, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
+      reportFrames(printer);
 
-  void setModes() const {
-    for (int i = 0; i < TTL_COUNT; i++) {
-      pinMode(out(i), OUTPUT);
+      printer.print(F("Reset Delay Secs: "));
+      printer.println(deadbandSeconds);
+      if (bootSeconds != 0)  {
+        printer.print(F("Boot Delay Secs: "));
+        printer.println(bootSeconds);
+      }
+
+      printer.println(F("Pinmap table no longer supported"));
+      printer.print(F("Trigger Pin in: "));
+      format_pin_print(triggerIn.index, printer);
+      printer.print(F("Trigger Ambient Type: "));
+      if (triggerIn.active) {//this might be perfectly inverted from legacy
+        printer.println(F("Low (PIR or + trigger)"));
+      } else {
+        printer.println(F("Hi (to gnd trigger)"));
+      }
+      printer.print(F("Trigger Pin Out: "));
+      format_pin_print(triggerOut.index, printer);
+
+      printer.print(F("TTL PINS:  "));
+      for (int i = 0; i < TTL_COUNT; i++) {
+        if (!i) {
+          printer.print(",");
+        }
+        printer.print(output[i].index);
+      }
+      printer.println();
+
+      printer.print(F("TTL TYPES: "));
+      for (int i = 0; i < TTL_COUNT; i++) {
+        if (!i) {
+          printer.print(",");
+        }
+        printer.print(output[i].active);
+      }
+      printer.println();
     }
 
-    pinMode(trigger(2), OUTPUT); //always low active audio
-  }
+    void format_pin_print(uint8_t inpin, Stream & printer) {
+      if (inpin >= A0) {
+        printer.print("A");
+        printer.println((inpin - A0));
+      } else {
+        printer.println(inpin);
+      }
+    }
 
-};
+} __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
-const PinMappings pin;
 
+
+#include "edgyinput.h"
 
 ///////////////////////////////////////////
-struct TriggerInput {
-  bool highactive;
+struct Trigger {
   bool IS_HOT;
-  bool lastStable;
-  unsigned changing;
-  unsigned inpin;
-  unsigned outpin;
-  MilliTick suppressUntil;
-  MilliTick lastChecked;
-  MilliTick removeout;
+  //debouncer generalized:
+  EdgyInput<bool> trigger;
+  //polarity and pin
+  ConfigurablePin triggerPin;
+  //polarity and pin
+  ConfigurablePin triggerOut;
+  //timer for ignoring trigger
+  MilliTick suppressUntil = 0;
+  //timer for triggerOut pulse stretch
+  MilliTick removeout = 0;
 
   //todo: add config for trigger in debounce time
   static const unsigned DEBOUNCE = 5 ; // how many ms to debounce
@@ -184,23 +272,19 @@ struct TriggerInput {
     suppressUntil = millis() + shortdelay;
   }
 
-  /** syntactic suga for "I'm not listening"*/
+  /** syntactic sugar for "I'm not listening"*/
   bool operator ~() {
     return suppressUntil > 0;
   }
 
-  void setup(unsigned inat, unsigned outat, bool fireif ) {
-    inpin = inat;
-    outpin = outat;
-    highactive = fireif; //todo: may have inverted config value
+  void setup(const Opts &O) {
+    triggerPin.configure(O.triggerIn.index, O.triggerIn.active ? INPUT : INPUT_PULLUP, O.triggerIn.active);
+    triggerOut.configure(O.triggerOut.index, OUTPUT, O.triggerOut.active);
 
-    pinMode(inpin, highactive ? INPUT : INPUT_PULLUP );
-    pinMode(outpin, OUTPUT); //always low active daisy chain
+    trigger.configure(DEBOUNCE);
+    trigger.init(triggerPin);
 
-    changing = 0;
-    lastStable = digitalRead(inpin) == highactive;
-
-    if (lastStable)  {
+    if (triggerPin)  {
       suppress(30000); //this will give the user 30 seconds to upload a different config, such as one with a different polarity trigger,
       //before getting stuck in an endless trigger loop. (which would not be a problem if commands were not blocked while running.)
       CliSerial.println(F("Trigger detected on startup-"));
@@ -212,14 +296,14 @@ struct TriggerInput {
   }
 
   /** @returns true while trigger is active */
-  operator bool() {
-    MilliTick now = millis(); //will be MilliTick.recent();
+  bool check(MilliTick now) {
     if (timerDone(removeout , now) ) {
-      digitalWrite(outpin, HIGH);
+      triggerOut = 0;
     }
     if (!IS_HOT) {
       return false;
     }
+    trigger(triggerPin);//debounce even if not inspecting
     if (now < suppressUntil) {
       return false;
     }
@@ -227,23 +311,14 @@ struct TriggerInput {
       suppressUntil = 0;
       CliSerial.println(F("Ready for Trigger"));
     }
-    bool presently = digitalRead(inpin) == highactive;
-    if (presently != lastStable) {
-      if (lastChecked < now) {
-        lastChecked = now;
-        if (++changing >= DEBOUNCE) {
-          lastStable = presently;
-          changing = 0;
-          if (lastStable) { //then we have a trigger
-            digitalWrite(outpin, LOW);
-            removeout = now + OUTWIDTH;
-          } else { //trigger stably removed
-            //nothing need be done
-          }
-        }
-      }
+
+    if (trigger) { //then we have a trigger
+      //todo: do not repeat this until trigger has gone off.
+      triggerOut = 1;
+      removeout = now + OUTWIDTH;
+      return true;
     }
-    return lastStable;
+    return false;
   }
 } T;
 
@@ -269,152 +344,9 @@ struct FrameSynch {
 void reportFrames(Stream &printer);
 
 
-/////////////////////////////////////////////////
-// this struct contains all config that is saved in EEPROM
-struct Opts  {
-  static const int SAMPLE_END = 1000;
-  uint16_t hi_sample;
-
-  struct Slots { //legacy name
-    byte pin_map = 0; //tells us what our pin mapping strategy is
-    byte TTL_TYPE_BYTE = 0xFF ; //polarity bits
-    byte spare1 = 0;
-    byte spare2 = 0;
-    byte RESET_DELAY_SECS = 30 ;
-    byte BOOT_DELAY_SECS = 0 ;
-    byte spare3 = 22 ; //if not 1..30 use 15
-    byte trigger_type = 1 ;
-    byte dropped1 = 0 ; //some arduinos have timing issues that must be offset, there are two options
-
-    void makeValid() {
-      pin_map = //we might choose to NOT coerce this value, as we now have a separate 'active pinmap' variable.
-        pin.selectPins(pin_map);
-    }
-  } B ;
-
-  //there are spare eeprom locatins, ~8 last count
-
-  bool ttlPolarity(unsigned which) const {
-    return bitRead(B.TTL_TYPE_BYTE, which);
-  }
-
-  void makeValid() {
-    B.makeValid();
-    save();//in case we coerced a bad value
-  }
-
-  void save() const {
-    EEPROM.put(SAMPLE_END, *this);
-  }
-
-  void fetch() {
-    EEPROM.get(SAMPLE_END, *this);
-    makeValid();
-  }
-
-
-  bool read() {
-    if (stamp.verify(STAMP_OFFSET)) {
-      fetch();
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  void report(Stream & printer) {
-    printer.print(F("OctoBanger TTL v"));
-    for (int i = 0; i < 3; i++) {
-      printer.print(stamp.buff[i]);
-      if (i < 2) {
-        printer.print(".");
-      } else {
-        printer.println();
-      }
-    }
-    printer.println(stamp.ok ? F("Config OK") : F("Config NOT FOUND, using defaults"));
-
-    reportFrames(printer);
-
-    printer.print(F("Reset Delay Secs: "));
-    printer.println(B.RESET_DELAY_SECS);
-    if (B.BOOT_DELAY_SECS != 0)  {
-      printer.print(F("Boot Delay Secs: "));
-      printer.println(B.BOOT_DELAY_SECS);
-    }
-    if (pin.current != B.pin_map) {
-      printer.println(F("Invalid custom pinmap, using default."));
-    } else {
-      printer.print(F("Pin Map: "));
-      switch (B.pin_map) {
-        case 0:
-          printer.println(F("Default_TTL")); break;
-        case 1:
-          printer.println(F("Shield")); break;
-        case 2:
-          printer.println(F("Custom")); break;
-        default:
-          printer.println(F("Unknown")); break;
-      }
-    }
-    printer.print(F("Trigger Pin in: "));
-    format_pin_print(pin.trigger(0), printer);
-    printer.print(F("Trigger Ambient Type: "));
-    if (B.trigger_type == 0) {
-      printer.println(F("Low (PIR or + trigger)"));
-    } else {
-      printer.println(F("Hi (to gnd trigger)"));
-    }
-    printer.print(F("Trigger Pin Out: "));
-    format_pin_print(pin.trigger(1), printer);
-
-
-    printer.print(F("TTL PINS:  "));
-    for (int i = 0; i < TTL_COUNT; i++) {
-      if (!i) {
-        printer.print(",");
-      }
-      printer.print(pin.trigger(i));
-    }
-    printer.println();
-    printer.print(F("TTL TYPES: "));
-    for (int i = 0; i < TTL_COUNT; i++) {
-      if (!i) {
-        printer.print(",");
-      }
-      printer.print(ttlPolarity(i));
-    }
-    printer.println();
-  }
-
-  void format_pin_print(uint8_t inpin, Stream & printer) {
-    if (inpin >= A0) {
-      printer.print("A");
-      printer.println((inpin - A0));
-    } else {
-      printer.println(inpin);
-    }
-  }
-
-} __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
-
-
 FrameSynch fs;
 
 ////////////////////////////////////////////
-// legacy snippets
-
-//writes the bits of the current byte to our 8 TTL pins.
-void OutputTTL(byte valIn) {
-  bool val = 0;
-  for (int x = 0; x < TTL_COUNT; x++) {
-    digitalWrite(pin.out(x), bitRead(valIn, x) != O.ttlPolarity(x));// use of xor with booleans is deprecated, '!=' is the same thing.
-  }
-}
-
-void set_ambient_out() { //set all outputs to default
-  OutputTTL(0);
-}
 
 /** saveConfig uses EEPROM.put which in turn only writes to the EEPROM when there is a change.
   As such it is cheap to call it when even only one member might have changed, it won't exhaust the EEPROM.
@@ -438,167 +370,241 @@ void saveConfig() {
 */
 struct Sequencer {
 
-  static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2;
+    static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2;
 
-  unsigned current = NaV;
-  unsigned used = 0;
-  uint32_t frames = 0;
-  MilliTick start = 0;
-  MilliTick doNext = 0;
+    Channel output[sizeof(Opts::output)];
 
-  //for recording
-  bool amRecording = false;
-  byte pattern;
-
-  //cache of program content, will try to eliminate except as download buffer.
-  struct Step {
-    byte pattern;
-    byte frames;
-  }  //todo: order members by endianness of processor so as to match legacy processor's memory layout
-  samples[SAMPLE_COUNT]; //working buffer so we don't read from eeprom constantly (which is silly as EEProm read is fast)
-
-
-  void fetch(unsigned length) {
-    //fetch whatever eeprom values we have into buffer
-    if (length > 0)  {
-      for (used = 0; used < SAMPLE_COUNT; ++used)    {
-        EEPROM.get(used * 2, samples[used]);
+    void Send(uint8_t packed) {
+      for (unsigned bitnum = TTL_COUNT; bitnum-- > 0;) {
+        output[bitnum] = bool(bitRead(packed, bitnum));//grrr, Arduino guys need to be more type careful.
       }
     }
-  }
+    struct Step {
+      byte pattern;
+      byte frames;
+      static const byte MaxFrames = 255; //might reserve 255 for specials as well as 0
 
-  void burn() {
-    for (unsigned i = used; i < used; ++i)    {
-      EEPROM.put(i * 2, samples[i]);
+      void get(unsigned nth) {
+        EEPROM.get(nth * 2, *this);
+      }
+      void put(unsigned nth) {
+        EEPROM.put(nth * 2, *this);
+      }
+
+      //@returns whether this step is NOT the terminating step.
+      operator bool()const {
+        return frames != 0 || pattern != 0; //0 frames is escape, escape 0 is 'end of program'
+      }
+
+      /** set values to indicate program end */
+      void stop() {
+        frames = 0;
+        pattern = 0;
+      }
+
+      void start(byte newpattern) {
+        frames = 1;
+        pattern = newpattern;
+      }
+
+      bool isStop() const {
+        return frames == 0 && pattern == 0;
+      }
+
+    } __attribute__((packed));
+
+    class Pointer: public Step {
+        unsigned index = NaV;
+      public:
+
+        bool haveNext() const {
+          return index < SAMPLE_COUNT ;
+        }
+
+        bool next() { //works like sql resultset. I don't like that but it is cheap to implement.
+          if (haveNext() && !isStop()) {
+            get(index++);
+            return true;
+          }
+        }
+
+        void operator =(unsigned nth) {
+          index = nth;
+          if (haveNext()) {
+            get(index);
+          } else {
+            stop();
+          }
+        }
+
+        /** @returns index of what next call to next() will load */
+        operator unsigned() {
+          return index;
+        }
+
+        bool begin() {
+          index = 0;
+          Step::get(0);//peek
+          return !isStop();
+        }
+
+        void put() {
+          //todo: need special case somewhere to put a stop at first location before we have begun.
+          Step::put(index - 1); //save old
+        }
+
+        void end() {
+          if (index > 0) {
+            Step::put(index - 1);
+            if (haveNext()) {//not past end
+              stop();
+              Step::put(index++);
+            }
+          } else {
+            stop();
+            Step::put(0);
+          }
+        }
+
+        /** updates curent record or moves to new one as needed.
+          @returns whether it is safe to call record again. */
+        bool record(byte newpattern) {
+          if (pattern == newpattern  && frames < MaxFrames) {//can stretch current step
+            ++frames;
+            return true;//can still record
+          }
+
+          Step::put(index - 1); //save old
+          ++index;
+          if (haveNext()) {
+            start(newpattern);
+            return true;
+          }
+          return false;
+        }
+
+    }; //end class Pointer
+
+    Pointer playing;
+
+    //step timer
+    MilliTick start = 0;
+    uint32_t frames = 0;
+
+    MilliTick doNext = 0;
+
+    //for recording
+    bool amRecording = false;
+    byte pattern;
+
+    bool advance() {
+      if (playing.next()) {
+        Send(playing.pattern);
+        frames += playing.frames;
+        doNext = fs(frames, start);
+        return true;
+      } else {
+        finish();
+        doNext = 0; //deadband uses trigger suppression, it is not a sequencer timed step.
+        return false;
+      }
     }
-  }
 
+    bool trigger(MilliTick now) {
+      start = now; //whether recording or playing
+      frames = 0; //part of frame synch
 
-  uint32_t duration() {
-    frames = 0; //1000 samples, 255 frames each possible
-    for (int i = 0; i < used; i++) {
-      frames += samples[i].frames ;
+      bool canPlay = playing.begin(); //clears counters etc., reports whether there is something playable
+      if (amRecording) {//ignore canPlay
+        playing.start(pattern);
+        doNext = fs(frames, start);
+        return true; //we are recording
+      } else {
+        return advance();//applies first step and computes time at which next occurs
+      }
     }
-    return frames;
-  }
 
-  void advance() {
-    if (current > used) { //we should not be running
-      return;
+    /** @returns whether a frame tick occured */
+    bool check(MilliTick now) {
+      if (timerDone(doNext , now)) {
+        if (amRecording) {
+          return record(pattern);
+        } else {
+          return advance();
+        }
+      }
     }
-    if (current == used) {
+
+
+    void finish() {
+      Send(0);
+      if (O.deadbandSeconds) {
+        T.suppress(round(O.deadbandSeconds * 1000));
+        CliSerial.print(F("Waiting delay secs: "));
+        CliSerial.println(O.deadbandSeconds);
+      } else {
+        CliSerial.println(F("Sequence complete, Ready"));
+      }
+    }
+
+
+    /** @returns where it is still recording. */
+    bool record(byte pattern) {
+      if (!playing) { //we should not be running
+        return false;
+      }
+      if (playing.record(pattern)) { //still have room to alter present playing record
+        doNext = fs(++frames, start);
+      } else {
+        endRecording();
+      }
+      return true;
+    }
+
+    void endRecording() {
+      playing.end();
+      doNext = 0;//this ends recording
+      amRecording = false;
       finish();
     }
-    auto sample = samples[current++];
-    OutputTTL(sample.pattern);
-    frames += sample.frames;
-    doNext = fs(frames, start);
-  }
 
-  void finish() {
-    set_ambient_out();
-
-    if (O.B.RESET_DELAY_SECS > 0) {
-      T.suppress(round(O.B.RESET_DELAY_SECS * 1000));
-      CliSerial.print(F("Waiting delay secs: "));
-      CliSerial.println(O.B.RESET_DELAY_SECS);
-    } else {
-      CliSerial.println(F("Sequence complete, Ready"));
-    }
-  }
-
-  /** common to start recording and start playing */
-  void whenStarting() {
-    start = millis();
-  }
-
-  bool trigger() {
-    if (amRecording) {
-      startRecording();
-      return true;
-    }
-    if (used == 0) {
-      return false; //zero length program
-    }
-
-    if (current >= used) {
-      current = 0;
-      frames = 0;
-      return true;
-    } else { //retrigger not yet allowed
-      return false;
-    }
-  }
-
-  /** @returns whether a frame tick occured */
-  bool check(MilliTick now) {
-    if (doNext && now >= start + 100) {//abusing doNext to indicate both playback and recording
-      digitalWrite(pin.trigger(2), HIGH); //fixed with daisy chain trigger
-    }
-    if (timerDone(doNext , now)) {
-      if (amRecording) {
-        record(pattern);
-      } else {
-        advance();
+    /** @returns total sequence time in number of frames , caches number of steps in 'used' */
+    uint32_t duration(unsigned &used) {
+      frames = 0; //1000 samples, 255 frames each possible
+      Pointer all;
+      all.begin();
+      while (all.next()) {
+        frames += all.frames ;
       }
-      return true;
+      used = all;
+      return frames;
     }
-  }
 
-  /** @returns where it is still recording. */
-  bool record(byte pattern) {
-    if (current >= SAMPLE_COUNT) { //we should not be running
-      return false;
-    }
-    auto &sample = samples[current];
-    if (pattern != sample.pattern || sample.frames == 255) { //new sample record is needed because of change or max time reached
-      ++current;
-      if (current == SAMPLE_COUNT) {
-        endRecording(true);
-        return false;
-      } else {//start new sample
-        samples[current].pattern = pattern;
-        samples[current].frames = 1;
+    void configure(const Opts &O) {
+      for (int i = sizeof(O.output); i-- > 0;) {
+        output[i].configure(O.output[i]);
       }
-    } else {
-      ++sample.frames;
-      ++frames;
-    }
-    doNext = fs(frames, start);
-    return true;
-  }
 
-  void startRecording() {
-    frames = 0;
-    current = 0;
-    samples[current].pattern = pattern;
-    samples[current].frames = 1;//haven't actually sampled yet.
-    doNext = fs(frames, start);
-  }
-
-  void endRecording(bool fromOverflow = false) {
-    if (!fromOverflow) {
-      ++current;//else we lose the accumulating frame
     }
-    used = current;
-    doNext = 0;//this ends recording
-    amRecording = false;
-  }
 
 } S;
 
 ////////////////////////////////////////////
-void reportFrames(Stream &printer) {
+void reportFrames(Stream & printer) {
+  unsigned used = 0;
+  auto duration = S.duration(used);
   printer.print(F("Frame Count: "));
-  printer.println(O.hi_sample);//legacy 2X
+  printer.println(used * 2); //legacy 2X
 
   printer.print(F("Seq Len Secs: "));
-  printer.println(fs.nominal(S.duration()));
+  printer.println(fs.nominal(duration));
 }
 
 ////////////////////////////////////////////
 // does not block, expectes its check() to be called frequently
 struct CommandLineInterpreter {
+
+  /** command protocol state */
   enum Expecting {
     At = 0,
     Letter,
@@ -607,10 +613,19 @@ struct CommandLineInterpreter {
     Datum
   } expecting;
 
+  /** partially completed command, might linger after command */
   char pending;
+
+  byte lowbytedata;
+  //quantity received
   unsigned sofar;
+  /** amount to receive */
   unsigned expected;
-  unsigned sendingMemory = ~0;
+
+  /** background send of eeprom content */
+  EEAddress sendingMemory = NaV;
+
+  /** comm stream, usually a HardwareSerial but could be a SerialUSB or some custom channel such as an I2C slave */
   Stream &stream;
 
   CommandLineInterpreter (Stream &someserial): stream(someserial) {}
@@ -646,7 +661,7 @@ struct CommandLineInterpreter {
         stream.println(F("Standby..."));
         break;
       case 'T': //trigger test
-        S.trigger();
+        S.trigger(millis());
         break;
       case 'D': //send program eeprom contents back to Serial
         tx_memory();
@@ -719,23 +734,21 @@ struct CommandLineInterpreter {
           }
           break;
         case LoLength:
-          expected = bytish;
+          lowbytedata = bytish;
           expecting = HiLength;
           break;
         case HiLength:
-          expected += bytish;
+          expected = word(bytish, lowbytedata);
           switch (pending) {
             case 'S': //receive step datum
               if (expected > 1000 ) {
                 stream.print(F("Unknown program size received: "));
                 stream.println(expected);
                 onBadSizeGiven();
-              } else {
-                O.hi_sample = expected / 2;
               }
               break;
             case 'U'://receive config flag
-              if (expected != sizeof(O.B) ) {
+              if (expected != sizeof(O) ) {
                 stream.print(F("Unknown config length passed: "));
                 stream.println(expected);
                 onBadSizeGiven();
@@ -762,31 +775,39 @@ struct CommandLineInterpreter {
                 saveConfig();//deferred in case we bail out on receive
                 expecting = At;
                 stream.print(F("received "));
-                stream.print(O.hi_sample);
+                stream.print(sofar);
                 reportFrames(stream);
                 stream.println(F("Saved, Ready"));
               }
               break;
             case 'U'://receive config flag
-              reinterpret_cast<byte *>(&O.B)[sofar++] = bytish;
-              if (sofar >= sizeof(O.B)) {
+              if (expected == 9) { //legacy parse
+                switch (sofar) {
+
+                    break;
+                }
+              } else {
+                reinterpret_cast<byte *>(&O)[sofar++] = bytish;
+              }
+
+              if (sofar == expected) {
                 saveConfig();
 
                 stream.print(F("Received "));
                 stream.print(expected);
                 stream.println(F(" config bytes"));
-                stream.println(F("Please reconnect"));
-                if (!stamp.ok)  {
-                  O.hi_sample = 0;
-                  saveConfig();
-                }
-                stamp.burn(STAMP_OFFSET);
-                stamp.ok = O.read();
-                set_ambient_out();
+                //                stream.println(F("Please reconnect"));
+                //                if (!stamp.ok)  {
+                //                  O.hi_sample = 0;
+                //                  saveConfig();
+                //                }
+                //                stamp.burn(STAMP_OFFSET);
+                //                stamp.ok = O.read();
+                //                set_ambient_out();
               }
               break;
             case 'M':
-              OutputTTL(bytish);
+              S.Send(bytish);
               expecting = At;
               break;
           }
@@ -794,12 +815,12 @@ struct CommandLineInterpreter {
       }
     }
 
-    if (sendingMemory < STAMP_OFFSET) {
+    if (sendingMemory < O.STAMP_OFFSET) {
       auto canSend = stream.availableForWrite();
       if (canSend) {
         while (canSend-- > 0) {
           stream.write(EEPROM.read(sendingMemory++));
-          if (++sendingMemory >= STAMP_OFFSET) {
+          if (++sendingMemory >= Opts::STAMP_OFFSET) {
             break;
           }
         }
@@ -813,7 +834,8 @@ struct CommandLineInterpreter {
   }
 
   void tx_config() {
-    stream.write(reinterpret_cast<const char *>(&O.B), sizeof(O.B));
+    //todo; legacy format
+    //    stream.write(1000, sizeof(O));
   }
 
   //called at end of setup
@@ -870,8 +892,9 @@ struct Blinker {
 struct Cloner {
   Stream *target = nullptr;
   //background sending
-  void *tosend = nullptr;
+  EEAddress tosend = NaV;
   unsigned sendingLeft = 0;
+  bool legacy = false; //todo: default true once true case is coded
 
   /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
   bool sendCommand(char letter, unsigned more = NaV ) {
@@ -892,8 +915,8 @@ struct Cloner {
     }
   }
 
-  bool sendChunk(char letter, void *thing, size_t sizeofthing) {
-    tosend = thing;
+  bool sendChunk(char letter, unsigned eeaddress, size_t sizeofthing) {
+    tosend = eeaddress;
     sendingLeft = sizeofthing;
     if (!sendCommand(letter, sendingLeft)) {
       sendingLeft = 0;
@@ -903,13 +926,17 @@ struct Cloner {
   }
 
 
-  //user msut confirm versions match before calling this
+  //user must confirm versions match before calling this
   bool sendConfig() {
-    return sendChunk('U', &O.B, sizeof(O.B));
+    //todo: legacy export
+    if (legacy) {
+      return false; //big issue: can't send from EEPROM as we have modified content, must intercept in sender
+    }
+    return sendChunk('U', 1000, sizeof(O));//todo: symbol
   }
 
   bool sendFrames() {
-    return sendChunk('S', &S.samples, sizeof(S.samples));
+    return sendChunk('S', 0, 1000);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -923,13 +950,26 @@ struct Cloner {
 
   /// call while
   void onTick(MilliTick ignored) {
-    if (!target || !tosend || !sendingLeft) {
+    if (!target) {
       return;
     }
 
-    auto wrote = target->write( reinterpret_cast<byte *> (tosend), sendingLeft);//cast needed due to poor choice of type in Arduino stream library.
-    tosend += wrote;
-    sendingLeft -= wrote;
+    while (sendingLeft) {
+      byte chunk[sizeof(Opts)];//want to send Opts as one chunk is not in legacy mode
+      unsigned chunker = 0;
+      if (legacy && tosend >= 1000) {
+        //todo: fill in chunk with legacy pattern
+      } else {
+        for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
+          chunk[chunker] = EEPROM.read(tosend + chunker);
+        }
+
+      }
+      auto wrote = target->write(chunk, chunker);
+      tosend += wrote;
+      sendingLeft -= wrote;
+    }
+
   }
 
 };
@@ -981,12 +1021,12 @@ struct LineBreaker {
 void setup() {
   //read config from eeprom
   stamp.ok = O.read();
-  S.fetch(O.hi_sample / 2);
+  S.configure(O);
   //apply idle state to hardware
-  pin.setModes();
-  set_ambient_out();
 
-  T.setup(pin.trigger(0), pin.trigger(1), O.B.trigger_type);
+  S.Send(0);
+
+  T.setup( O);
   blink.setup();
 
 
@@ -999,10 +1039,12 @@ void setup() {
 
   O.report(cli.stream);//must follow S init to get valid duration
 
-  if (O.B.BOOT_DELAY_SECS > 0)  {
-    T.suppress(O.B.BOOT_DELAY_SECS * 1000);
+  if (O.bootSeconds > 0)  {
+    T.suppress(O.bootSeconds * 1000);
+  } else {
+    cli.stream.println(F("Ready"));
   }
-  CliSerial.println(F("Ready"));
+  cli.stream.println(F("Alive"));
 }
 
 void loop() {
@@ -1018,14 +1060,15 @@ void loop() {
     }
   }
 
-  if (T) {//trigger is active
-    if (S.trigger()) {//ignores trigger being active while sequence is active
+  if (T.check(now)) {//trigger is active
+    if (S.trigger(now)) {//ignores trigger being active while sequence is active
       cli.stream.println(F("Playing sequence..."));
     }
   }
 
   //if recording panel is installed:
-  //todod: debounce user input into pattern byte.
+  //tood: debounce user input into pattern byte.
+
 
 
   if (~T) {//then it is suppressed or otherwise not going to fire
