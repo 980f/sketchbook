@@ -58,17 +58,13 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
 ///////////////////////////
 #include "digitalpin.h"
-#define BlinkerPin 13 //board led
+
+const DigitalOutput BlinkerLed(13); //board led
 
 #include <EEPROM.h>
 using EEAddress = unsigned ;
 
 //////////////////////////////
-//MediaPlayer removed as it needs a bunch of rework and we don't actually have units with them present.
-//we are going to abstract outputs and a reworked non-blocking player can be installed with a virtual boolean to trigger it.
-//this frees up config space for per-unit maps without compiling, which is handy for dealing with burned out relays without redoing the program.
-
-//////////////////////////////////////////////////////////////
 
 struct VersionInfo {
   bool ok = false;//formerly init to "OK" even though it is not guaranteed to be valid via C startup code.
@@ -108,10 +104,28 @@ static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0}; //holder for 
 
 
 //////////////////////////////////////////////////////////////
-// abstracting output types:
-// 00..7F indentify mechanism
-// FF..80 invert activity level (1's complement)
+// abstracting output types to allow for things other than pins.
+// first group is pins, so config values match legacy
+// planning on I2C GPIO
+// then SPI GPIO
+// and then interception point for custom modules:
 
+/** linker hook for sequenced actions, 32 flavors available */
+__attribute__((weak)) void octoid(unsigned pinish, bool action) {
+  //declare a function in your code with the above signature without the 'weak' stuff and
+  //it will get called with a value 0.31 and a boolean that can be inverted by the fx artist.
+  //if you need any configuration you will have to make more major changes to the octoblast defined concept.
+}
+
+
+////todo: hook for config
+using EEAddress = unsigned ; //how is it necessary to repeat this? How does the prior definition go out of scope!?!?
+
+__attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit) {
+  //if writeit then EEPROM.put(start,*yourcfgobject);
+  // else EEPROM.get(start,*yourcfgobject);
+  //but yourcfgobject must be no bigger than sized.
+}
 
 //output descriptors for the 8 bts of program data
 struct Channel {
@@ -134,8 +148,8 @@ struct Channel {
         //todo: implement one
         break;
       case 3:
-      //todo: compile time plugin module of some sort
-      //such as the legacy audio player which gets a pulse to fire it up.
+        octoid(def.index, setto);//hook for custom outputs
+        break;
       default:
         break;
     }
@@ -145,6 +159,7 @@ struct Channel {
     def = adef;
   }
 
+  //translate for EEPROM storage
   byte code() const {
     return *reinterpret_cast<const byte *>(&def);
   }
@@ -166,14 +181,13 @@ struct Opts  {
     */
     enum LegacyIndex {OutPins = 0, OutPolarities = 1, ResetDelay = 4, BootDelay = 5, TriggerPolarity = 7,};
 
+    Channel::Definition output[TTL_COUNT];
+    Channel::Definition triggerIn;
+    Channel::Definition triggerOut;
     byte bootSeconds;
     byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
 
-    Channel::Definition triggerIn;
-    Channel::Definition triggerOut;
-    Channel::Definition output[TTL_COUNT];
-
-    //5 bytes left with legacy eeprom layout
+    byte marker;//will dynamnically compute free space which starts here including this.
 
   public:
     void save() const {
@@ -184,7 +198,7 @@ struct Opts  {
       EEPROM.get(SAMPLE_END, *this);
     }
 
-
+    /** from EEPROM to object IFFI vresion stamp verifies */
     bool read() {
       if (stamp.verify(STAMP_OFFSET)) {
         fetch();
@@ -193,7 +207,6 @@ struct Opts  {
         return false;
       }
     }
-
 
     void reportPins(Print &printer, const char*header, bool polarity) {
       printer.print(header);
@@ -212,7 +225,7 @@ struct Opts  {
       printer(F("OctoBanger TTL v"));
       stamp.print(printer.raw, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
 
-      reportFrames(printer);
+      reportFrames(printer);  //legacy had the sequencer table size cached on this object. This is inconvenient.
 
       printer(F("Reset Delay Secs: "), deadbandSeconds);
       if (bootSeconds != 0)  {
@@ -247,14 +260,13 @@ struct Opts  {
 
 ///////////////////////////////////////////
 struct Trigger {
-  bool IS_HOT;
   //debouncer generalized:
   EdgyInput<bool> trigger;
   //polarity and pin
   ConfigurablePin triggerPin;
   //polarity and pin
   ConfigurablePin triggerOut;
-  //timer for ignoring trigger
+  //timer for ignoring trigger, NaV is effectively forever, 49 days.
   MilliTick suppressUntil = 0;
   //timer for triggerOut pulse stretch
   MilliTick removeout = 0;
@@ -264,9 +276,9 @@ struct Trigger {
   //todo: add config for trigger out width
   static const unsigned OUTWIDTH = 159 ; //converts input edge to clean fixed width active low
 
-  /** ignore incoming triggers for a while. */
+  /** ignore incoming triggers for a while, if NaV then pratically forever. 0 might end up being 1 ms, but not guaranteed. */
   void suppress(unsigned shortdelay) {
-    suppressUntil = millis() + shortdelay;
+    suppressUntil = shortdelay + ((shortdelay != NaV) ? millis() : 0);
   }
 
   /** syntactic sugar for "I'm not listening"*/
@@ -282,12 +294,12 @@ struct Trigger {
     trigger.init(triggerPin);
 
     if (triggerPin)  {
-      suppress(30000); //this will give the user 30 seconds to upload a different config, such as one with a different polarity trigger,
-      //before getting stuck in an endless trigger loop. (which would not be a problem if commands were not blocked while running.)
+      //todo: debate whether this is still needed at all since we now allow actions from host while sequencing.
+      //an edge trigger would make this moot.
+      suppress(2000); 
     } else {
       suppressUntil = 0;
     }
-    IS_HOT = true;
   }
 
   /** @returns true while trigger is active */
@@ -295,14 +307,12 @@ struct Trigger {
     if (timerDone(removeout , now) ) {
       triggerOut = 0;
     }
-    if (!IS_HOT) {
-      return false;
-    }
     trigger(triggerPin);//debounce even if not inspecting
     if (now < suppressUntil) {
       return false;
     }
     if (suppressUntil) {
+      //here is where we would notify that we are now live
       suppressUntil = 0;
     }
 
@@ -315,8 +325,9 @@ struct Trigger {
     return false;
   }
 
-  MilliTick liveIn()const {
-    return suppressUntil - millis();
+  MilliTick liveIn() const {
+    auto now = millis();
+    return (suppressUntil > now) ? suppressUntil - now : 0;
   }
 
 } T;
@@ -613,6 +624,31 @@ struct CommandLineInterpreter {
   /** background send of eeprom content */
   EEAddress sendingMemory = NaV;
 
+  /* in the binary of a program two successive steps with count of 64 and the same pattern is gratuitous, it can be merged into a single step
+      with count of 128. As such the sequence @@@@@ will always contain two identical counts with identical patterns regardless of where in the
+      pattern/count alternation we are.
+  */
+  struct Resynch {
+    char keychar = '@';
+    unsigned inarow = 0;
+    static const unsigned enough = 5;
+    bool isKey(char incoming)const {
+      return incoming == keychar;
+    }
+    bool operator()(char incoming) {
+      if (!isKey(incoming)) {
+        inarow = 0;
+        return false;
+      }
+      if ( ++inarow >= enough) {
+        inarow = 0;
+        return true;
+      }
+      return false;
+    }
+  } resynch;
+
+
   /** comm stream, usually a HardwareSerial but could be a SerialUSB or some custom channel such as an I2C slave */
   Stream &stream;
 
@@ -643,12 +679,12 @@ struct CommandLineInterpreter {
         printer(stamp.ok ? F("OK") : F("NO"));
         break;
       case 'H': //go hot
-        T.IS_HOT = true;
+        T.suppress(0);
         printer(F("Ready"));
         break;
       case 'C': //go cold
-        T.IS_HOT = false;
-        printer(F("Standby..."));
+        T.suppress(NaV);
+        printer(F("Standing by..."));
         break;
       case 'T': //trigger test
         S.trigger(millis());
@@ -663,28 +699,24 @@ struct CommandLineInterpreter {
         O.report(printer);
         break;
       case 'S':  //expects 16 bit size followed by associated number of bytes, ~2*available program steps
-        return true;//need more
+        [[fallthrough]] //        return true;//need more
       case 'U': //expects 16 bit size followed by associated number of bytes, ~9
+        expecting = LoLength;
         return true;//need more
       case 'M': //expects 1 byte of packed outputs //manual TTL state command
+        expecting = Datum;
         return true;//need more
-      case '@':
-        break;
       default:
-        printer(F("unk char:"), letter);
-        //        clear_rx_buffer();//todo: debate this, disallows resynch
+        if (resynch.isKey(letter)) {
+          expecting = Letter;
+        } else {
+          printer(F("unk char:"), letter);
+          //        clear_rx_buffer();//todo: debate this, disallows resynch
+        }
         break;
     }
     return false;
   }
-
-  /* in the binary of a program two successive steps with count of 64 and the same pattern is gratuitous, it can be merged into a single step
-      with count of 128. As such the sequence @@@@@ will always contain two identical counts with identical patterns regardless of where in the
-      pattern/count alternation we are.
-  */
-  unsigned resynch = 0;
-  static const unsigned Resunk = 5;
-
 
   /**
     usually returns quickly
@@ -700,7 +732,7 @@ struct CommandLineInterpreter {
     if (bytish != NaV) {
       switch (expecting) {
         case At:
-          if (bytish == '@') {
+          if (resynch.isKey(bytish )) {
             expecting = Letter;
           }
           break;
@@ -709,16 +741,9 @@ struct CommandLineInterpreter {
             pending = bytish;
             sofar = 0;
             expected = 0;
-            switch (pending) {
-              case 'S':
-              case 'U':
-                expecting = LoLength;
-                break;
-              case 'M':
-                expecting = Datum;
-                break;
-            }
+            //expecting was set in onLetter to LoLength or Datum
           } else {
+            pending = 0;
             expecting = At;
           }
           break;
@@ -727,10 +752,10 @@ struct CommandLineInterpreter {
           expecting = HiLength;
           break;
         case HiLength:
-          expected = word(bytish, lowbytedata);
+          expected = word(bytish, lowbytedata);//maydo: treat key char as unreasonable high byte.
           switch (pending) {
             case 'S': //receive step datum
-              if (expected > 1000 ) {
+              if (expected > O.SAMPLE_END ) {
                 printer(F("Unknown program size received: "), expected);
                 onBadSizeGiven();
               }
@@ -745,15 +770,10 @@ struct CommandLineInterpreter {
           expecting = Datum;
           break;
         case Datum: //incoming binary data has arrived
-          if (bytish == '@') {
-            if (++resynch >= Resunk) {
-              resynch = 0;
-              expecting = At;
-              sendingMemory = NaV;
-              return;
-            }
-          } else {
-            resynch = 0;
+          if (resynch(bytish )) {//will not return true on single byte of 'M'
+            expecting = Letter;
+            sendingMemory = NaV;
+            return;
           }
           switch (pending) {
             case 'S': //receive step datum
@@ -778,16 +798,8 @@ struct CommandLineInterpreter {
 
               if (sofar == expected) {
                 saveConfig();
-
                 printer(F("Received "), expected, F(" config bytes"));
-                //                stream.println(F("Please reconnect"));
-                //                if (!stamp.ok)  {
-                //                  O.hi_sample = 0;
-                //                  saveConfig();
-                //                }
-                //                stamp.burn(STAMP_OFFSET);
-                //                stamp.ok = O.read();
-                //                set_ambient_out();
+                setup();
               }
               break;
             case 'M':
@@ -819,7 +831,7 @@ struct CommandLineInterpreter {
 
   void tx_config() {
     //todo; legacy format
-    //    stream.write(1000, sizeof(O));
+    //    stream.write(SAMPLE_END, sizeof(O));
   }
 
   //called at end of setup
@@ -842,10 +854,10 @@ struct Blinker {
 
   void onTick(MilliTick now) {
     if (timerDone(offAt , now)) {
-      digitalWrite(BlinkerPin, LOW);
+      BlinkerLed = false;
     }
     if (timerDone(onAt , now)) {
-      digitalWrite(BlinkerPin, HIGH);
+      BlinkerLed = true;
     }
   }
 
@@ -853,25 +865,20 @@ struct Blinker {
     MilliTick now = millis();
     /** reasoning: we set an off to guarantee pulse gets seen so expend that first.*/
     onAt = now + off;
-    offAt = now + on + off;
+    offAt = onAt + on;
     onTick(now);//in case we aren't delaying it at all.
   }
 
   /** @returns whether a pulse is in progress */
-  operator bool()const {
+  operator bool() const {
     return offAt == 0 && onAt == 0;
   }
 
-  void setup() {
-    pinMode(BlinkerPin, OUTPUT);
-    digitalWrite(BlinkerPin, LOW);
-  }
 
 } blink;
 
 ///////////////////////////////////////////////////////
 /** transmit progam et al to another octoid
-
 */
 struct Cloner {
   Stream *target = nullptr;
@@ -916,11 +923,11 @@ struct Cloner {
     if (legacy) {
       return false; //big issue: can't send from EEPROM as we have modified content, must intercept in sender
     }
-    return sendChunk('U', 1000, sizeof(O));//todo: symbol
+    return sendChunk('U', O.SAMPLE_END, sizeof(O));//todo: symbol
   }
 
   bool sendFrames() {
-    return sendChunk('S', 0, 1000);//send all, not just 'used'
+    return sendChunk('S', 0, O.SAMPLE_END);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -941,19 +948,17 @@ struct Cloner {
     while (sendingLeft) {
       byte chunk[sizeof(Opts)];//want to send Opts as one chunk is not in legacy mode
       unsigned chunker = 0;
-      if (legacy && tosend >= 1000) {
+      if (legacy && tosend >= O.SAMPLE_END) {
         //todo: fill in chunk with legacy pattern
       } else {
         for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
           chunk[chunker] = EEPROM.read(tosend + chunker);
         }
-
       }
       auto wrote = target->write(chunk, chunker);
       tosend += wrote;
       sendingLeft -= wrote;
     }
-
   }
 
 };
@@ -1011,11 +1016,10 @@ void setup() {
   S.Send(0);
 
   T.setup(O);
-  blink.setup();
 
-  CliSerial.begin(115200); //we talk to the PC at 115200
+  CliSerial.begin(115200);
   if (CliSerial != RealSerial) {
-    RealSerial.begin(115200); //we talk to the PC at 115200
+    RealSerial.begin(115200);
   }
 
   cli.setup();
