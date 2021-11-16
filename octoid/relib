@@ -5,4 +5,3 @@ ln -sf lib/digitalpin.h digitalpin.h
 ln -sf lib/edgyinput.h edgyinput.h
 ln -sf lib/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/lardls lardls
-ln -sf lib/pinuser.h pinuser.h
