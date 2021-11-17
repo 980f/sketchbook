@@ -5,10 +5,9 @@
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
   note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
   todo: package into a single class so that can coexist with other code, such as the flicker code.
-  todo: receive program into ram, only on success burn eeprom. suppress operation during download OR use EEPROM in operation
-  else: drop program buffer, so that other code has some resources. Present programming of EEPROM while running is not useful vs cost.
   todo: receive config into ram, only on success burn eeprom.
   test: instead of timeout on host abandoning program download allow a sequence of 5 '@' in a row to break device out of download.
+  todo: abort/disable input signal needed for recovering from false trigger just before a group arrives.
 
   Timer tweaking:
   The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
@@ -53,7 +52,7 @@ bool timerDone(MilliTick &timer, MilliTick now) {
 }
 
 ///////////////////////////
-#include "chainprinter.h"
+#include "chainprinter.h"   //less verbose code in your module when printing, similar to BASIC's print statement.
 
 void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
 ///////////////////////////
@@ -62,7 +61,7 @@ void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
 const DigitalOutput BlinkerLed(13); //board led
 
 #include <EEPROM.h>
-using EEAddress = unsigned ;
+using EEAddress = uint16_t ;
 
 //////////////////////////////
 
@@ -71,19 +70,22 @@ struct VersionInfo {
   //version info, sometimes only first 3 are reported.
   static const byte buff[5];//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
-  bool verify(EEAddress eeaddress) {
+
+  //1019-1023 stamp
+  static const EEAddress OFFSET = 1024 - sizeof(buff);// ~1019; //start byte of stamp
+
+
+  bool verify() {
     for (int i = 0; i < sizeof(buff); i++)  {
-      if (EEPROM.read(eeaddress++) != buff[i]) {
+      if (EEPROM.read(OFFSET + i) != buff[i]) {
         return false;
       }
     }
     return true;
   }
 
-  void burn(EEAddress eeaddress) {
-    for (int i = 0; i < sizeof(buff); i++) {
-      EEPROM.write(eeaddress++, buff[i]);
-    }
+  void burn() {
+    EEPROM.put(OFFSET, buff);
   }
 
   void print(Print &printer, bool longform = false) {
@@ -95,6 +97,10 @@ struct VersionInfo {
     }
   }
 
+  void report(ChainPrinter & printer, bool longform) { //else legacy format
+    printer(F("OctoBanger TTL v"));
+    print(printer.raw, longform); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
+  }
 };
 
 VersionInfo stamp;
@@ -118,8 +124,7 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
 }
 
 
-////todo: hook for config
-using EEAddress = unsigned ; //how is it necessary to repeat this? How does the prior definition go out of scope!?!?
+using EEAddress = uint16_t ; //how is it necessary to repeat this? How does the prior definition go out of scope!?!?
 
 __attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
@@ -127,6 +132,9 @@ __attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit
   //but yourcfgobject must be no bigger than sized.
 }
 
+//todo: compile time hook for configuration EEPROM allocation.
+
+//////////////////////////////////////////////////////
 //output descriptors for the 8 bts of program data
 struct Channel {
   struct Definition {
@@ -159,35 +167,38 @@ struct Channel {
     def = adef;
   }
 
-  //translate for EEPROM storage
-  byte code() const {
-    return *reinterpret_cast<const byte *>(&def);
-  }
-
 };
 
 
 /////////////////////////////////////////////////
 // this struct contains all config that is saved in EEPROM
 struct Opts  {
-    static const EEAddress SAMPLE_END = 1000;
-
-    //1019-1023 stamp
-    static const EEAddress STAMP_OFFSET = 1024 - sizeof(stamp.buff);// ~1019; //start byte of stamp
-
+    static const EEAddress SAMPLE_END = 1000;//todo: subtract Opts size and config hooker size from stamp, truncate to even.
+    //the legacy EEPROM layout had 19 bytes of config of which 11 were used.
+    //we are sticking with that at the moment and we are using 12 bytes so we have 7 spare.
 
     /** having obsoleted most of the configuration we still want to honor old programmer SW sending us a block of bytes.
         we will therefore interpret incoming bytes where we still have something similar
+
     */
-    enum LegacyIndex {OutPins = 0, OutPolarities = 1, ResetDelay = 4, BootDelay = 5, TriggerPolarity = 7,};
+    enum LegacyIndex {//the enum that they should have created ;)
+      PIN_MAP_SLOT = 0,
+      TTL_TYPES_SLOT,
+      MEDIA_TYPE_SLOT,
+      MEDIA_DELAY_SLOT,
+      RESET_DELAY_SLOT,
+      BOOT_DELAY_SLOT ,
+      VOLUME_SLOT,
+      TRIGGER_TYPE_SLOT ,
+      TIMING_OFFSET_TYPE_SLOT ,
+      MEM_SLOTS
+    };
 
     Channel::Definition output[TTL_COUNT];
     Channel::Definition triggerIn;
     Channel::Definition triggerOut;
     byte bootSeconds;
     byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
-
-    byte marker;//will dynamnically compute free space which starts here including this.
 
   public:
     void save() const {
@@ -200,11 +211,69 @@ struct Opts  {
 
     /** from EEPROM to object IFFI vresion stamp verifies */
     bool read() {
-      if (stamp.verify(STAMP_OFFSET)) {
+      if (stamp.verify()) {
         fetch();
         return true;
       } else {
         return false;
+      }
+    }
+
+
+    byte legacy(unsigned index) {
+      byte packer = 0;
+      switch (index) {
+        case PIN_MAP_SLOT: //
+          return 2;//custom config
+        case TTL_TYPES_SLOT: //polarities packed
+          for (int i = 0; i < TTL_COUNT; i++) {
+            auto pindef = output[i];
+            packer |= (pindef.active ) << i;
+          }
+          return packer;
+        case MEDIA_TYPE_SLOT:
+        case MEDIA_DELAY_SLOT:
+          return 0;//no longer supported
+        case RESET_DELAY_SLOT:
+          return deadbandSeconds;
+        case BOOT_DELAY_SLOT:
+          return bootSeconds;
+        case VOLUME_SLOT:
+          return 15;// a 0 annoys the old code
+        case TRIGGER_TYPE_SLOT:
+          return triggerIn.active;
+        case TIMING_OFFSET_TYPE_SLOT:
+          return 0; //we don't support turning a tweak on or off. Might recycle as external frame sync enable
+        default:
+          return 0;
+      }
+    }
+
+    void setLegacy(unsigned index, byte ancient) {
+      switch (index) {
+        case PIN_MAP_SLOT: //
+          break;
+        case TTL_TYPES_SLOT: //polarities packed
+          for (int i = 0; i < TTL_COUNT; i++) {
+            auto pindef = output[i];
+            pindef.active  = bool(bitRead(ancient, index));
+          } break;
+        case MEDIA_TYPE_SLOT:
+        case MEDIA_DELAY_SLOT:
+          break;
+        case RESET_DELAY_SLOT:
+          deadbandSeconds = ancient;
+          break;
+        case BOOT_DELAY_SLOT:
+          bootSeconds = ancient;
+          break;
+        case VOLUME_SLOT:
+          break;
+        case TRIGGER_TYPE_SLOT:
+          triggerIn.active = ancient != 0;
+          break;
+        case TIMING_OFFSET_TYPE_SLOT:
+          break;
       }
     }
 
@@ -222,10 +291,10 @@ struct Opts  {
     }
 
     void report(ChainPrinter & printer) {//legacy format
-      printer(F("OctoBanger TTL v"));
-      stamp.print(printer.raw, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
-
-      reportFrames(printer);  //legacy had the sequencer table size cached on this object. This is inconvenient.
+      //      printer(F("OctoBanger TTL v"));
+      //      stamp.print(printer.raw, false); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
+      //
+      //      reportFrames(printer);  //legacy had the sequencer table size cached on this object. This is inconvenient.
 
       printer(F("Reset Delay Secs: "), deadbandSeconds);
       if (bootSeconds != 0)  {
@@ -296,7 +365,7 @@ struct Trigger {
     if (triggerPin)  {
       //todo: debate whether this is still needed at all since we now allow actions from host while sequencing.
       //an edge trigger would make this moot.
-      suppress(2000); 
+      suppress(2000);
     } else {
       suppressUntil = 0;
     }
@@ -337,6 +406,13 @@ struct Trigger {
 
 struct FrameSynch {
   static const float MILLIS_PER_FRAME = 50.0; //49.595; //default is 20 frames per sec (50 ms each)
+
+  //step timer
+  MilliTick start = 0;
+  uint32_t frames = 0;
+
+  MilliTick doNext = 0;
+
   /** millitick expected at given frame from sequence start */
   MilliTick operator()(uint32_t frame, MilliTick startingat) {
     return startingat + round(frame * MILLIS_PER_FRAME);//legacy issue: using round() makes minor changes to timing compared to legacy, with less cumulative error
@@ -346,11 +422,27 @@ struct FrameSynch {
     return round(frames * MILLIS_PER_FRAME / 1000.0);
   }
 
+  void begin(MilliTick now) {
+    start = now;
+    frames = 0;
+  }
+
+  bool frameDone( MilliTick now) {
+    return doNext <= now;
+  }
+
+  void next(byte stepframes = 1) {
+    frames += stepframes;
+    doNext = (*this)(frames, start);
+  }
+
+  void stop() {
+    doNext = 0;
+  }
+
   FrameSynch() {}
 
 };
-
-FrameSynch fs;
 
 ////////////////////////////////////////////
 
@@ -416,6 +508,13 @@ struct Sequencer {
       bool isStop() const {
         return frames == 0 && pattern == 0;
       }
+      /**
+        other potential 0 time commands:
+        loop if trigger active (presently hard coded to do so)
+        wait for trigger inactive (instead of edge trigger)
+        mark here as loop start else is zero
+
+      */
 
     } __attribute__((packed));
 
@@ -493,11 +592,9 @@ struct Sequencer {
 
     Pointer playing;
 
-    //step timer
-    MilliTick start = 0;
-    uint32_t frames = 0;
+    //moving frame timing logic into class that will later provide for watching an external clock source, not local millis()
+    FrameSynch fs;
 
-    MilliTick doNext = 0;
 
     //for recording
     bool amRecording = false;
@@ -506,24 +603,21 @@ struct Sequencer {
     bool advance() {
       if (playing.next()) {
         Send(playing.pattern);
-        frames += playing.frames;
-        doNext = fs(frames, start);
+        fs.next(playing.frames);
         return true;
       } else {
         finish();
-        doNext = 0; //deadband uses trigger suppression, it is not a sequencer timed step.
+        fs.stop(); //deadband uses trigger suppression, it is not a sequencer timed step.
         return false;
       }
     }
 
     bool trigger(MilliTick now) {
-      start = now; //whether recording or playing
-      frames = 0; //part of frame synch
-
+      fs.begin(now);
+      //todo:0 if external frame clock we must wait for it
       bool canPlay = playing.begin(); //clears counters etc., reports whether there is something playable
       if (amRecording) {//ignore canPlay
-        playing.start(pattern);
-        doNext = fs(frames, start);
+        playing.start(pattern); //todo: wait until fs gives us a first frame
         return true; //we are recording
       } else {
         return advance();//applies first step and computes time at which next occurs
@@ -532,11 +626,11 @@ struct Sequencer {
 
     /** @returns whether a frame tick occured */
     bool check(MilliTick now) {
-      if (timerDone(doNext , now)) {
+      if (fs.frameDone(now)) {
         if (amRecording) {
-          return record(pattern);
+          return record(pattern);//makes fs give us a true one frame time from now
         } else {
-          return advance();
+          return advance();//makes fs give is a true after multiple frame times from now.
         }
       }
     }
@@ -556,7 +650,7 @@ struct Sequencer {
         return false;
       }
       if (playing.record(pattern)) { //still have room to alter present playing record
-        doNext = fs(++frames, start);
+        fs.next();
       } else {
         endRecording();
       }
@@ -565,14 +659,14 @@ struct Sequencer {
 
     void endRecording() {
       playing.end();
-      doNext = 0;//this ends recording
+      fs.stop();//stops frame ticking
       amRecording = false;
       finish();
     }
 
     /** @returns total sequence time in number of frames , caches number of steps in 'used' */
     uint32_t duration(unsigned &used) {
-      frames = 0; //1000 samples, 255 frames each possible
+      uint32_t frames = 0;
       Pointer all;
       all.begin();
       while (all.next()) {
@@ -588,17 +682,109 @@ struct Sequencer {
       }
     }
 
+
+    void reportFrames(ChainPrinter & printer) {
+      unsigned used = 0;
+      auto frames = duration(used);
+      printer(F("Frame Count: "), used * 2); //legacy 2X
+      printer(F("Seq Len Secs: "), fs.nominal(frames));
+    }
+
+
 } S;
 
-////////////////////////////////////////////
+///////////////////////////////////////////////////////
+/** transmit program et al to another octoid
+*/
+struct Cloner {
+  Stream *target = nullptr;
+  //background sending
+  EEAddress tosend = NaV;
+  unsigned sendingLeft = 0;
+  bool legacy = false; //todo: default true once true case is coded
 
-void reportFrames(ChainPrinter & printer) {
-  unsigned used = 0;
-  auto duration = S.duration(used);
-  printer(F("Frame Count: "), used * 2); //legacy 2X
-  printer(F("Seq Len Secs: "), fs.nominal(duration));
-}
+  /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
+  bool sendCommand(char letter, unsigned more = NaV ) {
+    unsigned also = 0;
+    switch (letter) {
+      case 'S': case 'U': also = 2; break;
+      case 'M': also = 1; break;
+    }
+    if (target && target->availableForWrite() >= also) { //avert delays between essetial bytes of a command, for old systems that did blocking reception
+      target->write('@');
+      target->write(letter);
+      while (also-- > 0) {
+        target->write(more);//little endian
+        more >>= 8;
+      }
+    } else {
+      return false;
+    }
+  }
 
+  bool sendChunk(char letter, unsigned eeaddress, size_t sizeofthing) {
+    if (!sendCommand(letter, sendingLeft)) {
+      return false;
+    }
+    startChunk(eeaddress, sizeofthing) ;
+    return true;
+  }
+
+  void startChunk(unsigned eeaddress, size_t sizeofthing) {
+    tosend = eeaddress;
+    sendingLeft = sizeofthing;
+  }
+
+
+  //user must confirm versions match before calling this
+  bool sendConfig() {
+    return sendChunk('U', O.SAMPLE_END, legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O));
+  }
+
+  bool sendFrames() {
+    return sendChunk('S', 0, O.SAMPLE_END);//send all, not just 'used'
+  }
+
+  //and since we are mimicing OctoField programmer:
+  void sendTrigger() {
+    sendCommand('T');
+  }
+
+  void sendPattern(byte pattern) {
+    sendCommand('M', pattern);
+  }
+
+  /// call while
+  void onTick(MilliTick ignored) {
+    if (!target) {
+      return;
+    }
+
+    while (sendingLeft) {
+      //multiple of 4 at least as large as given:
+      byte chunk[(sizeof(Opts) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+      unsigned chunker = 0;
+      if (legacy && tosend >= O.SAMPLE_END && tosend < VersionInfo::OFFSET) {
+        auto offset = tosend - O.SAMPLE_END;
+        for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
+          chunk[chunker] = O.legacy(offset + chunker);
+        }
+        //todo: fill in chunk with legacy pattern
+      } else {
+        for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
+          chunk[chunker] = EEPROM.read(tosend + chunker);
+        }
+      }
+      auto wrote = target->write(chunk, chunker);
+      tosend += wrote;
+      sendingLeft -= wrote;
+      if (wrote < chunker) { //then incomplete write, time to leave.
+        break;
+      }
+    }
+  }
+
+};
 ////////////////////////////////////////////
 // does not block, expectes its check() to be called frequently
 struct CommandLineInterpreter {
@@ -654,7 +840,12 @@ struct CommandLineInterpreter {
 
   ChainPrinter printer;
 
-  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true) {}
+  Cloner cloner;
+
+  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true) {
+    cloner.target = &someserial;
+    cloner.legacy = true;
+  }
 
   void onBadSizeGiven() {
     //todo: send error message
@@ -696,6 +887,8 @@ struct CommandLineInterpreter {
         tx_config();
         break;
       case 'P': //ping back
+        stamp.report(printer, !cloner.legacy);
+        S.reportFrames(printer);
         O.report(printer);
         break;
       case 'S':  //expects 16 bit size followed by associated number of bytes, ~2*available program steps
@@ -761,7 +954,7 @@ struct CommandLineInterpreter {
               }
               break;
             case 'U'://receive config flag
-              if (expected != sizeof(O) ) {
+              if (expected != cloner.legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O) ) {
                 printer(F("Unknown config length passed: "), expected);
                 onBadSizeGiven();
               }
@@ -782,16 +975,13 @@ struct CommandLineInterpreter {
                 saveConfig();//deferred in case we bail out on receive
                 expecting = At;
                 printer(F("received "), sofar);
-                reportFrames(printer);
+                S.reportFrames(printer);
                 printer(F("Saved, Ready"));
               }
               break;
             case 'U'://receive config flag
-              if (expected == 9) { //legacy parse
-                switch (sofar) {
-
-                    break;
-                }
+              if (cloner.legacy) { //legacy parse
+                O.setLegacy( sofar++, bytish);
               } else {
                 reinterpret_cast<byte *>(&O)[sofar++] = bytish;
               }
@@ -811,12 +1001,12 @@ struct CommandLineInterpreter {
       }
     }
 
-    if (sendingMemory < O.STAMP_OFFSET) {
+    if (sendingMemory < VersionInfo::OFFSET) {
       auto canSend = stream.availableForWrite();
       if (canSend) {
         while (canSend-- > 0) {
           stream.write(EEPROM.read(sendingMemory++));
-          if (++sendingMemory >= Opts::STAMP_OFFSET) {
+          if (++sendingMemory >= VersionInfo::OFFSET) {
             break;
           }
         }
@@ -877,91 +1067,7 @@ struct Blinker {
 
 } blink;
 
-///////////////////////////////////////////////////////
-/** transmit progam et al to another octoid
-*/
-struct Cloner {
-  Stream *target = nullptr;
-  //background sending
-  EEAddress tosend = NaV;
-  unsigned sendingLeft = 0;
-  bool legacy = false; //todo: default true once true case is coded
 
-  /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
-  bool sendCommand(char letter, unsigned more = NaV ) {
-    unsigned also = 0;
-    switch (letter) {
-      case 'S': case 'U': also = 2; break;
-      case 'M': also = 1; break;
-    }
-    if (target && target->availableForWrite() >= also) { //avert delays between essetial bytes of a command, for old systems that did blocking reception
-      target->write('@');
-      target->write(letter);
-      while (also-- > 0) {
-        target->write(more);//little endian
-        more >>= 8;
-      }
-    } else {
-      return false;
-    }
-  }
-
-  bool sendChunk(char letter, unsigned eeaddress, size_t sizeofthing) {
-    tosend = eeaddress;
-    sendingLeft = sizeofthing;
-    if (!sendCommand(letter, sendingLeft)) {
-      sendingLeft = 0;
-      return false;
-    }
-    return true;
-  }
-
-
-  //user must confirm versions match before calling this
-  bool sendConfig() {
-    //todo: legacy export
-    if (legacy) {
-      return false; //big issue: can't send from EEPROM as we have modified content, must intercept in sender
-    }
-    return sendChunk('U', O.SAMPLE_END, sizeof(O));//todo: symbol
-  }
-
-  bool sendFrames() {
-    return sendChunk('S', 0, O.SAMPLE_END);//send all, not just 'used'
-  }
-
-  //and since we are mimicing OctoField programmer:
-  void sendTrigger() {
-    sendCommand('T');
-  }
-
-  void sendPattern(byte pattern) {
-    sendCommand('M', pattern);
-  }
-
-  /// call while
-  void onTick(MilliTick ignored) {
-    if (!target) {
-      return;
-    }
-
-    while (sendingLeft) {
-      byte chunk[sizeof(Opts)];//want to send Opts as one chunk is not in legacy mode
-      unsigned chunker = 0;
-      if (legacy && tosend >= O.SAMPLE_END) {
-        //todo: fill in chunk with legacy pattern
-      } else {
-        for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
-          chunk[chunker] = EEPROM.read(tosend + chunker);
-        }
-      }
-      auto wrote = target->write(chunk, chunker);
-      tosend += wrote;
-      sendingLeft -= wrote;
-    }
-  }
-
-};
 
 ///////////////////////////////////////////////////////
 /** send a break to a hareware serial port, which excludes USB */
@@ -1043,6 +1149,7 @@ void loop() {
   blink.onTick(now);
 
   cli.check();//unlike other checks this guy doesn't need any millis.
+  cli.cloner.onTick(now);
   if (S.check(now)) { //active frame event.
     //new frame
     if (S.amRecording) {
