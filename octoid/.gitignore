@@ -10,4 +10,6 @@ eztypes.h
 lardls
 lib
 linearmap.h
+millievent.cpp
+millievent.h
 pinuser.h
