@@ -9,7 +9,9 @@ eztypes.h
 *.inot
 lardls
 lib
-linearmap.h
 millievent.cpp
 millievent.h
+minimath.h
 pinuser.h
+twiddler.cpp
+twiddler.h

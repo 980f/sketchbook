@@ -1,11 +1,14 @@
 /*
    inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
-   There were unnecessary blocking delays in many places.
+   Octobanger had blocking delays in many places, and halfbaked attempts to deal with the consequences.
+   If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
+   By doing that 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
 
+  todo: guard against user spec'ing rx/tx pins
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
   note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
   todo: package into a single class so that can coexist with other code, such as the flicker code.
-  todo: receive config into ram, only on success burn eeprom.
+  test: receive config into ram, only on success burn eeprom.
   test: instead of timeout on host abandoning program download allow a sequence of 5 '@' in a row to break device out of download.
   todo: abort/disable input signal needed for recovering from false trigger just before a group arrives.
   todo: temporary mask via pin config, ie a group of 'bit bucket'
@@ -31,24 +34,41 @@
 #define RealSerial Serial
 #endif
 
+//for some platforms we must exclude D0 and D1 from controls.
+#ifndef GuardRxTx
+#if RealSerial != CliSerial
+#define GuardRxTx 0
+#else
+#define GuardRxTx 1
+#endif
+
 
 ////////////////////////////////////////////////////////////
 //C++ language missing pieces:
-#define arraySize(arrayname) sizeof(arrayname)/sizeof(arrayname[0])
-//for when an integer has no value, we use the least useful value:  (Not a Value)
+//number of array elements, rather than sharing a #defined declaration and presuming it is used as its name suggests
+#define arraySize(arrayname) sizeof(arrayname)/sizeof(*arrayname)
+//for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
 #define NaV ~0U
 ////////////////////////////////////////////////////////////
 #include "millievent.h"
 
 
 ///////////////////////////
-#include "chainprinter.h"   //less verbose code in your module when printing, similar to BASIC's print statement.
+#include "chainprinter.h"   //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
 
+//I haven't quite managed to eliminate all of the mutual dependencies, one diagnostic still causes a loop if put into a class:
 void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
 ///////////////////////////
 #include "digitalpin.h"
 
-const DigitalOutput BlinkerLed(13); //board led
+//convert define into a real shared variable:
+const int LedPinNumber =
+#ifdef LED_BUILTIN
+  LED_BUILTIN;
+#else
+  NaV;
+#endif
+
 
 #include <EEPROM.h>
 using EEAddress = uint16_t ;
@@ -60,10 +80,8 @@ struct VersionInfo {
   //version info, sometimes only first 3 are reported.
   static const byte buff[5];//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
-
   //1019-1023 stamp
   static const EEAddress OFFSET = 1024 - sizeof(buff);// ~1019; //start byte of stamp
-
 
   bool verify() {
     for (int i = 0; i < sizeof(buff); i++)  {
@@ -93,7 +111,6 @@ struct VersionInfo {
   }
 };
 
-VersionInfo stamp;
 
 const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
 static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0}; //holder for stamp, 8 tells PC app that we have 8 channels
@@ -113,7 +130,7 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
   //if you need any configuration you will have to make more major changes to the octoblast defined concept.
 }
 
-
+//todo: EEPROM.h has undocumented class for this!
 using EEAddress = uint16_t ; //how is it necessary to repeat this? How does the prior definition go out of scope!?!?
 
 __attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit) {
@@ -134,9 +151,11 @@ struct Channel {
   } def;
 
   void operator = (bool activate) {
-    bool setto = activate ^ def.active ;
+    bool setto = activate ? def.active : ! def.active  ;
     switch (def.group) {
       case 0://pin
+        //todo: guard tx/rx pins here and in configuration application
+        
         digitalWrite(def.index, setto);
         break;
       case 1://PCF858x (I2C)
@@ -163,6 +182,9 @@ struct Channel {
 /////////////////////////////////////////////////
 // this struct contains all config that is saved in EEPROM
 struct Opts  {
+
+    VersionInfo stamp;
+
     static const EEAddress SAMPLE_END = 1000;//todo: subtract Opts size and config hooker size from stamp, truncate to even.
     //the legacy EEPROM layout had 19 bytes of config of which 11 were used.
     //we are sticking with that at the moment and we are using 12 bytes so we have 7 spare.
@@ -172,7 +194,7 @@ struct Opts  {
 
     */
     enum LegacyIndex {//the enum that they should have created ;)
-      PIN_MAP_SLOT = 0,
+      PIN_MAP_SLOT = 0,  //add 1002 to get offset in OctoBlaster_TTL.
       TTL_TYPES_SLOT,
       MEDIA_TYPE_SLOT,
       MEDIA_DELAY_SLOT,
@@ -181,7 +203,7 @@ struct Opts  {
       VOLUME_SLOT,
       TRIGGER_TYPE_SLOT ,
       TIMING_OFFSET_TYPE_SLOT ,
-      MEM_SLOTS
+      MEM_SLOTS  //let the compile count for us
     };
 
     Channel::Definition output[TTL_COUNT];
@@ -189,6 +211,9 @@ struct Opts  {
     Channel::Definition triggerOut;
     byte bootSeconds;
     byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
+    //measure frame via a program that outputs a known pulse then send us the int and 256*fract of the mills per frame.
+    byte frameMillis;   //if clock is slow such as 49.123 ms per frame then make this 49 ...
+    byte frameFraction;  // ... and this  .123 * 256
 
   public:
     void save() const {
@@ -233,7 +258,8 @@ struct Opts  {
         case TRIGGER_TYPE_SLOT:
           return triggerIn.active;
         case TIMING_OFFSET_TYPE_SLOT:
-          return 0; //we don't support turning a tweak on or off. Might recycle as external frame sync enable
+          //0 was a value for a slow local clock, 1 for right on:
+          return frameFraction == 0;
         default:
           return 0;
       }
@@ -241,7 +267,8 @@ struct Opts  {
 
     void setLegacy(unsigned index, byte ancient) {
       switch (index) {
-        case PIN_MAP_SLOT: //
+        case PIN_MAP_SLOT:
+          //todo: do at least one of the old pinmaps here, but always report "custom"
           break;
         case TTL_TYPES_SLOT: //polarities packed
           for (int i = 0; i < TTL_COUNT; i++) {
@@ -263,6 +290,13 @@ struct Opts  {
           triggerIn.active = ancient != 0;
           break;
         case TIMING_OFFSET_TYPE_SLOT:
+          if (ancient) {
+            frameMillis = 50;
+            frameFraction = 0;
+          } else {
+            frameMillis = 49;
+            frameFraction = 256 * (1 - 0.405); //legacy tweak
+          }
           break;
       }
     }
@@ -384,27 +418,38 @@ struct Trigger {
   so we need to produce 50 adjustments in 99 frames which means bouncing between 49 and 50:
   49*50+ 50*50 = 99*50 ms in 100 frames.
 
+  If internal clock is fast than external frame will be a larger number of ticks when measured internally.
+  We would then want to occasionally use more than 50, perhaps many more, to get the target rate.
+
+  If internal clock is slower than external frame then we want to reduce ticks to less than 50.
+  If we only allow for a 2% relative tweak then we have a simpler config. OctoBnger tweak was .4 ms per frame, or less than 1%
+  49.405 was the default effective tweak for a prior user, so our tick should be 50 minus 1 60% of the time.
+  49405 vs 50000 can be what we feed into the twiddler
 
 */
+
+#include "twiddler.h" //wiggle millis per frame between 49 and 50 or 50 and 51
+
 struct FrameSynch {
-  static const unsigned MILLIS_PER_FRAME = 50;//todo:1 config when twiddler added.
-  //tracking number of frames since start
-  uint32_t frames = 0;
-  //time this step
+  unsigned MILLIS_PER_FRAME;// = 50;//todo:1 config when twiddler added.
   OneShot doNext;
-  //todo: 16 bit twiddler to occasinally skip or add a milli to a frame
+  /** each reference to this object produces either a 1 or a 0, varying according to the two operands. */
+  IntegerTwiddler tweak{0, 0};
 
   void begin() {
-    frames = 0;
+    //if external then doNext is set to next frame edge expected
+    doNext = 1; //start on next milli
   }
 
-  bool frameDone( ) {
-    return doNext;
-  }
-
-  void next(byte stepframes = 1) {
-    frames += stepframes;
-    doNext = frames * MILLIS_PER_FRAME;//todo: twiddler for +1, 0 , -1 tweaks
+  /** poll preferably at least every ms.
+    @returns true if frame time is expired, and starts looking for next frame*/
+  operator bool() {
+    if (doNext) {
+      doNext = MILLIS_PER_FRAME + tweak; //always relative to NOW, not absolute start time
+      return true;
+    } else {
+      return false;
+    }
   }
 
   void stop() {
@@ -450,7 +495,7 @@ struct Sequencer {
         EEPROM.get(nth * sizeof(Step), *this);
       }
 
-      void put(unsigned nth) {
+      void put(unsigned nth) const {
         EEPROM.put(nth * sizeof(Step), *this);
       }
 
@@ -491,7 +536,8 @@ struct Sequencer {
           return index < SAMPLE_COUNT ;
         }
 
-        /** increment pointer and load members from EEPROM */
+        /** increment pointer then load members from EEPROM
+          @returns whether a sample def was loaded, but it might be a stop marker. */
         bool next() { //works somewhat like sql resultset. I don't like that but it is cheap to implement.
           ++index;
           if (haveNext()) {
@@ -502,12 +548,14 @@ struct Sequencer {
         }
 
         /** gets value for nth step, and leaves point set to that, so next() will still be this one's value*/
-        void operator =(unsigned nth) {
+        bool operator =(unsigned nth) {
           index = nth;
           if (haveNext()) {
             get(index);
+            return !isStop();
           } else {
             stop();
+            return false;
           }
         }
 
@@ -517,24 +565,23 @@ struct Sequencer {
         }
 
         bool begin() {
-          index = 0;
-          Step::get(0);//peek
+          index = ~0;
+          get(0);//peek
           return !isStop();
         }
 
         /** stores present value where we THINK it most likey came from. */
-        void put() {
+        void put() const {
           Step::put(index);
         }
 
         /** end a recording, preserving present value and generating a stop record */
         void end() {
+          put();
+          stop();
+          ++index;//not using next() to not waste time with a get()
           if (haveNext()) {
-            Step::put(index);
-            stop();
-            Step::put(++index);
-          } else {
-            stop();
+            put();//write a stop to eeprom in case we quit recording before next frame gets us to some other Step::put
           }
         }
 
@@ -545,7 +592,8 @@ struct Sequencer {
             ++frames;
             return true;//can still record
           }
-          Step::put(index++); //save and advance
+          put();
+          ++index;
           if (haveNext()) {
             start(newpattern);
             return true;
@@ -556,60 +604,52 @@ struct Sequencer {
     }; //end class Pointer
 
     Pointer playing;
-
-    //manage frame timing:
+    unsigned framecounter = NaV; //same value it will have when count is exhausted
+    //frame ticks, which might be tracking an external signal.
     FrameSynch fs;
 
     //for recording
     bool amRecording = false;
     byte pattern;
 
-    bool advance() {
-      if (playing.next()) {
-        if (playing.frames) {
-          Send(playing.pattern);
-          fs.next(playing.frames);
-          return true;
-        }
-        switch (playing.pattern) {
-          case 0: //stop with delay before next trigger allowed
-            if (O.deadbandSeconds) {
-              T.suppress(round(O.deadbandSeconds * 1000));
-            }
-            break;
-          case 1://todo:f loop to mark if trigger still present
-            break;
-          case 2://todo:f mark location for loop while trigger
-            break;
-          default: //what do we do with invalid steps?
-            break;
-        }
-      }
-      finish();
-      return false;
-    }
-
-
     bool trigger() {
-      fs.begin();
-      //todo:f if external frame clock we must wait for it
-      bool canPlay = playing.begin(); //clears counters etc., reports whether there is something playable
-      if (amRecording) {//ignore canPlay
-        playing.start(pattern); //todo: wait until fs gives us a first frame
-        return true; //we are recording
-      } else {
-        return advance();//applies first step and computes time at which next occurs
-      }
+      fs.begin();//next onTick will be very soon, we can wait for it.
+      framecounter = 0;
+      return playing.begin(); //clears counters etc., reports whether there is something playable, does NOT apply the pattern
     }
 
     /** @returns whether a frame tick occured */
     bool onTick() {
-      if (fs.frameDone()) {
+      if (fs) {
         if (amRecording) {
           return record(pattern);//makes fs give us a true one frame time from now
-        } else {
-          return advance();//makes fs give is a true after multiple frame times from now.
         }
+        if (framecounter-- > 0) {//still playing active frame
+          return true;
+        }
+        while (playing.next()) { //if we haven't run off the end of the list
+          if (playing.frames) {//if simple step
+            Send(playing.pattern);
+            framecounter = playing.frames - 1;//-1 because it will be a frame time before we get back into this code.
+            return true;
+          }
+          //else pattern is a code that affects sequence, not outputs.
+          switch (playing.pattern) {
+            case 0: //stop with delay before next trigger allowed
+              if (O.deadbandSeconds) {
+                T.suppress(round(O.deadbandSeconds * 1000));
+              }
+              break;//finish
+            case 1://todo:f loop to mark if trigger still present
+              break;
+            case 2://todo:f mark location for loop while trigger
+              break;
+            default: //what do we do with invalid steps?
+              break;
+          }
+        }
+        finish();
+        return false;
       }
     }
 
@@ -618,18 +658,16 @@ struct Sequencer {
       fs.stop();
     }
 
-
-    /** @returns where it is still recording. */
+    /** @returns whether it is still recording. */
     bool record(byte pattern) {
       if (!playing) { //we should not be running
         return false;
       }
-      if (playing.record(pattern)) { //still have room to alter present playing record
-        fs.next();
-      } else {
-        endRecording();
+      if (playing.record(pattern)) { //still room to record
+        return true;
       }
-      return true;
+      endRecording();
+      return false;
     }
 
     void endRecording() {
@@ -640,7 +678,7 @@ struct Sequencer {
     }
 
     /** @returns total sequence time in number of frames , caches number of steps in 'used' */
-    uint32_t duration(unsigned &used) {
+    uint32_t duration(unsigned & used) const {
       uint32_t frames = 0;
       Pointer all;
       all.begin();
@@ -651,10 +689,12 @@ struct Sequencer {
       return frames;
     }
 
-    void configure(const Opts &O) {
+    void configure(const Opts & O) {
       for (int i = sizeof(O.output); i-- > 0;) {
         output[i].configure(O.output[i]);
       }
+      fs.MILLIS_PER_FRAME = O.frameMillis;
+      fs.tweak.setRatio(O.frameFraction, 256 - O.frameFraction); //the 256 comes from 2^(# of bits in fraction).
     }
 
 
@@ -681,25 +721,28 @@ struct Cloner {
   unsigned sendingLeft = 0;
   bool legacy = false; //todo: default true once true case is coded
 
-  /** sends the '@' the letter and dependeing upon letter might send one or two more bytes from more */
+  /** sends the '@' the letter and depending upon letter might send one or two more bytes from more.
+    @returns whether sequence was handed off to port. */
   bool sendCommand(char letter, unsigned more = NaV ) {
     unsigned also = 0;
     switch (letter) {
       case 'S': case 'U': also = 2; break;
       case 'M': also = 1; break;
     }
-    if (target && target->availableForWrite() >= also) { //avert delays between essetial bytes of a command, for old systems that did blocking reception
+    if (target && target->availableForWrite() >= (2 + also)) { //avert delays between essetial bytes of a command, for old systems that did blocking reception
       target->write('@');
       target->write(letter);
       while (also-- > 0) {
         target->write(more);//little endian
         more >>= 8;
       }
+      return true;
     } else {
       return false;
     }
   }
 
+  /** send related prefix and set pointers for background sending */
   bool sendChunk(char letter, unsigned eeaddress, size_t sizeofthing) {
     if (!sendCommand(letter, sendingLeft)) {
       return false;
@@ -708,15 +751,19 @@ struct Cloner {
     return true;
   }
 
+  /** start background send of eeprom content */
   void startChunk(unsigned eeaddress, size_t sizeofthing) {
     tosend = eeaddress;
     sendingLeft = sizeofthing;
   }
 
+  unsigned configSize() const {
+    return legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O);
+  }
 
   //user must confirm versions match before calling this
   bool sendConfig() {
-    return sendChunk('U', O.SAMPLE_END, legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O));
+    return sendChunk('U', O.SAMPLE_END, configSize());
   }
 
   bool sendFrames() {
@@ -738,16 +785,15 @@ struct Cloner {
       return;
     }
 
-    while (sendingLeft) {
-      //multiple of 4 at least as large as given:
-      byte chunk[(sizeof(Opts) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+    while (sendingLeft) {//push as much as we can into sender buffer
+      //multiple of 4 at least as large as critical chunk:
+      byte chunk[( max(sizeof(Opts), Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
       if (legacy && tosend >= O.SAMPLE_END && tosend < VersionInfo::OFFSET) {//if legacy format and sending config
         auto offset = tosend - O.SAMPLE_END;
         for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
           chunk[chunker] = O.legacy(offset + chunker);
         }
-        //todo: fill in chunk with legacy pattern
       } else {
         for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
           chunk[chunker] = EEPROM.read(tosend + chunker);
@@ -785,9 +831,6 @@ struct CommandLineInterpreter {
   /** amount to receive */
   unsigned expected;
 
-  /** background send of eeprom content */
-  EEAddress sendingMemory = NaV;
-
   /* in the binary of a program two successive steps with count of 64 and the same pattern is gratuitous, it can be merged into a single step
       with count of 128. As such the sequence @@@@@ will always contain two identical counts with identical patterns regardless of where in the
       pattern/count alternation we are.
@@ -820,7 +863,7 @@ struct CommandLineInterpreter {
 
   Cloner cloner;
 
-  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true) {
+  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true /* auto crlf*/) {
     cloner.target = &someserial;
     cloner.legacy = true;
   }
@@ -838,18 +881,21 @@ struct CommandLineInterpreter {
     }
   }
 
-  unsigned configSize() const {
-    return cloner.legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O);
-  }
 
+  /** @returns whether state machine is already set, else caller should set it to expect an At. */
   bool onLetter(char letter) {
+    if (resynch.isKey(letter)) { // @@ is the same as a single @, recursively.
+      expecting = Letter;
+      return true; // ths is a bit hacky, but saves some code space
+    }
+
     switch (letter) {
       case 'V': //return version
-        stamp.print(stream);
+        O.stamp.print(stream);
         stream.println();
         break;
       case 'O': //is the stamp OK?
-        printer(stamp.ok ? F("OK") : F("NO"));
+        printer(O.stamp.ok ? F("OK") : F("NO"));
         break;
       case 'H': //go hot
         T.suppress(0);
@@ -863,13 +909,16 @@ struct CommandLineInterpreter {
         S.trigger();
         break;
       case 'D': //send program eeprom contents back to Serial
+        //todo: if cloner is still busy either queue this up or ignore it
         cloner.startChunk(0, O.SAMPLE_END); //todo: clip to frames used?
         break;
       case 'F': //send just the config eeprom contents back to Serial
-        cloner.startChunk(O.SAMPLE_END, configSize());
+        //todo: if cloner is still busy either queue this up or ignore it
+        cloner.startChunk(O.SAMPLE_END, cloner.configSize());
         break;
       case 'P': //ping back
-        stamp.report(printer, !cloner.legacy);
+        //todo: if not enough bytes available on output do not send anything
+        O.stamp.report(printer, !cloner.legacy);
         S.reportFrames(printer);
         O.report(printer);
         break;
@@ -882,14 +931,12 @@ struct CommandLineInterpreter {
         expecting = Datum;
         return true;//need more
       default:
-        if (resynch.isKey(letter)) {
-          expecting = Letter;
-        } else {
-          printer(F("unk char:"), letter);
-          //        clear_rx_buffer();//todo: debate this, disallows resynch
-        }
+        printer(F("unk char:"), letter);
         break;
     }
+    //unless command needs more parameters prepare for the next one.
+    pending = 0;
+    expecting = At;
     return false;
   }
 
@@ -898,8 +945,6 @@ struct CommandLineInterpreter {
     sometimes burns one EEProm byte
     at end of program load burns ~15.
 
-    reports can take a long time at present, will tend to that later.
-
   */
 
   void check() {
@@ -907,19 +952,16 @@ struct CommandLineInterpreter {
     if (bytish != NaV) {
       switch (expecting) {
         case At:
-          if (resynch.isKey(bytish )) {
+          if (resynch.isKey(bytish)) {
             expecting = Letter;
           }
           break;
         case Letter:
-          if (onLetter(bytish)) {
+          if (onLetter(bytish)) {//true when expecting to receive more related to the command
             pending = bytish;
             sofar = 0;
             expected = 0;
             //expecting was set in onLetter to LoLength or Datum
-          } else {
-            pending = 0;
-            expecting = At;
           }
           break;
         case LoLength:
@@ -936,7 +978,7 @@ struct CommandLineInterpreter {
               }
               break;
             case 'U'://receive config flag
-              if (expected != configSize()) {
+              if (expected != cloner.configSize()) {//our legacy local and remote are out of synch (or comm error)
                 printer(F("Unknown config length passed: "), expected);
                 onBadSizeGiven();
               }
@@ -946,8 +988,7 @@ struct CommandLineInterpreter {
           break;
         case Datum: //incoming binary data has arrived
           if (resynch(bytish )) {//will not return true on single byte of 'M'
-            expecting = Letter;
-            sendingMemory = NaV;
+            expecting = At;
             return;
           }
           switch (pending) {
@@ -981,25 +1022,12 @@ struct CommandLineInterpreter {
           break;
       }
     }
-
-    if (sendingMemory < VersionInfo::OFFSET) {
-      auto canSend = stream.availableForWrite();
-      if (canSend) {
-        while (canSend-- > 0) {
-          stream.write(EEPROM.read(sendingMemory++));
-          if (++sendingMemory >= VersionInfo::OFFSET) {
-            break;
-          }
-        }
-      }
-    }
-
   }
 
-  //called at end of setup
+  //call at end of Arduino's setup()
   void setup() {
     //original did a clear_rx
-    printer(F(".OBC")); //spit this back immediately tells PC what it just connected to
+    printer(F(".OBC")); //spit this back immediately, tells PC what it just connected to
   }
 
 };
@@ -1008,6 +1036,8 @@ CommandLineInterpreter cli{CliSerial}; //todo: allocate one each for USB if pres
 
 
 ///////////////////////////////////////////////////////
+const DigitalOutput BlinkerLed (LedPinNumber); //being outside of the Blinker class saves 16 bytes, wtf? Absolute addressing must be cheaper than base+offset!
+
 struct Blinker {
   //names presume it will mostly be off.
   //todo: add polarity for whether idles off versus on
@@ -1035,7 +1065,6 @@ struct Blinker {
   operator bool() const {
     return offAt.isRunning() || onAt.isRunning();
   }
-
 
 } blink;
 
@@ -1075,7 +1104,7 @@ struct LineBreaker {
     if (breakEnds) {
       digitalWrite(txpin, LOW);
       port->begin(baud);//restart uart
-      okToUse = 1; //too convoluted to wait just one bit time
+      okToUse = 1; //too convoluted to wait just one bit so we wait a full ms
       return false;
     }
     return okToUse;
@@ -1087,10 +1116,9 @@ struct LineBreaker {
 
 void setup() {
   //read config from eeprom
-  stamp.ok = O.read();
+  O.stamp.ok = O.read();
   S.configure(O);
   //apply idle state to hardware
-
   S.Send(0);
 
   T.setup(O);
@@ -1120,15 +1148,12 @@ void loop() {
   cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
   if (MilliTicked.ticked()) { //once per millisecond, be aware that it will occasionally skip some
-    //    MilliTick now = MilliTicked;
     blink.onTick();
 
     cli.cloner.onTick();//background transmission
     if (S.onTick()) { //active frame event.
-      //new frame already recorded a sample
       if (S.amRecording) {
         //here is where we update S.pattern with data to record.
-        // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recirding and playing
       }
     }
 
@@ -1139,13 +1164,12 @@ void loop() {
     }
 
     //if recording panel is installed:
-    //tood: debounce user input into pattern byte.
-
-
+    //todo: debounce user input into pattern byte.
+    // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recording and playing
 
     if (~T) {//then it is suppressed or otherwise not going to fire
       if (!blink) {
-        blink.pulse(450, 550);
+        blink.pulse(350, 650);
       }
     }
   }
