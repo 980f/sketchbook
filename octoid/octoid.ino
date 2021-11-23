@@ -22,6 +22,18 @@
 
 */
 
+///////////////////////////////////
+//build options, things that we don't care to make runtime options
+//FrameTweaking 1 enables emulation of OB's timing adjustment, 0 ignores OB's config.  (saves 1 byte config, 50 bytes code. Might not be worth the lines of code.
+#define FrameTweaking 0
+
+const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
+//eeprom memory split:
+
+#include <EEPROM.h>
+using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
+const EEAddress SAMPLE_END = 1000;//todo: subtract Opts size and config hooker size from stamp, truncate to even.
+
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
 // RealSerial is output for programmed device
@@ -41,7 +53,7 @@
 #else
 #define GuardRxTx 1
 #endif
-
+#endif
 
 ////////////////////////////////////////////////////////////
 //C++ language missing pieces:
@@ -50,16 +62,9 @@
 //for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
 #define NaV ~0U
 ////////////////////////////////////////////////////////////
-#include "millievent.h"
-
-
-///////////////////////////
-#include "chainprinter.h"   //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
-
-//I haven't quite managed to eliminate all of the mutual dependencies, one diagnostic still causes a loop if put into a class:
-void reportFrames(ChainPrinter & printer);//IDE fails to make prototype
-///////////////////////////
-#include "digitalpin.h"
+#include "millievent.h"   //convenient tools for millis()
+#include "chainprinter.h" //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
+#include "digitalpin.h"   //
 
 //convert define into a real shared variable:
 const int LedPinNumber =
@@ -69,9 +74,6 @@ const int LedPinNumber =
   NaV;
 #endif
 
-
-#include <EEPROM.h>
-using EEAddress = uint16_t ;
 
 //////////////////////////////
 
@@ -111,17 +113,14 @@ struct VersionInfo {
   }
 };
 
-
-const int TTL_COUNT = 8; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
-static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0}; //holder for stamp, 8 tells PC app that we have 8 channels
-
+static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0};
 
 //////////////////////////////////////////////////////////////
 // abstracting output types to allow for things other than pins.
 // first group is pins, so config values match legacy
 // planning on I2C GPIO
 // then SPI GPIO
-// and then interception point for custom modules:
+// last group is interception point for custom modules:
 
 /** linker hook for sequenced actions, 32 flavors available */
 __attribute__((weak)) void octoid(unsigned pinish, bool action) {
@@ -129,9 +128,6 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
   //it will get called with a value 0.31 and a boolean that can be inverted by the fx artist.
   //if you need any configuration you will have to make more major changes to the octoblast defined concept.
 }
-
-//todo: EEPROM.h has undocumented class for this!
-using EEAddress = uint16_t ; //how is it necessary to repeat this? How does the prior definition go out of scope!?!?
 
 __attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
@@ -144,7 +140,7 @@ __attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit
 //////////////////////////////////////////////////////
 //output descriptors for the 8 bits of program data, abused for trigger in and out as well.
 struct Channel {
-  struct Definition {
+  struct Definition { //presently 4 categories with up to 32 members in each, probably overkill.
     unsigned index: 5; //value used by group
     unsigned group: 2; //derived from config code
     unsigned active: 1; //polarity to send for active
@@ -155,7 +151,7 @@ struct Channel {
     switch (def.group) {
       case 0://pin
         //todo: guard tx/rx pins here and in configuration application
-        
+
         digitalWrite(def.index, setto);
         break;
       case 1://PCF858x (I2C)
@@ -178,6 +174,37 @@ struct Channel {
 
 };
 
+/////////////////////////////////////////////////
+struct FramingOptions {
+  //measure frame via a program that outputs a known pulse then send us the int and 256*fract of the mills per frame.
+  byte Millis;   //if clock is slow such as 49.123 ms per frame then make this 49 ...
+#if FrameTweaking
+  byte Fraction;  // ... and this  .123 * 256
+  void fromLegacy(byte ancient) {
+    if (ancient) { //if was non-zero then 2nd tweak was selected which had a value of 0.
+      Millis = 50;
+      Fraction = 0;
+    } else {
+      Millis = 49;
+      Fraction = 256 * (1 - 0.405); //legacy tweak
+    }
+  }
+
+  byte toLegacy() const {
+    return Fraction == 0; //coincidentally produces the desired value.
+  }
+#else
+  void fromLegacy(byte ancient) {
+    Millis = 50;
+  }
+
+  byte toLegacy() const {
+    return 1; //report always using the timing that was hardcoded as 50.0
+  }
+#endif
+
+
+};
 
 /////////////////////////////////////////////////
 // this struct contains all config that is saved in EEPROM
@@ -185,7 +212,6 @@ struct Opts  {
 
     VersionInfo stamp;
 
-    static const EEAddress SAMPLE_END = 1000;//todo: subtract Opts size and config hooker size from stamp, truncate to even.
     //the legacy EEPROM layout had 19 bytes of config of which 11 were used.
     //we are sticking with that at the moment and we are using 12 bytes so we have 7 spare.
 
@@ -211,9 +237,7 @@ struct Opts  {
     Channel::Definition triggerOut;
     byte bootSeconds;
     byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
-    //measure frame via a program that outputs a known pulse then send us the int and 256*fract of the mills per frame.
-    byte frameMillis;   //if clock is slow such as 49.123 ms per frame then make this 49 ...
-    byte frameFraction;  // ... and this  .123 * 256
+    FramingOptions frame;
 
   public:
     void save() const {
@@ -259,7 +283,7 @@ struct Opts  {
           return triggerIn.active;
         case TIMING_OFFSET_TYPE_SLOT:
           //0 was a value for a slow local clock, 1 for right on:
-          return frameFraction == 0;
+          return frame.toLegacy();
         default:
           return 0;
       }
@@ -290,13 +314,7 @@ struct Opts  {
           triggerIn.active = ancient != 0;
           break;
         case TIMING_OFFSET_TYPE_SLOT:
-          if (ancient) {
-            frameMillis = 50;
-            frameFraction = 0;
-          } else {
-            frameMillis = 49;
-            frameFraction = 256 * (1 - 0.405); //legacy tweak
-          }
+          frame.fromLegacy(ancient);
           break;
       }
     }
@@ -331,7 +349,7 @@ struct Opts  {
       reportPins(printer.raw, F("TTL TYPES: "), true);
     }
 
-} __attribute__((packed)) O; //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
+} __attribute__((packed)); //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
 
 
@@ -407,58 +425,96 @@ struct Trigger {
     return suppressUntil.due();
   }
 
-} T;
+};
+
+
 
 /////////
 //
+
+#if FrameTweaking
+
 /**
   To compensate for a slow processor oscillator occasionally remove a tick using standard PWM thinking.
-  The correction should be ticks to remove every other number of ticks.
-  If we are only producing 99 frames when 100 were desired then we need to drop enough a frame's worth of millis every 99 frames.
+
+  If we are only producing 99 frames when 100 were desired then we need to drop a frame's worth of millis every 99 frames.
   so we need to produce 50 adjustments in 99 frames which means bouncing between 49 and 50:
   49*50+ 50*50 = 99*50 ms in 100 frames.
 
-  If internal clock is fast than external frame will be a larger number of ticks when measured internally.
-  We would then want to occasionally use more than 50, perhaps many more, to get the target rate.
+  OctoBnger tweak was -0.4 ms per frame, 49.595 arduino millis()/frame, so our tick should be 49 plus 1 ~60% of the time.
+  At present 8 bits of resolution on tweaking has been implemented, the limitation being in the configuration data allocation.
+  For finer tweaking we can add more configuration bytes and get more precise than the stability of the oscillator over time and temperature.
 
-  If internal clock is slower than external frame then we want to reduce ticks to less than 50.
-  If we only allow for a 2% relative tweak then we have a simpler config. OctoBnger tweak was .4 ms per frame, or less than 1%
-  49.405 was the default effective tweak for a prior user, so our tick should be 50 minus 1 60% of the time.
-  49405 vs 50000 can be what we feed into the twiddler
+  This whole clock adjust thing should be #ifdef'd.
 
 */
 
-#include "twiddler.h" //wiggle millis per frame between 49 and 50 or 50 and 51
+#include "twiddler.h" //wiggle millis per frame between 49 and 50 or 50 and 51, +/- 2% adjustment. 
 
-struct FrameSynch {
-  unsigned MILLIS_PER_FRAME;// = 50;//todo:1 config when twiddler added.
-  OneShot doNext;
-  /** each reference to this object produces either a 1 or a 0, varying according to the two operands. */
-  IntegerTwiddler tweak{0, 0};
+class FrameSynch {
+    OneShot doNext;
+  public:
+    unsigned MILLIS_PER_FRAME;
+    /** software pwm, generates a set of ones and zeroes that we add to the base amount.  */
+    IntegerTwiddler tweak{0, 0};
 
-  void begin() {
-    //if external then doNext is set to next frame edge expected
-    doNext = 1; //start on next milli
-  }
-
-  /** poll preferably at least every ms.
-    @returns true if frame time is expired, and starts looking for next frame*/
-  operator bool() {
-    if (doNext) {
-      doNext = MILLIS_PER_FRAME + tweak; //always relative to NOW, not absolute start time
-      return true;
-    } else {
-      return false;
+    void operator =(bool startElseStop) {
+      if (startElseStop) {
+        doNext = 1; //will start with next millis tick
+      } else {
+        doNext = 0; //disables this kind of timer
+      }
     }
-  }
 
-  void stop() {
-    doNext = 0;
-  }
+    /** poll preferably at least every ms.
+      @returns true if frame time is expired, and starts looking for next frame*/
+    operator bool() {
+      if (doNext) {//then a frame's worth of millis has passed since the last addignment to doNext.
+        doNext = tweak(MILLIS_PER_FRAME); //always relative to NOW, not absolute start time
+        return true;
+      } else {
+        return false;
+      }
+    }
 
-  FrameSynch() {}
+    void setup(const FramingOptions &O) {
+      MILLIS_PER_FRAME = O.Millis;
+      tweak.setRatio(O.Fraction, 256 - O.Fraction); //the 256 comes from 2^(# of bits in fraction).
+    }
+
+    MilliTick nominal(uint32_t frames) const {
+      return frames * MILLIS_PER_FRAME;
+    };
 
 };
+#else
+class FrameSynch {
+  public:
+    MonoStable MILLIS_PER_FRAME;//cheat, by using this name the config doesn't need to know which implementation of FrameSynch is active
+
+    void operator =(bool startElseStop) {
+      if (startElseStop) {
+        MILLIS_PER_FRAME.start();
+      } else {
+        MILLIS_PER_FRAME.stop();
+      }
+    }
+
+    operator bool() {
+      return MILLIS_PER_FRAME.perCycle();//then a frame's worth of millis has passed since the last addignment to doNext.
+    }
+
+    void setup(const FramingOptions &O) {
+      MILLIS_PER_FRAME = O.Millis;
+    }
+
+
+    MilliTick nominal(uint32_t frames) const {
+      return frames * MilliTick(MILLIS_PER_FRAME);
+    }
+
+};
+#endif
 
 ///////////////////////////////////
 // a step towards having more than one sequence table in a processor.
@@ -474,8 +530,11 @@ struct FrameSynch {
 
 */
 struct Sequencer {
+    Trigger &T;
+    /** amount of time after end of program to ignore trigger */
+    MilliTick deadtime;
 
-    static const int SAMPLE_COUNT = Opts::SAMPLE_END / 2;
+    static const int SAMPLE_COUNT = SAMPLE_END / 2;
 
     Channel output[sizeof(Opts::output)];
 
@@ -613,7 +672,7 @@ struct Sequencer {
     byte pattern;
 
     bool trigger() {
-      fs.begin();//next onTick will be very soon, we can wait for it.
+      fs = true; //next onTick will be very soon, we can wait for it before playing the step.
       framecounter = 0;
       return playing.begin(); //clears counters etc., reports whether there is something playable, does NOT apply the pattern
     }
@@ -636,9 +695,7 @@ struct Sequencer {
           //else pattern is a code that affects sequence, not outputs.
           switch (playing.pattern) {
             case 0: //stop with delay before next trigger allowed
-              if (O.deadbandSeconds) {
-                T.suppress(round(O.deadbandSeconds * 1000));
-              }
+              T.suppress(deadtime);
               break;//finish
             case 1://todo:f loop to mark if trigger still present
               break;
@@ -655,7 +712,7 @@ struct Sequencer {
 
     void finish() {
       Send(0);
-      fs.stop();
+      fs = false;
     }
 
     /** @returns whether it is still recording. */
@@ -672,7 +729,7 @@ struct Sequencer {
 
     void endRecording() {
       playing.end();
-      fs.stop();//stops frame ticking
+      fs = false;
       amRecording = false;
       finish();
     }
@@ -693,8 +750,8 @@ struct Sequencer {
       for (int i = sizeof(O.output); i-- > 0;) {
         output[i].configure(O.output[i]);
       }
-      fs.MILLIS_PER_FRAME = O.frameMillis;
-      fs.tweak.setRatio(O.frameFraction, 256 - O.frameFraction); //the 256 comes from 2^(# of bits in fraction).
+      fs.setup(O.frame);
+      deadtime = round(O.deadbandSeconds * 1000);
     }
 
 
@@ -702,14 +759,18 @@ struct Sequencer {
       unsigned used = 0;
       auto frames = duration(used);
       printer(F("Frame Count: "), used * 2); //legacy 2X
-      MilliTick ms = frames * fs.MILLIS_PER_FRAME;
+      MilliTick ms = fs.nominal(frames);
       unsigned decimals = ms % 1000;
 
       printer(F("Seq Len Secs: "), ms / 1000, decimals < 10 ? ".00" : decimals < 100 ? ".0" : ".", decimals);
     }
 
+    Sequencer(Trigger &T): T(T) {}
 
-} S;
+
+};
+
+
 
 ///////////////////////////////////////////////////////
 /** transmit program et al to another octoid
@@ -719,7 +780,11 @@ struct Cloner {
   //background sending
   EEAddress tosend = NaV;
   unsigned sendingLeft = 0;
-  bool legacy = false; //todo: default true once true case is coded
+  bool legacy = true;
+
+  Opts &O; //lambda to get to one function needed was more expensive than a simple link (54/6).
+
+  Cloner(Opts &O): O(O) {}
 
   /** sends the '@' the letter and depending upon letter might send one or two more bytes from more.
     @returns whether sequence was handed off to port. */
@@ -758,16 +823,16 @@ struct Cloner {
   }
 
   unsigned configSize() const {
-    return legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(O);
+    return legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(Opts);
   }
 
   //user must confirm versions match before calling this
   bool sendConfig() {
-    return sendChunk('U', O.SAMPLE_END, configSize());
+    return sendChunk('U', SAMPLE_END, configSize());
   }
 
   bool sendFrames() {
-    return sendChunk('S', 0, O.SAMPLE_END);//send all, not just 'used'
+    return sendChunk('S', 0, SAMPLE_END);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -789,8 +854,8 @@ struct Cloner {
       //multiple of 4 at least as large as critical chunk:
       byte chunk[( max(sizeof(Opts), Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
-      if (legacy && tosend >= O.SAMPLE_END && tosend < VersionInfo::OFFSET) {//if legacy format and sending config
-        auto offset = tosend - O.SAMPLE_END;
+      if (legacy && tosend >= SAMPLE_END && tosend < VersionInfo::OFFSET) {//if legacy format and sending config
+        auto offset = tosend - SAMPLE_END;
         for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
           chunk[chunker] = O.legacy(offset + chunker);
         }
@@ -812,7 +877,8 @@ struct Cloner {
 ////////////////////////////////////////////
 // does not block, expectes its check() to be called frequently
 struct CommandLineInterpreter {
-
+  Sequencer &S;
+  Opts O; //options are mostly part of the command interface.
   /** command protocol state */
   enum Expecting {
     At = 0,
@@ -863,7 +929,7 @@ struct CommandLineInterpreter {
 
   Cloner cloner;
 
-  CommandLineInterpreter (Stream &someserial): stream(someserial), printer(stream, true /* auto crlf*/) {
+  CommandLineInterpreter (Stream &someserial, Sequencer &S): S(S), stream(someserial), printer(stream, true /* auto crlf*/) , cloner(O) {
     cloner.target = &someserial;
     cloner.legacy = true;
   }
@@ -898,11 +964,11 @@ struct CommandLineInterpreter {
         printer(O.stamp.ok ? F("OK") : F("NO"));
         break;
       case 'H': //go hot
-        T.suppress(0);
+        S.T.suppress(0);
         printer(F("Ready"));
         break;
       case 'C': //go cold
-        T.suppress(NaV);
+        S.T.suppress(NaV);
         printer(F("Standing by..."));
         break;
       case 'T': //trigger test
@@ -910,11 +976,11 @@ struct CommandLineInterpreter {
         break;
       case 'D': //send program eeprom contents back to Serial
         //todo: if cloner is still busy either queue this up or ignore it
-        cloner.startChunk(0, O.SAMPLE_END); //todo: clip to frames used?
+        cloner.startChunk(0, SAMPLE_END); //todo: clip to frames used?
         break;
       case 'F': //send just the config eeprom contents back to Serial
         //todo: if cloner is still busy either queue this up or ignore it
-        cloner.startChunk(O.SAMPLE_END, cloner.configSize());
+        cloner.startChunk(SAMPLE_END, cloner.configSize());
         break;
       case 'P': //ping back
         //todo: if not enough bytes available on output do not send anything
@@ -972,7 +1038,7 @@ struct CommandLineInterpreter {
           expected = word(bytish, lowbytedata);//maydo: treat key char as unreasonable high byte.
           switch (pending) {
             case 'S': //receive step datum
-              if (expected > O.SAMPLE_END ) {
+              if (expected > SAMPLE_END ) {
                 printer(F("Unknown program size received: "), expected);
                 onBadSizeGiven();
               }
@@ -1032,8 +1098,6 @@ struct CommandLineInterpreter {
 
 };
 
-CommandLineInterpreter cli{CliSerial}; //todo: allocate one each for USB if present and rx/tx.
-
 
 ///////////////////////////////////////////////////////
 const DigitalOutput BlinkerLed (LedPinNumber); //being outside of the Blinker class saves 16 bytes, wtf? Absolute addressing must be cheaper than base+offset!
@@ -1068,110 +1132,88 @@ struct Blinker {
 
 } blink;
 
-
-
+//someone put a macro in global namespace, I don't want to rename my object so
+#undef cli
 ///////////////////////////////////////////////////////
-/** send a break to a hareware serial port, which excludes USB */
+struct Blaster {
+  Sequencer S;
+  Trigger T;
+  CommandLineInterpreter cli; //todo: allocate one each for USB if present and rx/tx.
 
-struct LineBreaker {
-  HardwareSerial *port = nullptr;
-  uint32_t baud;
-  unsigned txpin = NaV;
+  Blaster (): S(T), cli(CliSerial, S) {}
 
-  MilliTick breakMillis;
+  void setup() {
+    //read config from eeprom
+    cli.O.stamp.ok = cli.O.read();
+    cli.S.configure(cli.O);
+    //apply idle state to hardware
+    cli.S.Send(0);
 
-  void attach(HardwareSerial &port, uint32_t baudafter, unsigned pin, unsigned overkill = 1) {
-    txpin = pin;
-    baud = baudafter;
-    breakMillis = ceil((11000.0F * overkill) / baud);//11 bits and 1000 millis per second over bits per second
-    this->port = &port;
-  }
+    T.setup(cli.O);
 
-  OneShot breakEnds;
-  OneShot okToUse ;
-
-  void engage() {
-    if (port && txpin != NaV) {
-      port->end();//make uart let go of pin
-      pinMode(txpin, OUTPUT); //JIC serial.end() mucked with it
-      digitalWrite(txpin, HIGH);
-      breakEnds = breakMillis;
+    CliSerial.begin(115200);
+    if (CliSerial != RealSerial) {
+      RealSerial.begin(115200);
     }
-  }
 
-  /** @returns true once when break is completed*/
-  bool onTick() {
-    if (breakEnds) {
-      digitalWrite(txpin, LOW);
-      port->begin(baud);//restart uart
-      okToUse = 1; //too convoluted to wait just one bit so we wait a full ms
-      return false;
+    cli.setup();
+
+    cli.O.report(cli.printer);//must follow S init to get valid duration
+
+    if (cli.O.bootSeconds > 0)  {
+      T.suppress(cli.O.bootSeconds * 1000);
     }
-    return okToUse;
+
+    if (~T) {
+      cli.printer(F("Trigger will go hot in "), T.liveIn(), " ms");
+    } else {
+      cli.printer(F("Ready"));
+    }
+    cli.printer(F("Alive"));
   }
 
-};
+  void loop(bool ticked) {
+    cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
+    if (MilliTicked.ticked()) { //once per millisecond, be aware that it will occasionally skip some
+      blink.onTick();
+
+      cli.cloner.onTick();//background transmission
+      if (S.onTick()) { //active frame event.
+        if (S.amRecording) {
+          //here is where we update S.pattern with data to record.
+        }
+      }
+
+      if (T.onTick()) {//trigger is active
+        if (S.trigger()) {//ignores trigger being active while sequence is active
+          cli.printer(F("Playing sequence..."));
+        }
+      }
+
+      //if recording panel is installed:
+      //todo: debounce user input into pattern byte.
+      // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recording and playing
+
+      if (~T) {//then it is suppressed or otherwise not going to fire
+        if (!blink) {
+          blink.pulse(350, 650);
+        }
+      }
+    }
+
+  }
+
+} B;
 ///////////////////////////////////////////////////////
-
 void setup() {
-  //read config from eeprom
-  O.stamp.ok = O.read();
-  S.configure(O);
-  //apply idle state to hardware
-  S.Send(0);
-
-  T.setup(O);
-
-  CliSerial.begin(115200);
-  if (CliSerial != RealSerial) {
-    RealSerial.begin(115200);
-  }
-
-  cli.setup();
-
-  O.report(cli.printer);//must follow S init to get valid duration
-
-  if (O.bootSeconds > 0)  {
-    T.suppress(O.bootSeconds * 1000);
-  }
-
-  if (~T) {
-    cli.printer(F("Trigger will go hot in "), T.liveIn(), " ms");
-  } else {
-    cli.printer(F("Ready"));
-  }
-  cli.printer(F("Alive"));
+  B.setup();
+//your extra code goes here
 }
 
 void loop() {
-  cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
-
-  if (MilliTicked.ticked()) { //once per millisecond, be aware that it will occasionally skip some
-    blink.onTick();
-
-    cli.cloner.onTick();//background transmission
-    if (S.onTick()) { //active frame event.
-      if (S.amRecording) {
-        //here is where we update S.pattern with data to record.
-      }
-    }
-
-    if (T.onTick()) {//trigger is active
-      if (S.trigger()) {//ignores trigger being active while sequence is active
-        cli.printer(F("Playing sequence..."));
-      }
-    }
-
-    //if recording panel is installed:
-    //todo: debounce user input into pattern byte.
-    // a 16 channel I2C box comes to mind, 8 data inputs, record, save, and perhaps some leds for recording and playing
-
-    if (~T) {//then it is suppressed or otherwise not going to fire
-      if (!blink) {
-        blink.pulse(350, 650);
-      }
-    }
-  }
+  auto ticked = MilliTicked.ticked();
+  B.loop(ticked);
+//your extra code goes here
 }
 //end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.
