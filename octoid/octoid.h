@@ -53,7 +53,7 @@ const int LedPinNumber =
 
 
 const int NumControls = TTL_COUNT; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
-//eeprom memory split:
+
 
 #include <EEPROM.h>
 using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
@@ -96,7 +96,7 @@ using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are 
 
 namespace Octoid {
 
-using VersionTag = byte[5]; //version info allocation
+using VersionTag = byte[5];//type for version numbering.
 
 //still keeping old EEPROM layout for simpler cloning to existing hardware
 enum EEAlloc {//values are stepping stone to reorganization.
@@ -146,7 +146,6 @@ struct VersionInfo {
   }
 };
 
-static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, 0, 0, 0};
 
 //////////////////////////////////////////////////////////////
 // abstracting output types to allow for things other than pins.
@@ -1266,5 +1265,9 @@ struct Blaster {
   }
 
 } ;
+
+//put here so that we can feed version pieces from compiled constants
+static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, EEAlloc::ConfigurationSize - sizeof(Opts), 0, 0 };
+
 }
 //end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.
