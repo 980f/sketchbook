@@ -153,7 +153,11 @@ static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, 0, 0, 0};
 // first group is pins, so config values match legacy
 // planning on I2C GPIO
 // then SPI GPIO
-// last group is interception point for custom modules:
+// last group is interception point for custom modules
+
+//hooks for custom output channels:r
+extern "C" void octoid(unsigned pinish, bool action);
+extern "C" void octoidConfig(EEAddress start, byte sized,  bool writeit);
 
 /** linker hook for sequenced actions, 32 flavors available */
 __attribute__((weak)) void octoid(unsigned pinish, bool action) {
@@ -162,7 +166,7 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
   //if you need any configuration you will have to make more major changes to the octoblast defined concept.
 }
 
-__attribute__((weak)) void octoidMore(EEAddress start, byte sized,  bool writeit) {
+__attribute__((weak)) void octoidConfig(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
   // else EEPROM.get(start,*yourcfgobject);
   //but yourcfgobject must be no bigger than sized.
