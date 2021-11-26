@@ -4,29 +4,30 @@
    inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
    Octobanger had blocking delays in many places, and halfbaked attempts to deal with the consequences.
    If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
-   By doing that 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
+   By ignoring potential weirdness from editing a program while it is running 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
 
-  todo: guard against user spec'ing rx/tx pins
+  test: guard against user spec'ing rx/tx pins
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
   note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
-  todo: package into a single class so that can coexist with other code, such as the flicker code.
+  test: package into a single class so that can coexist with other code, such as the flicker code.
   test: receive config into ram, only on success burn eeprom.
   test: instead of timeout on host abandoning program download allow a sequence of 5 '@' in a row to break device out of download.
-  todo: abort/disable input signal needed for recovering from false trigger just before a group arrives.
+  todo: add abort/disable input signal needed for recovering from false trigger just before a group arrives. Presently must use hardware reset and the startup delay is then an issue.
   todo: temporary mask via pin config, ie a group of 'bit bucket'
 
   Timer tweaking:
   The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
+  This is implemented while also allowing the frame time to be dynamically set to something other than 50ms.
 
   If certain steps need to be a precise time from other steps then use a good oscillator.
   In fact, twiddling the timer reload value of the hardware timer fixes the frequency issue for the whole application.
-  todo: finish up the partial implementation of FrameSynch class.
+  todo: add external reference timer to FrameSynch class.
 
 */
 
 ///////////////////////////////////
 //build options, things that we don't care to make runtime options
-//FrameTweaking 1 enables emulation of OB's timing adjustment, 0 ignores OB's config.  (saves 1 byte config, 50 bytes code. Might not be worth the lines of code.
+//FrameTweaking 1 enables emulation of OB's timing adjustment, 0 ignores OB's config.  (saves 1 byte config, 50 bytes rom. Might not be worth the lines of source code.
 #ifndef FrameTweaking
 #warning Enabling frame timing tweak module
 FrameTweaking 1
@@ -42,13 +43,20 @@ FrameTweaking 1
 #define TTL_COUNT 8
 #endif
 
+//convert define into a real shared variable:
+const int LedPinNumber =
+#ifdef LED_BUILTIN
+  LED_BUILTIN;
+#else
+  NaV;
+#endif
+
 
 const int NumControls = TTL_COUNT; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
 //eeprom memory split:
 
 #include <EEPROM.h>
 using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
-const EEAddress ConfigurationBase = SAMPLE_END;//todo: subtract Opts size and config hooker size from stamp, truncate to even.
 
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
@@ -67,7 +75,7 @@ const EEAddress ConfigurationBase = SAMPLE_END;//todo: subtract Opts size and co
 #if RealSerial != CliSerial
 #define GuardRxTx 0
 #else
-#define GuardRxTx 1
+#define GuardRxTx 2
 #endif
 #endif
 
@@ -82,31 +90,37 @@ const EEAddress ConfigurationBase = SAMPLE_END;//todo: subtract Opts size and co
 #include "chainprinter.h" //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
 #include "digitalpin.h"   //
 #include "edgyinput.h"
-#include "twiddler.h" //wiggle millis per frame between 49 and 50 or 50 and 51, +/- 2% adjustment. 
-
-//convert define into a real shared variable:
-const int LedPinNumber =
-#ifdef LED_BUILTIN
-  LED_BUILTIN;
-#else
-  NaV;
-#endif
+#include "twiddler.h" //wiggle millis per frame to get an average close to some reference clock's opinion of what a millisecond is.
 
 //////////////////////////////
 
 namespace Octoid {
 
+using VersionTag = byte[5]; //version info allocation
+
+//still keeping old EEPROM layout for simpler cloning to existing hardware
+enum EEAlloc {//values are stepping stone to reorganization.
+  ProgStart = 0,
+  ConfigurationStart = ProgStart + 2 * 500,  //legacy 500 samples for 1k EEProm
+  ProgEnd = ConfigurationStart,
+  ProgSize = ProgStart - ProgEnd,
+
+  StampEnd = E2END + 1, //E2END is address of last byte
+  StampStart = StampEnd - sizeof(VersionTag),
+  StampSize = StampStart - StampEnd,
+
+  ConfigurationEnd = StampStart,
+  ConfigurationSize = ConfigurationEnd - ConfigurationStart
+};
+
 struct VersionInfo {
   bool ok = false;//formerly init to "OK" even though it is not guaranteed to be valid via C startup code.
   //version info, sometimes only first 3 are reported.
-  static const byte buff[5];//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
-
-  //1019-1023 stamp
-  static const EEAddress OFFSET = 1024 - sizeof(buff);// ~1019; //start byte of stamp
+  static const VersionTag buff ;//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
   bool verify() {
-    for (int i = 0; i < sizeof(buff); i++)  {
-      if (EEPROM.read(OFFSET + i) != buff[i]) {
+    for (int i = 0; i < sizeof(VersionTag); i++)  {
+      if (EEPROM.read(StampStart + i) != buff[i]) {
         return false;
       }
     }
@@ -114,11 +128,11 @@ struct VersionInfo {
   }
 
   void burn() {
-    EEPROM.put(OFFSET, buff);
+    EEPROM.put(StampStart, buff);
   }
 
   void print(Print &printer, bool longform = false) {
-    for (int i = 0; i < longform ? sizeof(buff) : 3; i++) {
+    for (int i = 0; i < longform ? StampSize : 3; i++) {
       if (i) {
         printer.print(".");
       }
@@ -132,7 +146,7 @@ struct VersionInfo {
   }
 };
 
-static const byte VersionInfo::buff[5] = {TTL_COUNT, 64, 0, 0, 0};
+static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, 0, 0, 0};
 
 //////////////////////////////////////////////////////////////
 // abstracting output types to allow for things other than pins.
@@ -169,9 +183,12 @@ struct Channel {
     bool setto = activate ? def.active : ! def.active  ;
     switch (def.group) {
       case 0://pin
-        //todo: guard tx/rx pins here and in configuration application
-
-        digitalWrite(def.index, setto);
+        //guard tx/rx pins if needed.
+        if (def.index < GuardRxTx || def.index == NaV) {
+          //disabled channel, do nothing
+        } else {
+          digitalWrite(def.index, setto);
+        }
         break;
       case 1://PCF858x (I2C)
         //todo: implement one
@@ -252,19 +269,19 @@ struct Opts  {
     };
 
     Channel::Definition output[NumControls];
-    Channel::Definition triggerIn;
     Channel::Definition triggerOut;
+    Channel::Definition triggerIn;
     byte bootSeconds;
     byte deadbandSeconds;// like ResetDelay, time from last frame of sequence to new trigger allowed.
     FramingOptions frame;
 
   public:
     void save() const {
-      EEPROM.put(ConfigurationBase, *this);
+      EEPROM.put(EEAlloc::ConfigurationStart, *this);
     }
 
     void fetch() {
-      EEPROM.get(ConfigurationBase, *this);
+      EEPROM.get(EEAlloc::ConfigurationStart, *this);
     }
 
     /** from EEPROM to object IFFI vresion stamp verifies */
@@ -311,7 +328,23 @@ struct Opts  {
     void setLegacy(unsigned index, byte ancient) {
       switch (index) {
         case PIN_MAP_SLOT:
-          //todo: do at least one of the old pinmaps here, but always report "custom"
+          if (ancient == 0) {
+            for (unsigned i = arraySize(output); i-- > 0;) {
+              auto pindef = output[i];
+              pindef.index = i + 2; // 2 through 9 in order, that was convenient of them.
+            }
+            triggerOut.index = 10;
+            triggerIn.index = 11;
+            //media pin no longer builtint
+          } else if (ancient == 1 ) {
+            for (unsigned i = arraySize(output); i-- > 0;) {
+              auto pindef = output[i];
+              pindef.index = i >= 4 ? i + 4 : 7 - i; // { D7,  D6,  D5,  D4,  D8,  D9, D10, D11,    A0,    A1,    A2},
+            }
+            triggerOut.index = A1;
+            triggerIn.index = A0;
+            //media pin no longer builtin
+          }
           break;
         case TTL_TYPES_SLOT: //polarities packed
           for (unsigned i = arraySize(output); i-- > 0;) {
@@ -551,7 +584,7 @@ struct Sequencer {
     /** amount of time after end of program to ignore trigger */
     MilliTick deadtime;
 
-    static const int SAMPLE_COUNT = ConfigurationBase / 2;
+    static const int SAMPLE_COUNT = EEAlloc::ProgSize / 2; //#truncating divide desired, do not round.
 
     Channel output[sizeof(Opts::output)];
 
@@ -598,7 +631,7 @@ struct Sequencer {
         other potential 0 time commands:
         loop if trigger active (presently hard coded to do so)
         wait for trigger inactive (instead of edge trigger)
-        mark here as loop start else is zero
+        mark 'here' as loop start else is zero
 
       */
 
@@ -826,7 +859,7 @@ struct Cloner {
 
   /** send related prefix and set pointers for background sending */
   bool sendChunk(char letter, unsigned eeaddress, size_t sizeofthing) {
-    if (!sendCommand(letter, sendingLeft)) {
+    if (!sendCommand(letter, sizeofthing)) {
       return false;
     }
     startChunk(eeaddress, sizeofthing) ;
@@ -845,11 +878,11 @@ struct Cloner {
 
   //user must confirm versions match before calling this
   bool sendConfig() {
-    return sendChunk('U', ConfigurationBase, configSize());
+    return sendChunk('U', EEAlloc::ConfigurationStart, configSize());
   }
 
   bool sendFrames() {
-    return sendChunk('S', 0, ConfigurationBase);//send all, not just 'used'
+    return sendChunk('S', EEAlloc::ProgStart, EEAlloc::ProgSize);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -871,8 +904,8 @@ struct Cloner {
       //multiple of 4 at least as large as critical chunk:
       byte chunk[( max(sizeof(Opts), Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
-      if (legacy && tosend >= ConfigurationBase && tosend < VersionInfo::OFFSET) {//if legacy format and sending config
-        auto offset = tosend - ConfigurationBase;
+      if (legacy && tosend >= EEAlloc::ConfigurationStart && tosend < EEAlloc::ConfigurationEnd) { //if legacy format and sending config
+        auto offset = tosend - ConfigurationStart;
         for (; chunker < sizeof(chunk) && chunker < sendingLeft; ++chunker) {
           chunk[chunker] = O.legacy(offset + chunker);
         }
@@ -993,11 +1026,11 @@ struct CommandLineInterpreter {
         break;
       case 'D': //send program eeprom contents back to Serial
         //todo: if cloner is still busy either queue this up or ignore it
-        cloner.startChunk(0, ConfigurationBase); //todo: clip to frames used?
+        cloner.startChunk(0, EEAlloc::ConfigurationStart); //todo: clip to frames used?
         break;
       case 'F': //send just the config eeprom contents back to Serial
         //todo: if cloner is still busy either queue this up or ignore it
-        cloner.startChunk(ConfigurationBase, cloner.configSize());
+        cloner.startChunk(EEAlloc::ConfigurationStart, cloner.configSize());
         break;
       case 'P': //ping back
         //todo: if not enough bytes available on output do not send anything
@@ -1055,7 +1088,7 @@ struct CommandLineInterpreter {
           expected = word(bytish, lowbytedata);//maydo: treat key char as unreasonable high byte.
           switch (pending) {
             case 'S': //receive step datum
-              if (expected > ConfigurationBase ) {
+              if (expected > EEAlloc::ConfigurationStart) {
                 printer(F("Unknown program size received: "), expected);
                 onBadSizeGiven();
               }

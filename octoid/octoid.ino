@@ -1,24 +1,9 @@
 /*
-   inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
-   Octobanger had blocking delays in many places, and halfbaked attempts to deal with the consequences.
-   If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
-   By doing that 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
+   This a nearly minimal wrapper for octoid.h which is a reworking of OctoBanger_TTL.
 
-  todo: guard against user spec'ing rx/tx pins
-  todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
-  note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
-  todo: package into a single class so that can coexist with other code, such as the flicker code.
-  test: receive config into ram, only on success burn eeprom.
-  test: instead of timeout on host abandoning program download allow a sequence of 5 '@' in a row to break device out of download.
-  todo: abort/disable input signal needed for recovering from false trigger just before a group arrives.
-  todo: temporary mask via pin config, ie a group of 'bit bucket'
+   It demonstrates how to make an add-in for psuedo outputs, a control that is not a digital output.
 
-  Timer tweaking:
-  The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
-
-  If certain steps need to be a precise time from other steps then use a good oscillator.
-  In fact, twiddling the timer reload value of the hardware timer fixes the frequency issue for the whole application.
-  todo: finish up the partial implementation of FrameSynch class.
+   
 
 */
 
