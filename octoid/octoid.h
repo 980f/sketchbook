@@ -408,6 +408,11 @@ struct Opts  {
 } __attribute__((packed)); //packed happens to be gratuitous at the moment, but is relied upon by the binary configuraton protocol.
 
 
+void configExtension(bool writeit) {
+  //user module config fits in gap at end of ours.
+  octoidConfig(EEAlloc::ConfigurationEnd - sizeof(Opts), sizeof(Opts), writeit);
+}
+
 
 
 ///////////////////////////////////////////
@@ -592,7 +597,7 @@ struct Sequencer {
 
     Channel output[sizeof(Opts::output)];
 
-    void Send(uint8_t packed) {
+    void apply(uint8_t packed) {
       for (unsigned bitnum = arraySize(output); bitnum-- > 0;) {
         output[bitnum] = bool(bitRead(packed, bitnum));//grrr, Arduino guys need to be more type careful.
       }
@@ -742,7 +747,7 @@ struct Sequencer {
         }
         while (playing.next()) { //if we haven't run off the end of the list
           if (playing.frames) {//if simple step
-            Send(playing.pattern);
+            apply(playing.pattern);
             framecounter = playing.frames - 1;//-1 because it will be a frame time before we get back into this code.
             return true;
           }
@@ -765,16 +770,18 @@ struct Sequencer {
     }
 
     void finish() {
-      Send(0);
+      apply(0);
       fs = false;
     }
 
-    /** @returns whether it is still recording. */
+    /** @returns whether it is still recording.
+      applys pattern to outputs IF it is recorded. */
     bool record(byte pattern) {
       if (!playing) { //we should not be running
         return false;
       }
       if (playing.record(pattern)) { //still room to record
+        apply(pattern); //so that user gets immediate feedback as to what they are doing!
         return true;
       }
       endRecording();
@@ -877,7 +884,7 @@ struct Cloner {
   }
 
   unsigned configSize() const {
-    return legacy ? Opts::LegacyIndex::MEM_SLOTS : sizeof(Opts);
+    return legacy ? Opts::LegacyIndex::MEM_SLOTS : EEAlloc::ConfigurationSize;
   }
 
   //user must confirm versions match before calling this
@@ -906,7 +913,7 @@ struct Cloner {
 
     while (sendingLeft) {//push as much as we can into sender buffer
       //multiple of 4 at least as large as critical chunk:
-      byte chunk[( max(sizeof(Opts), Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+      byte chunk[( max(EEAlloc::ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
       if (legacy && tosend >= EEAlloc::ConfigurationStart && tosend < EEAlloc::ConfigurationEnd) { //if legacy format and sending config
         auto offset = tosend - ConfigurationStart;
@@ -1063,10 +1070,8 @@ struct CommandLineInterpreter {
   /**
     usually returns quickly
     sometimes burns one EEProm byte
-    at end of program load burns ~15.
-
+    at end of configuration load burns ~15 (size of configuration).
   */
-
   void check() {
     unsigned int bytish = stream.read(); //returns all ones on 'nothing there', traditionally quoted as -1 but that is the only negative value returned so let us use unsigned.
     if (bytish != NaV) {
@@ -1121,7 +1126,7 @@ struct CommandLineInterpreter {
                 printer(F("Saved, Ready"));
               }
               break;
-            case 'U'://receive config flag
+            case 'U'://receive configuration
               if (cloner.legacy) { //legacy parse
                 O.setLegacy( sofar++, bytish);
               } else {
@@ -1130,12 +1135,13 @@ struct CommandLineInterpreter {
 
               if (sofar == expected) {
                 O.save();
-                printer(F("Received "), expected, F(" config bytes"));
+                //defer until setup() configExtension(false /* false means parse eeprom */);//
+                printer(F("Received "), expected, F(" config bytes"));//#keep this before the call to setup.
                 setup();
               }
               break;
             case 'M':
-              S.Send(bytish);
+              S.apply(bytish);
               expecting = At;
               break;
           }
@@ -1200,8 +1206,9 @@ struct Blaster {
     //read config from eeprom
     cli.O.stamp.ok = cli.O.read();
     cli.S.configure(cli.O);
+    configExtension(false /* false means parse eeprom */);
     //apply idle state to hardware
-    cli.S.Send(0);
+    cli.S.apply(0);
 
     T.setup(cli.O);
 
