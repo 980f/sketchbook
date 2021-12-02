@@ -13,5 +13,6 @@ millievent.cpp
 millievent.h
 minimath.h
 pinuser.h
+scani2c.h
 twiddler.cpp
 twiddler.h

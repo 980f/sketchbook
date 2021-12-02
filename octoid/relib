@@ -9,5 +9,6 @@ ln -sf ../shared/lardls lardls
 ln -sf lib/millievent.cpp millievent.cpp
 ln -sf lib/millievent.h millievent.h
 ln -sf lib/ezcpp/minimath.h minimath.h
+ln -sf lib/scani2c.h scani2c.h
 ln -sf lib/ezcpp/twiddler.cpp twiddler.cpp
 ln -sf lib/ezcpp/twiddler.h twiddler.h
