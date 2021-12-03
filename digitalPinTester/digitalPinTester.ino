@@ -61,90 +61,12 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 
 
 #ifdef ADAFRUIT_QTPY_M0
-#include "Adafruit_NeoPixel.h"
+#include "qtpy.board.h"
+QTPY::NeoPixel led;
+QTPY::NeoPixel::ColorChannel red(led,'r');
+QTPY::NeoPixel::ColorChannel green(led,'g');
+QTPY::NeoPixel::ColorChannel blue(led,'b');
 
-void setupQtpy() {
-  pinMode(12, OUTPUT);
-}
-
-class QTpyPixel {
-
-    Adafruit_NeoPixel easyNeoPixels;
-    bool wason = false;
-
-  public:
-    class Color {
-      public:
-        //order below allows traditional order in anonymous {,,} expressions.
-        byte red;
-        byte green;
-        byte blue;
-        operator uint32_t()const {
-          //todo: GRB/RGB etc operand
-          return red << 16 | green << 8 | blue;
-        }
-        Color &operator =(uint32_t packed) {
-          blue = packed;
-          green = packed >> 8;
-          red = packed >> 16;
-          return *this;
-        }
-
-    };
-
-    Color whenOn {0, 255, 255};
-    /** this constructor does setup operations. The libraryand has been inspected to confirm that it can be run before setup()*/
-    QTpyPixel() {
-      easyNeoPixels = Adafruit_NeoPixel(1, 11);
-      easyNeoPixels.begin();
-    }
-
-    bool operator =(bool onish) {
-      digitalWrite(12, onish);
-      if (changed(wason, onish)) {
-        dbg("Pixel: ", wason ? "ON" : "off");
-        if (wason) {
-          refresh();
-        }
-      }
-      return onish;
-    }
-
-    operator bool()const {
-      return wason;
-    }
-
-    void refresh() {
-      easyNeoPixels.setPixelColor(0, whenOn);
-      easyNeoPixels.show();
-      dbg("Sending Color: ", HEXLY(whenOn));
-    }
-
-    void sendColor(Color packed) {
-      whenOn = packed;
-      refresh();
-      //      dbg("Setting Color: ", HEXLY(packed));
-    }
-
-
-    class ColorChannel {
-        QTpyPixel &pixel;
-        char channel;
-      public:
-        ColorChannel(QTpyPixel &pixel, char channel): pixel(pixel), channel(channel) {}
-
-        void operator = (Color packed) {
-
-          pixel.sendColor(packed);
-        }
-
-        operator Color() {
-          return pixel.whenOn;
-        }
-    };
-};
-
-QTpyPixel led;
 //QTpyPixel::ColorSetter ledColor(led);
 
 
@@ -201,7 +123,7 @@ void setup() {
   //the following doesn't wait if USB, but USB buffers data prior to host connection OR connects before setup.
   Serial.begin(115200);//can't use dbg here
 #ifdef ADAFRUIT_QTPY_M0
-  setupQtpy();
+  QTPY::setup();
 #endif
 }
 
@@ -221,19 +143,17 @@ void loop() {
       case 'd':
         showDefines();
         break;
-
+#ifdef ADAFRUIT_QTPY_M0
       case 'r':
-        led.whenOn.red = upper ? 255  : 0;
-        led.refresh();
+        red = upper ? 255  : 0;
         break;
       case 'g':
-        led.whenOn.green = upper ? 255  : 0;
-        led.refresh();
+        green = upper ? 255  : 0;
         break;
       case 'b':
-        led.whenOn.blue = upper ? 255 : 0;
-        led.refresh();
+        blue = upper ? 255 : 0;
         break;
+#endif
     }
   }
   if (MilliTicked) {//slow down check to minimize worst of switch bounce.

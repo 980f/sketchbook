@@ -13,6 +13,7 @@ ln -sf ../shared/lardls lardls
 ln -sf lib/millievent.cpp millievent.cpp
 ln -sf lib/millievent.h millievent.h
 ln -sf lib/pinuser.h pinuser.h
+ln -sf lib/qtpy.board.h qtpy.board.h
 ln -sf lib/scani2c.h scani2c.h
 ln -sf lib/ezcpp/textkey.h textkey.h
 ln -sf lib/unsignedrecognizer.h unsignedrecognizer.h

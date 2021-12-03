@@ -13,6 +13,7 @@ lib
 millievent.cpp
 millievent.h
 pinuser.h
+qtpy.board.h
 scani2c.h
 textkey.h
 unsignedrecognizer.h
