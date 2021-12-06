@@ -32,18 +32,18 @@ bool echoinput = true;
 
 //bool last[4];
 
+#ifdef ARDUINO_SAMD_ADAFRUIT 
 //the QTPY only has a single neopixel, the circuitplayground express has a standard one but also 10 neopixels.
 #ifdef ADAFRUIT_QTPY_M0
 #define BOARD_NS QTPY
 #include "qtpy.board.h"
-QTPY::NeoPixel led;
-QTPY::NeoPixel::ColorChannel red(led, 'r');
-QTPY::NeoPixel::ColorChannel green(led, 'g');
-QTPY::NeoPixel::ColorChannel blue(led, 'b');
 
 #elif ARDUINO_SAMD_CIRCUITPLAYGROUND_EXPRESS
 #define BOARD_NS CPE
 #include "cpe.board.h"
+#else
+#error "unknown ADAFRUIT board, you will need to do something about this"
+#endif
 BOARD_NS ::NeoPixel led;
 BOARD_NS ::NeoPixel::ColorChannel red(led, 'r');
 BOARD_NS ::NeoPixel::ColorChannel green(led, 'g');
