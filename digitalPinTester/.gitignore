@@ -4,6 +4,7 @@ char.cpp
 char.h
 cheaptricks.h
 clirp.h
+cpe.board.h
 cstr.h
 digitalpin.h
 eztypes.h
