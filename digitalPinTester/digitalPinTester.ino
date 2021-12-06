@@ -32,7 +32,7 @@ bool echoinput = true;
 
 //bool last[4];
 
-//the QTPY only has a neopixel, the circuitplayground express has one but also 10 neopixels.
+//the QTPY only has a single neopixel, the circuitplayground express has a standard one but also 10 neopixels.
 #ifdef ADAFRUIT_QTPY_M0
 #define BOARD_NS QTPY
 #include "qtpy.board.h"
@@ -92,6 +92,9 @@ void showDefines() {
 #else
   dbg("No builtin LED");
 #endif
+#ifdef CPLAY_NEOPIXELPIN
+  dbg("CPLAY_NEOPIXELPIN:", CPLAY_NEOPIXELPIN);
+#endif
 
 }
 
@@ -135,7 +138,7 @@ void loop() {
           break;
         case 'b':
           blue = cli.arg;
-          break;        
+          break;
         default:
           dbg(" (", key , ") ");
           break;
