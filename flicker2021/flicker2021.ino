@@ -7,7 +7,7 @@
 #if 1 //8684/606 with debug 7616/483 without, so around 1k of debug statments 
 ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 //eventually these will be made editable by Serial
-bool dbgpin = 0;
+bool dbgpin = 1;
 #else
 #define dbg(...)
 #endif
@@ -41,6 +41,7 @@ FlickeryPin led[] = {
   //station 4 will use one of these, scanner hallway two, station 9 all four
   { 10, 759, 100},
   { 9, 1250, 150},
+  {LED_BUILTIN,500,500},
   { 8, 1431, 175},
   { 7, 330, 25},
 };
