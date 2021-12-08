@@ -4,6 +4,7 @@ char.cpp
 char.h
 cheaptricks.h
 clirp.h
+cpe.board.h
 cstr.h
 digitalpin.h
 eztypes.h
@@ -13,6 +14,7 @@ lib
 millievent.cpp
 millievent.h
 pinuser.h
+qtpy.board.h
 scani2c.h
 textkey.h
 unsignedrecognizer.h

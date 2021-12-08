@@ -1,27 +1,18 @@
 //(C) 2019 by Andy Heilveil, github/980F
-//
-//
-////#define CFG_TUD_CDC 1
-////#include <Adafruit_TinyUSB.h>
-//
-//#define HaveSerial 0
-//
-//#if HaveSerial
+//started as a demo of digitalpin.h, being expanded to test the actual pins and I2C and SPI GPIO as well.
+
 #include "chainprinter.h"
 ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
-//
-//#include "scani2c.h"
-//
-//#else
-//#define dbg(...)
-//#endif
-//
+
+#include "scani2c.h"
 #include "cheaptricks.h" //for changed()
 #include "millievent.h"
-//
+
 #include "digitalpin.h"
 
-//#include "clirp.h"
+#include "clirp.h"  //CLIRP== Command Line Interpreter, Reverse Polish value input
+CLIRP<> cli;
+bool echoinput = true;
 //
 //DigitalInput button(4, LOW);
 //
@@ -40,115 +31,26 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 //#endif
 
 //bool last[4];
-//
-//class EdgyInput {
-//    bool last;
-//    const DigitalInput pin;
-//  public:
-//    EdgyInput(unsigned which): pin(which) {
-//      last = this->operator bool();
-//    }
-//
-//    operator bool () {
-//      return bool(pin);
-//    }
-//
-//    bool changed() {
-//      return ::changed(last, *this);
-//    }
-//
-//};
 
-
+#ifdef ARDUINO_SAMD_ADAFRUIT 
+//the QTPY only has a single neopixel, the circuitplayground express has a standard one but also 10 neopixels.
 #ifdef ADAFRUIT_QTPY_M0
-#include "Adafruit_NeoPixel.h"
+#define BOARD_NS QTPY
+#include "qtpy.board.h"
 
-void setupQtpy() {
-  pinMode(12, OUTPUT);
-}
-
-class QTpyPixel {
-
-    Adafruit_NeoPixel easyNeoPixels;
-    bool wason = false;
-
-  public:
-    class Color {
-      public:
-        //order below allows traditional order in anonymous {,,} expressions.
-        byte red;
-        byte green;
-        byte blue;
-        operator uint32_t()const {
-          //todo: GRB/RGB etc operand
-          return red << 16 | green << 8 | blue;
-        }
-        Color &operator =(uint32_t packed) {
-          blue = packed;
-          green = packed >> 8;
-          red = packed >> 16;
-          return *this;
-        }
-
-    };
-
-    Color whenOn {0, 255, 255};
-    /** this constructor does setup operations. The libraryand has been inspected to confirm that it can be run before setup()*/
-    QTpyPixel() {
-      easyNeoPixels = Adafruit_NeoPixel(1, 11);
-      easyNeoPixels.begin();
-    }
-
-    bool operator =(bool onish) {
-      digitalWrite(12, onish);
-      if (changed(wason, onish)) {
-        dbg("Pixel: ", wason ? "ON" : "off");
-        if (wason) {
-          refresh();
-        }
-      }
-      return onish;
-    }
-
-    operator bool()const {
-      return wason;
-    }
-
-    void refresh() {
-      easyNeoPixels.setPixelColor(0, whenOn);
-      easyNeoPixels.show();
-      dbg("Sending Color: ", HEXLY(whenOn));
-    }
-
-    void sendColor(Color packed) {
-      whenOn = packed;
-      refresh();
-      //      dbg("Setting Color: ", HEXLY(packed));
-    }
-
-
-    class ColorChannel {
-        QTpyPixel &pixel;
-        char channel;
-      public:
-        ColorChannel(QTpyPixel &pixel, char channel): pixel(pixel), channel(channel) {}
-
-        void operator = (Color packed) {
-
-          pixel.sendColor(packed);
-        }
-
-        operator Color() {
-          return pixel.whenOn;
-        }
-    };
-};
-
-QTpyPixel led;
-//QTpyPixel::ColorSetter ledColor(led);
-
+#elif ARDUINO_SAMD_CIRCUITPLAYGROUND_EXPRESS
+#define BOARD_NS CPE
+#include "cpe.board.h"
+#else
+#error "unknown ADAFRUIT board, you will need to do something about this"
+#endif
+BOARD_NS ::NeoPixel led;
+BOARD_NS ::NeoPixel::ColorChannel red(led, 'r');
+BOARD_NS ::NeoPixel::ColorChannel green(led, 'g');
+BOARD_NS ::NeoPixel::ColorChannel blue(led, 'b');
 
 #else
+byte red, blue, green;//stub for color control of qtpy neopixel
 
 #ifdef LED_BUILTIN
 //#warning "using built-in LED"
@@ -165,13 +67,9 @@ bool led;
 //
 //bool butevent = 0;
 //
-////CLIRO== command line interpreter, reverse polish value input
-//CLIRP<> cli;
 
 
 void showDefines() {
-
-  //esp8266 build uses different build tokens, grrr.
 #ifdef ARDUINO_BOARD
   dbg("ARDUINO_BOARD:", ARDUINO_BOARD);
 #endif
@@ -190,50 +88,61 @@ void showDefines() {
 #endif
 
 #ifdef LED_BUILTIN
-  dbg("builtin LED defined as ", LED_BUILTIN);
+  dbg("builtin LED ", LED_BUILTIN);
 #else
   dbg("No builtin LED");
+#endif
+#ifdef CPLAY_NEOPIXELPIN
+  dbg("CPLAY_NEOPIXELPIN:", CPLAY_NEOPIXELPIN);
 #endif
 
 }
 
 void setup() {
-  //the following doesn't wait if USB, but USB buffers data prior to host connection OR connects before setup.
   Serial.begin(115200);//can't use dbg here
-#ifdef ADAFRUIT_QTPY_M0
-  setupQtpy();
-#endif
+  //instead of the traditional spin on !Serial we test it in the loop() at each reference.
+  BOARD_NS::setup();
+
+  led = true;//indicate that we made it through setup.
 }
 
 //unsigned loopcount = 0;
 
 //EdgyInput ei(24);
 
+
+
 void loop() {
   if (Serial && Serial.available()) {
     auto key = Serial.read();
     bool upper = isupper(key);
-    Serial.write(key);
-    switch (tolower(key)) {
-      case 'l':
-        led = upper;
-        break;
-      case 'd':
-        showDefines();
-        break;
-
-      case 'r':
-        led.whenOn.red = upper ? 255  : 0;
-        led.refresh();
-        break;
-      case 'g':
-        led.whenOn.green = upper ? 255  : 0;
-        led.refresh();
-        break;
-      case 'b':
-        led.whenOn.blue = upper ? 255 : 0;
-        led.refresh();
-        break;
+    if (echoinput) {
+      Serial.write(key);
+    }
+    if (cli.doKey(key)) {
+      switch (tolower(key)) {
+        case 'i':
+          scanI2C(dbg);
+          break;
+        case 'l':
+          led = upper;
+          break;
+        case 'd':
+          showDefines();
+          break;
+        case 'r':
+          red = cli.arg;
+          break;
+        case 'g':
+          green = cli.arg;
+          break;
+        case 'b':
+          blue = cli.arg;
+          break;
+        default:
+          dbg(" (", key , ") ");
+          break;
+      }
     }
   }
   if (MilliTicked) {//slow down check to minimize worst of switch bounce.
@@ -250,22 +159,5 @@ void loop() {
     //
     //    led = bool(1 & (millis() / 500)) ; //toggler;
   }
-  //
-  //#if HaveSerial
-  //  if (Serial) {
-  //    auto key = Serial.read();
-  //    if (cli.doKey(key)) {
-  //      switch (tolower(key)) {
-  //        case 'l':
-  //          led = bool(islower(key));
-  //          break;
-  //        case 'i':
-  //          scanI2C(dbg);
-  //          break;
-
-  //      }
-  //    }
-  //  }
-  //#endif
 
 }
