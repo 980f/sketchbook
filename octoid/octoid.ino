@@ -11,8 +11,9 @@
 //build options, things that we don't care to make runtime options
 //FrameTweaking 1 enables emulation of OB's timing adjustment, 0 ignores OB's config.  (saves 1 byte config, 50 bytes code. Might not be worth the lines of code.
 #define FrameTweaking 1
+//used to allocate space in the EEPROM, 1000 leaves only a few bytes for custom configuration for your addons.
 #define SAMPLE_END 1000
-//you can make this smaller but to be more than 8 will take some work in octoid, it packs them all into a byte for EEPROM efficiency. 
+//number of controlled outputs. You can make this smaller but to be more than 8 will take some work in octoid, it packs them all into a byte for EEPROM efficiency. 
 #define TTL_COUNT 8
 
 #include "octoid.h"

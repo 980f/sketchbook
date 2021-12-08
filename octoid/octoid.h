@@ -498,13 +498,13 @@ struct Trigger {
 
   If we are only producing 99 frames when 100 were desired then we need to drop a frame's worth of millis every 99 frames.
   so we need to produce 50 adjustments in 99 frames which means bouncing between 49 and 50:
-  49*50+ 50*50 = 99*50 ms in 100 frames.
+  49*50 + 50*50 = 99*50 ms in 100 frames.
 
-  OctoBnger tweak was -0.4 ms per frame, 49.595 arduino millis()/frame, so our tick should be 49 plus 1 ~60% of the time.
+  OctoBanger tweak was -0.4 ms per frame, 49.595 arduino millis()/frame, so our tick should be 49 plus 1 ~60% of the time.
   At present 8 bits of resolution on tweaking has been implemented, the limitation being in the configuration data allocation.
   For finer tweaking we can add more configuration bytes and get more precise than the stability of the oscillator over time and temperature.
 
-  This whole clock adjust thing should be #ifdef'd.
+  todo: implement configuration option to use a digital input as the frame clock, with this module just looking for an edge or edges.	
 
 */
 
@@ -520,14 +520,14 @@ class FrameSynch {
       if (startElseStop) {
         doNext = 1; //will start with next millis tick
       } else {
-        doNext = 0; //disables this kind of timer
+        doNext = 0; //todo: incompatible library change occurred! use symbol!! disables this kind of timer
       }
     }
 
     /** poll preferably at least every ms.
       @returns true if frame time is expired, and starts looking for next frame*/
     operator bool() {
-      if (doNext) {//then a frame's worth of millis has passed since the last addignment to doNext.
+      if (doNext) {//then a frame's worth of millis has passed since the last assignment to doNext.
         doNext = tweak(MILLIS_PER_FRAME); //always relative to NOW, not absolute start time
         return true;
       } else {
@@ -537,7 +537,7 @@ class FrameSynch {
 
     void setup(const FramingOptions &O) {
       MILLIS_PER_FRAME = O.Millis;
-      tweak.setRatio(O.Fraction, 256 - O.Fraction); //the 256 comes from 2^(# of bits in fraction).
+      tweak.setRatio(O.Fraction, 256 - O.Fraction); //the 256 comes from 2^(# of bits in 'Fraction').
     }
 
     MilliTick nominal(uint32_t frames) const {
@@ -550,6 +550,7 @@ class FrameSynch {
   public:
     MonoStable MILLIS_PER_FRAME;//cheat, by using this name the config doesn't need to know which implementation of FrameSynch is active
 
+    /**  yourFramSync=true/false to start/stop the frame clock. The only reason to stop and start it is to reduce the average delay from a trigger to the sequence starting, which is pretty trivial in humna terms */
     void operator =(bool startElseStop) {
       if (startElseStop) {
         MILLIS_PER_FRAME.start();
@@ -558,15 +559,16 @@ class FrameSynch {
       }
     }
 
+    /** @returns true once per frame period, will jitter if not called at least every millisecond, can be called more often. */
     operator bool() {
-      return MILLIS_PER_FRAME.perCycle();//then a frame's worth of millis has passed since the last addignment to doNext.
+      return MILLIS_PER_FRAME.perCycle();
     }
 
     void setup(const FramingOptions &O) {
       MILLIS_PER_FRAME = O.Millis;
     }
 
-
+    /** @returns number of nominal milliseconds in the given number of @param frames ticks, the number according to the local clock rather than real world clocks */
     MilliTick nominal(uint32_t frames) const {
       return frames * MilliTick(MILLIS_PER_FRAME);
     }
@@ -582,14 +584,13 @@ class FrameSynch {
 
   To record:
   ensure .pattern is fresh (in case you don't debounce it while idle)
-  set amRecoding (do not call startRecording())
+  set amRecording (do not call startRecording(), that is done by the trigger)
   invoke trigger by whatever means you choose, such as the actual trigger or a cli "@T" or even calling trigger()
-  while recording update .pattern
 
 */
 struct Sequencer {
     Trigger &T;
-    /** amount of time after end of program to ignore trigger */
+    /** amount of time after end of program to ignore trigger: */
     MilliTick deadtime;
 
     static const int SAMPLE_COUNT = EEAlloc::ProgSize / 2; //#truncating divide desired, do not round.
@@ -598,7 +599,7 @@ struct Sequencer {
 
     void apply(uint8_t packed) {
       for (unsigned bitnum = arraySize(output); bitnum-- > 0;) {
-        output[bitnum] = bool(bitRead(packed, bitnum));//grrr, Arduino guys need to be more type careful.
+        output[bitnum] = bool(bitRead(packed, bitnum));//grrr, Arduino guys need to be more type careful, bitRead should return a bool which converts into a 0 or 1 with less syntax than the converse.
       }
     }
 
@@ -606,17 +607,19 @@ struct Sequencer {
     struct Step {
       byte pattern;
       byte frames;
-      static const byte MaxFrames = 255; //might someday reserve 255 for specials as well as 0
-      /** an array of objects in EEPROM starting at zero for convenience*/
+      static const byte MaxFrames = 255; //might someday reserve 255 for specials as well as 0 so use an explicit limit
+
+      /** the sequence is an array of objects in EEPROM starting at zero for convenience. This method updates the object from eeprom */
       void get(unsigned nth) {
         EEPROM.get(nth * sizeof(Step), *this);
       }
 
+      /** save object's value into EEPROM */
       void put(unsigned nth) const {
         EEPROM.put(nth * sizeof(Step), *this);
       }
 
-      //@returns whether this step is NOT the terminating step.
+      /** @returns whether this step is NOT the terminating step of the sequence. */
       operator bool()const {
         return frames != 0 || pattern != 0; //0 frames is escape, escape 0 is 'end of program'
       }
@@ -626,12 +629,14 @@ struct Sequencer {
         frames = 0;
         pattern = 0;
       }
-
+      
+      /** prepare to record a program step */
       void start(byte newpattern) {
         frames = 1;
         pattern = newpattern;
       }
 
+      /** @returns whether this program step is the end-of-program marker */
       bool isStop() const {
         return frames == 0 && pattern == 0;
       }
@@ -1049,7 +1054,7 @@ struct CommandLineInterpreter {
         O.report(printer);
         break;
       case 'S':  //expects 16 bit size followed by associated number of bytes, ~2*available program steps
-        [[fallthrough]] //        return true;//need more
+        [[fallthrough]]
       case 'U': //expects 16 bit size followed by associated number of bytes, ~9
         expecting = LoLength;
         return true;//need more
@@ -1060,7 +1065,7 @@ struct CommandLineInterpreter {
         printer(F("unk char:"), letter);
         break;
     }
-    //unless command needs more parameters prepare for the next one.
+    //unless command needs more parameters prepare for the next one (via returns above instead of typical break) .
     pending = 0;
     expecting = At;
     return false;
