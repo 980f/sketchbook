@@ -10,30 +10,30 @@
 */
 
 
-#include "edgyinput.h"
+#include "edgypin.h"
 #include "motorshield.h"
 
 #include "millievent.h"
 
-//this is state input, not toggle, for when you can't see the mechanism
-const DigitalInput stableswitch(7, LOW);
-//this is toggle, used when you can see the mechanism
-const DigitalInput momentary(6, LOW);
 
 #ifdef ARDUINO_ESP8266_GENERIC
-const DigitalInput pulseopen(2, LOW);
-const DigitalInput pulseclose(0, LOW);
+#define pulseopen 2
+#define pulseclose 0
 #else
-const DigitalInput pulseopen(5, LOW);
-const DigitalInput pulseclose(4, LOW);
+#define pulseopen 5
+#define pulseclose 4
 #endif
 
 
 //debounce is good, we don't want to rapidly dick with the mechanism, although the first use could get away with that.
-EdgyInput stable(stableswitch, 15);
-EdgyInput toggler(momentary, 30);
-EdgyInput pulseopener(pulseopen, 30);
-EdgyInput pulsecloser(pulseclose, 30);
+
+//this is state input, not toggle, for when you can't see the mechanism
+EdgyPin stable(7, LOW, 15);
+//this is toggle, used when you can see the mechanism
+EdgyPin toggler(6, LOW, 30);
+//two buttons
+EdgyPin pulseopener(pulseopen, LOW, 30);
+EdgyPin pulsecloser(pulseclose, LOW,  30);
 
 
 using Moveit =   L298Bridge::Code ; // 'Code' was too generic, L298Brdige might get replaced with L293 in a more generic build
@@ -57,7 +57,7 @@ struct PulsedMotor {
     holder.start();
   }
 
-  /** if toggleit then if last issued command was a direction go in other directio, else if off go to hold */
+  /** if toggleit then if last issued command was a direction go in other direction, else if off go to hold */
   void toggle (bool toggleit = true) {
     if (toggleit && lastCommand != Moveit::Off) { //if off leave off, do not go to hold
       *this = L298Bridge::reverseof(lastCommand);
@@ -66,7 +66,7 @@ struct PulsedMotor {
 
 
   void onTick() {
-    if (holder.hasFinished()) {
+    if (holder) {
       driver = Moveit::Off;
     }
   }

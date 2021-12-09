@@ -4,6 +4,7 @@ ln -sf lib/ezcpp/boolish.h boolish.h
 ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
 ln -sf lib/digitalpin.h digitalpin.h
 ln -sf lib/edgyinput.h edgyinput.h
+ln -sf lib/edgypin.h edgypin.h
 ln -sf lib/ezcpp/eztypes.h eztypes.h
 ln -sf ../shared/lardls lardls
 ln -sf lib/millievent.cpp millievent.cpp

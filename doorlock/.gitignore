@@ -3,6 +3,7 @@ boolish.h
 cheaptricks.h
 digitalpin.h
 edgyinput.h
+edgypin.h
 eztypes.h
 lardls
 millievent.cpp
