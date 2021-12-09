@@ -1,7 +1,11 @@
 
 
 /*****
-   todo: count triggers and report on number of failed scans
+   main module for hallway scanner built with garage door opener.
+   8dec2021 or so this was updated to deal with library changes without having a system to test it on.
+   The hallway stuff never got tested.
+
+   todo:1 count triggers and report on number of failed scans
 */
 
 #include "chainprinter.h"
@@ -10,27 +14,47 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 //we will want to delay some activities, such as changing motor direction.
 #include "millievent.h"
 #include "digitalpin.h"
+#include "edgyinput.h"  //generic input debouncer
+
+/** debounced input pin. */
+class EdgyPin : public EdgyInput<bool> {
+    const DigitalInput pin;
+  public:
+    EdgyPin (unsigned arduinoNumber, DigitalPin::Datum polarity, unsigned filter): pin(arduinoNumber, polarity) {
+      configure(filter);
+    }
+
+    /** @returns whether this just changed */
+    bool onTick() {
+      return (*this)(pin);
+    }
+
+    /** call from setup() */
+    void begin() {
+      //DigitalPin inits itself, no action needed here.
+      init(pin);
+    }
+
+    bool raw() const {
+      return pin;
+    }
+};
 
 //switches on leadscrew/rail:
-DigitalInput nearend(2,  LOW);  //BROKEN
-DigitalInput farend(3, LOW);
-//switch in command center
-DigitalInput triggerIn(5, LOW);
-
-#include "edgyinput.h"
-EdgyInput homesense(farend, 0); //seems to bounce on change
-EdgyInput awaysense(nearend);//BROKEN HARDWARE
-EdgyInput trigger(triggerIn, 0);
+EdgyPin homesense(3, LOW, 3); //seems to bounce on change
+EdgyPin awaysense(2,  LOW, 0); //BROKEN HARDWARE! we tune time to never get to this end.
+EdgyPin trigger(5, LOW, 4);
 
 //lights are separate so that we can force them on as work lights, and test them without motion.
 DigitalOutput lights(14, LOW); // ssr White
+
 //2 for the motor
 DigitalOutput back(17); //a.k.a go towards home
 DigitalOutput away(19); //a.k.a go away from home
 
 //not yet sure what else we will do
 DigitalOutput other(15, LOW);
-//NOTE: relays 16,18 are broken. 14,15 are now wired to SSR outlet box.
+//NOTE: relays 16,18 are broken. 14,15 are now wired to SSR outlet box for scanner light and one hallway light
 //////////////////////////////////////////////////
 //finely tuned parameters
 static const MilliTick Breaker = 250;  //time to ensure one relay has gone off before turning another on
@@ -48,21 +72,18 @@ void debugValues() {
 
 //////////////////////////////////////////////////
 #include "flickery.h"
-
-/** flicker 'other' relay for some periods of time */
-
-
+/** flicker 'other' relay for some periods of time after a delay */
 class HallwayManager {
     enum {triggerDelay = 7000, flickerfor = 2300, waitafter = 2021};
     unsigned state = 0;
 
   public:
-    MonoStable timer;
+    OneShot timer;
     Flickery erratic{250, 150, 150}; //flicker slowly until we learn what the lamp can handle
 
   public:
-    void onTick() {
-      bool amdone = timer.hasFinished(); //which disables timer if it is done.
+    void onTick(bool triggerEvent) {
+      bool amdone = timer; //which disables timer if it is done.
 
       switch (state) {
         case triggerDelay:
@@ -86,20 +107,18 @@ class HallwayManager {
             state = 0;
           }
           break;
-        default: {
-            bool triggerEvent = trigger; //this causes double sampling of trigger input,so double the debounce time.
-            if (triggerEvent) {
-              state = triggerDelay;
-              timer = triggerDelay;
-            }
-          } break;
+        default: //FYI should only be zero.
+          if (triggerEvent) {
+            state = triggerDelay;
+            timer = triggerDelay;
+          }
+          break;
       }
     }
+
 };
 
-HallwayManager hallway;
-
-
+HallwayManager Hallway;
 
 //////////////////////////////////////////////////
 
@@ -127,7 +146,6 @@ StateParams stab[] {
   {0, 0, 0, BadTick}, //unused/guard table
 
 };
-
 
 
 //program states, above are hardware state
@@ -167,7 +185,7 @@ const char  * const statetext[] = {
 
 class MotionManager {
   public: //for debug output
-    MonoStable timer;
+    OneShot timer;
     MonoStable since;
     MotionState activity;
     unsigned passcount = 0;
@@ -190,20 +208,15 @@ class MotionManager {
       since.start();
     }
 
-    void onTick() {
+    void onTick(bool triggerEvent) {
       //read event inputs once for programming convenience
-      bool amdone = timer.hasFinished(); //which disables timer if it is done.
+      bool amdone = timer; //which disables timer if it is done.
+      bool amhome = homesense.onTick() && homesense; //presently onTick() gives any change, should add 3 level option into the edgy class
+      //triggerEvent passed in now as it is shared by Hallway machine and we reset the edge detect when we sample it.
+      bool lastpass = passcount >= numPasses;
+
       if (amdone) {
         dbg("Timer finished ", MilliTick(timer));
-      }
-      bool amhome = homesense; //read level once since we are debouncing off of this read
-      if (homesense.changed()) {
-        debugSensors();
-      }
-
-      bool triggerEvent = trigger; //read level once since we are debouncing off of this read
-      if (trigger.changed()) {
-        debugSensors();
       }
 
       if (freeze) {
@@ -213,7 +226,6 @@ class MotionManager {
         return;
       }
 
-      bool lastpass = passcount >= numPasses;
       switch (activity) {
         case powerup:
           if (triggerEvent) {
@@ -301,7 +313,7 @@ MotionManager Motion;
 
 /** peek at sensor inputs */
 void debugSensors() {
-  dbg("Pins:", farend ? 'H' : 'h', triggerIn ? 'T' : 't', '\t', " DEB:", bool(homesense) ? 'H' : 'h', homesense.debouncer , trigger ? 'T' : 't', '\t', statetext[Motion.activity]);
+  dbg("Pins:", trigger.raw() ? 'T' : 't', '\t', homesense.raw() ? 'H' : 'h', "\tDEB:", trigger ? 'T' : 't', '\t', statetext[Motion.activity]);
 }
 
 void debugOutputs() {
@@ -312,29 +324,27 @@ void debugOutputs() {
 ////////////////////////////////////////////////
 
 void setup() {
-  //todo: read timing values from EEprom
+  //todo: read timing values from EEprom and configure debouncing of inputs vs. prresent static config.
   Serial.begin(115200);
   dbg("-------------------------------");
   homesense.begin();
   awaysense.begin();
   trigger.begin();
-
+  //report some stuff at reset, as much to indicate reset as to be informative of the details.
   debugSensors();
   debugOutputs();
   debugValues();
+
+  //let the activities begin:
   Motion.freeze = false;
   Motion.activity = oopsiedaisy; //somehow run_away was being reported
   Motion.enterState(powerup, "RESTARTED");
-
 }
 
 /** streams kept separate for remote controller, where we do cross the streams. */
-#include "unsignedrecognizer.h"
-
+#include "unsignedrecognizer.h"  //todo: use clirp instead of these pieces cut from the middle of it.
 UnsignedRecognizer<unsigned> numberparser;
-//for 2 parameter commands, gets value from param.
 unsigned arg = 0;
-unsigned pushed = 0;
 
 void doKey(char key) {
   if (key == 0) { //ignore nulls, might be used for line pacing.
@@ -353,7 +363,7 @@ void doKey(char key) {
       back = false;
       break;
     case '`':
-      dbg("MS: ", statetext[Motion.activity], " timer: ", Motion.timer.elapsed(), (Motion.timer.isRunning() ? " R " : " X "), "since: ", Motion.since.elapsed());
+      dbg("MS: ", statetext[Motion.activity], " left: ", Motion.timer.due(), (Motion.timer.isRunning() ? " R " : " X "), "since: ", Motion.since.elapsed());
       break;
     case '$':
       Motion.freeze = false;
@@ -370,6 +380,7 @@ void doKey(char key) {
       break;
     case 't': case 'T':
       Motion.enterState(triggered, "t key");
+      //todo: also trigger hallway, or give it its own letter
       break;
     case 'f': case 'F':
       back = false;
@@ -416,13 +427,13 @@ void doKey(char key) {
 }
 
 
-
 void loop() {
   if (MilliTicked) { //nothing need be fast and the processor may be in a tight enclosure
-    Motion.onTick();
-    hallway.onTick();
-    //todo: other timers may expire and here is where we service them
-
+    //sample shared pins here:
+    bool triggerEvent =     trigger.onTick() && trigger; //did it just fire?
+    //update state machines:
+    Motion.onTick(triggerEvent);
+    Hallway.onTick(triggerEvent);
   }
 
   //if serial do some test thing
@@ -433,3 +444,4 @@ void loop() {
     }
   }
 }
+//end of main driver for hallway scanner.
