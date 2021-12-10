@@ -13,32 +13,7 @@ ChainPrinter dbg(Serial, true); //true adds linefeeds to each invocation.
 
 //we will want to delay some activities, such as changing motor direction.
 #include "millievent.h"
-#include "digitalpin.h"
-#include "edgyinput.h"  //generic input debouncer
-
-/** debounced input pin. */
-class EdgyPin : public EdgyInput<bool> {
-    const DigitalInput pin;
-  public:
-    EdgyPin (unsigned arduinoNumber, DigitalPin::Datum polarity, unsigned filter): pin(arduinoNumber, polarity) {
-      configure(filter);
-    }
-
-    /** @returns whether this just changed */
-    bool onTick() {
-      return (*this)(pin);
-    }
-
-    /** call from setup() */
-    void begin() {
-      //DigitalPin inits itself, no action needed here.
-      init(pin);
-    }
-
-    bool raw() const {
-      return pin;
-    }
-};
+#include "edgypin.h"  //edge sensitive polling of pins, with debounce
 
 //switches on leadscrew/rail:
 EdgyPin homesense(3, LOW, 3); //seems to bounce on change

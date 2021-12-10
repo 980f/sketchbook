@@ -9,6 +9,7 @@ cstr.h
 digitalpin.h
 easyconsole.h
 edgyinput.h
+edgypin.h
 eztypes.h
 flickery.h
 index.cpp
