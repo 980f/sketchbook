@@ -25,13 +25,10 @@
 
   From the datasheet 20ms is fastest useful cycle, 33ms good compromise between speed and accuracy, 200ms best accuracy.
   For simplest and fastest use firing off single cycles and reading results a safe time after they should be present gets rid of the overhead of checking for completion status.
-  Hopefully that mode makes the interrupt work as some diagrams show but no code documentation describes in which case we could go ahead an poll rather than time and hope.
-
-
-
-
+  Hopefully that mode makes the interrupt work as some diagrams show but no code documentation describes in which case we could go ahead and poll rather than time and hope.
 
 */
+#include "vl53l0x_platform_log.h" //initLogging
 /////////////////////////
 //pin used to receive 'GPIO1' signal
 #define VLGPIO1pin 3
@@ -78,20 +75,13 @@ const DigitalInput devReady(VLGPIO1pin);//high active
 
 
 ////////////////////////////////
-//allow for plugging device in after the arduino boots:
-//bool connected = false;
-//MicroStopwatch connectionPacer;
-
-//perhaps use millievent.h, until then:
-using MilliTicks = decltype(millis());
+#include "millievent.h"
 
 //whether to let device sample continuously or to ask for samples. controlled by 'c' and 's' commands:
 bool devicePaces = true;
-//timer for either taking a sample or checking for one generated autonomously (because polling is expensive)
-MilliTicks sampler;
+MilliTick sampleInterval=33;
 
-MilliTicks sampleInterval = 33;
-
+///////////////////////////////
 //time execution of api calls, some take many milliseconds.
 MicroStopwatch stopwatch;
 
@@ -108,6 +98,7 @@ void reportTime(const char *prefix, const char *suffix = " us.") {
   Serial.println(suffix);
 }
 
+//////////////////////////
 
 void report(unsigned millimeters) {
   static bool OOR = false;
@@ -126,67 +117,68 @@ void report(unsigned millimeters) {
 ////////////////////////////////////
 
 ///////////////////////////////
-#include "nonblocking.h"
-using namespace VL53L0X;
-
-class RangingApp: public NonBlocking, NonBocking::UserAgent {
-public:
- RangingApp():NonBlocking(*this){}
- 
-
-} ranger;
-
-void setup() {
-  Serial.begin(115200);
-
-  //up to 64 chars will buffer waiting for usb serial to open
-  Serial.println("VL53L0X tester (github/980f)");
-
-  sampler = millis() + sampleInterval;
-  connectionPacer.start();
-  
-  ranger.setup();//formality, at present does nothing
-}
+#include "vl53ranger.h"
+using  namespace VL53L0X; //for all the enums
+VL53Ranger ranger;
 
 void startContinuous() {
+
   TIMED(
-    ranger.arg.sampleRate_ms= sampleInterval;
-    ranger.startProcess(Continuous);
+    ranger.arg.sampleRate_ms = sampleInterval;
+    ranger.arg.operatingMode = NonBlocking::DataStream;
+    ranger.startProcess(NonBlocking::Operate, MilliTicked.recent());
   );
   reportTime("startRangeContinuous ");
 
-  sampler = millis();
 }
 
 void stopContinuous() {
   TIMED(
-    ranger.startProcess(Idle);
+    ranger.arg.operatingMode = NonBlocking::OnDemand;
+    ranger.startProcess(NonBlocking::Operate, MilliTicked.recent());
   );
   reportTime("stopRangeContinuous ");
 }
 
 bool reportPolls = false;
 
+//////////////////////////
+void setup() {
+  Serial.begin(115200);
+
+  //up to 64 chars will buffer waiting for usb serial to open
+  Serial.println("VL53L0X tester (github/980f)");
+
+  //  connectionPacer.start();
+    ranger.agent.arg.sampleRate_ms = 33;// a leisurely rate. Since it is nonzero continuous measurement will be initiated when the device is capable of it
+  ranger.agent.arg.gpioPin = 3;//todo: #define near top of file/class
+  VL53L0X::initLogging(); //api doesn't know how logging is configured
+
+  ranger.setup(devicePaces ? NonBlocking::DataStream : NonBlocking::OnDemand);
+}
+
+
 void loop() {
-  if (!Serial) {
-    delay(1);//because hammering on Serial is painful I presume.
-    return;
-  }
+  if (MilliTicked) {
 
-//  if (!connected) {
-//    if (connectionPacer.lap() > 100000) { //10Hz retry on connect
-//      if (!lox.begin()) {
-//        connectionPacer.start();
-//      } else {
-//        connected = true;
-//        if (devicePaces) {
-//          startContinuous();
-//        }
-//      }
-//    }
-//  }
 
-  if (sampler > millis()) {//then do something while waiting
+    if (!Serial) {//make sure we have debug before we invoke activity
+      return;
+    }
+
+    //  if (!connected) {
+    //    if (connectionPacer.lap() > 100000) { //10Hz retry on connect
+    //      if (!lox.begin()) {
+    //        connectionPacer.start();
+    //      } else {
+    //        connected = true;
+    //        if (devicePaces) {
+    //          startContinuous();
+    //        }
+    //      }
+    //    }
+    //  }
+
 
     for (unsigned some = Serial.available(); some-- > 0;) {
       int one = Serial.read();
@@ -206,40 +198,39 @@ void loop() {
           break;
       }
     }
-    return;
+
+
+    ranger.loop(MilliTicked.recent());//all work is done via callbacks to ranger.
+    //
+    //  if (!connected) {
+    //    return;
+    //  }
+    //
+    //  //we have Serial and are connected, and it is time to either expect a result or to ask for one
+    //  if (devicePaces) {
+    //    TIMED (bool measurementIsReady = lox.isRangeComplete());
+    //
+    //    if (!measurementIsReady) {
+    //      if (reportPolls)
+    //        reportTime("Poll took ");// ~0.4 ms, ~16 I2C bytes
+    //      //perhaps increment sampler to slow down poll a bit, BUT it should be ready except for clock gain differences between us and VL53.
+    //      return;
+    //    } else {
+    //      sampler += sampleInterval;
+    //
+    //      TIMED(unsigned millimeters = lox.readRangeResult();); // 3.66 ms!  ~147 bytes. DMA based I2C would be nice!
+    //      report(millimeters);
+    //    }
+    //  } else {
+    //    VL53L0X_RangingMeasurementData_t measure;
+    //    sampler += sampleInterval;
+    //    TIMED(lox.rangingTest(&measure, false);); // pass in 'true' to get debug data printout!
+    //    //got 8190 when signal status was '4'
+    //    report(measure.RangeStatus == 4 ? 65535 : measure.RangeMilliMeter); //65535 is what other mode gets us when signal is out of range
+    //  }
+
   }
-
-  ranger.loop();//all work is done via callbacks to ranger.
-//
-//  if (!connected) {
-//    return;
-//  }
-//
-//  //we have Serial and are connected, and it is time to either expect a result or to ask for one
-//  if (devicePaces) {
-//    TIMED (bool measurementIsReady = lox.isRangeComplete());
-//
-//    if (!measurementIsReady) {
-//      if (reportPolls)
-//        reportTime("Poll took ");// ~0.4 ms, ~16 I2C bytes
-//      //perhaps increment sampler to slow down poll a bit, BUT it should be ready except for clock gain differences between us and VL53.
-//      return;
-//    } else {
-//      sampler += sampleInterval;
-//
-//      TIMED(unsigned millimeters = lox.readRangeResult();); // 3.66 ms!  ~147 bytes. DMA based I2C would be nice!
-//      report(millimeters);
-//    }
-//  } else {
-//    VL53L0X_RangingMeasurementData_t measure;
-//    sampler += sampleInterval;
-//    TIMED(lox.rangingTest(&measure, false);); // pass in 'true' to get debug data printout!
-//    //got 8190 when signal status was '4'
-//    report(measure.RangeStatus == 4 ? 65535 : measure.RangeMilliMeter); //65535 is what other mode gets us when signal is out of range
-//  }
-
 }
-
 #if 0
 
 readRangeResult timing analysis (3.66 ms):
@@ -262,9 +253,12 @@ readRangeResult timing analysis (3.66 ms):
 
 qtpy build adafruit library:
   Sketch uses 34900 bytes (13 % ) of program storage space. Maximum is 262144 bytes.
+  980f repackaging: 29580 (11%) 29568
+  980f no blockers: 29592 -- larger when code is removed!? somehow the image gets smaller when some unused functions are not present to be discarded by the linker.
 avr - leonardo:
   Sketch uses 22654 bytes (79 % ) of program storage space. Maximum is 28672 bytes.
   Global variables use 1301 bytes (50 % ) of dynamic memory, leaving 1259 bytes for local variables. Maximum is 2560 bytes.
+  
 D1 - lite :
   Sketch uses 288657 bytes (30 % ) of program storage space. Maximum is 958448 bytes.
     Global variables use 30300 bytes (36 % ) of dynamic memory, leaving 51620 bytes for local variables. Maximum is 81920 bytes.
