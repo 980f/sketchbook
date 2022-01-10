@@ -1,10 +1,12 @@
 arduous
 bitmanipulators.h
 build.h
+chainprinter.h
 cheaptricks.h
 digitalpin.h
 eztypes.h
 fixedpoint.h
+floatrecognizer.h
 forward.h
 intsizer.h
 lardls

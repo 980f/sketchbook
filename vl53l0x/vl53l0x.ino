@@ -31,12 +31,15 @@
 #include "vl53l0x_platform_log.h" //initLogging
 /////////////////////////
 //pin used to receive 'GPIO1' signal
-#define VLGPIO1pin 3
+#define VLGPIO1pin ~0
 
 
 
 /////////////////////////
 #include "cheaptricks.h" //changed()
+#include "chainprinter.h"
+
+ChainPrinter dbg(Serial, true);
 
 /** quick and dirty stopwatch with print. */
 class MicroStopwatch: public Printable  {
@@ -79,7 +82,7 @@ const DigitalInput devReady(VLGPIO1pin);//high active
 
 //whether to let device sample continuously or to ask for samples. controlled by 'c' and 's' commands:
 bool devicePaces = true;
-MilliTick sampleInterval=33;
+MilliTick sampleInterval = 33;
 
 ///////////////////////////////
 //time execution of api calls, some take many milliseconds.
@@ -93,26 +96,24 @@ MicroStopwatch stopwatch;
 
 
 void reportTime(const char *prefix, const char *suffix = " us.") {
-  Serial.print(prefix);
-  Serial.print(stopwatch);
-  Serial.println(suffix);
+  dbg(prefix, stopwatch, suffix);
 }
 
 //////////////////////////
-
-void report(unsigned millimeters) {
-  static bool OOR = false;
-  if (changed(OOR, millimeters == 65535) || !OOR) {
-    reportTime("Access: ", " us");
-    if (OOR) {
-      Serial.println("Out of range.");
-    } else {
-      Serial.print("Distance: mm:"); Serial.print(millimeters);
-      Serial.print("\tin:");
-      Serial.println(float(millimeters) / 25.4);
-    }
-  }
-}
+//
+//void report(unsigned millimeters) {
+//  static bool OOR = false;
+//  if (changed(OOR, millimeters == 65535) || !OOR) {
+//    reportTime("Access: ", " us");
+//    if (OOR) {
+//      Serial.println("Out of range.");
+//    } else {
+//      Serial.print("Distance: mm:"); Serial.print(millimeters);
+//      Serial.print("\tin:");
+//      Serial.println(float(millimeters) / 25.4);
+//    }
+//  }
+//}
 
 ////////////////////////////////////
 
@@ -120,6 +121,16 @@ void report(unsigned millimeters) {
 #include "vl53ranger.h"
 using  namespace VL53L0X; //for all the enums
 VL53Ranger ranger;
+
+namespace  VL53L0X {
+void initLogging() {
+  LocationStack::logger = &ranger;
+  //in case we want to restart all:
+  LocationStack::unwind( nullptr);
+  Thrower::unwind(nullptr);
+  Serial.println("VL53l0X logging initialized" );
+}
+}
 
 void startContinuous() {
 
@@ -142,6 +153,9 @@ void stopContinuous() {
 
 bool reportPolls = false;
 
+#include "floatrecognizer.h"
+FloatRecognizer  cli;
+
 //////////////////////////
 void setup() {
   Serial.begin(115200);
@@ -150,7 +164,7 @@ void setup() {
   Serial.println("VL53L0X tester (github/980f)");
 
   //  connectionPacer.start();
-    ranger.agent.arg.sampleRate_ms = 33;// a leisurely rate. Since it is nonzero continuous measurement will be initiated when the device is capable of it
+  ranger.agent.arg.sampleRate_ms = 33;// a leisurely rate. Since it is nonzero continuous measurement will be initiated when the device is capable of it
   ranger.agent.arg.gpioPin = 3;//todo: #define near top of file/class
   VL53L0X::initLogging(); //api doesn't know how logging is configured
 
@@ -182,20 +196,25 @@ void loop() {
 
     for (unsigned some = Serial.available(); some-- > 0;) {
       int one = Serial.read();
-      switch (tolower(one)) {
-        case 'c':
-          if (changed(devicePaces, true)) {
-            startContinuous();
-          }
-          break;
-        case 's':
-          if (changed(devicePaces, false)) {
-            stopContinuous();
-          }
-          break;
-        case 'p':
-          reportPolls = !reportPolls;
-          break;
+      if (cli(one)) {
+        switch (tolower(one)) {
+          case 'c':
+            if (changed(devicePaces, true)) {
+              startContinuous();
+            }
+            break;
+          case 's':
+            if (changed(devicePaces, false)) {
+              stopContinuous();
+            }
+            break;
+          case 'p':
+            reportPolls = !reportPolls;
+            break;
+          case 'x':
+            ranger.startProcess(NonBlocking::ThrowSomething, cli);
+            break;
+        }
       }
     }
 
@@ -253,13 +272,16 @@ readRangeResult timing analysis (3.66 ms):
 
 qtpy build adafruit library:
   Sketch uses 34900 bytes (13 % ) of program storage space. Maximum is 262144 bytes.
-  980f repackaging: 29580 (11%) 29568
-  980f no blockers: 29592 -- larger when code is removed!? somehow the image gets smaller when some unused functions are not present to be discarded by the linker.
-avr - leonardo:
+  980f repackaging: 29580 (11 % ) 29568
+  980f no blockers: 29592 -- larger when code is removed! ? somehow the image gets smaller when some unused functions are not present to be discarded by the linker.
+  980f avr compile compatible 30020
+  ditto no blockers : 30044
+
+  avr - leonardo :
   Sketch uses 22654 bytes (79 % ) of program storage space. Maximum is 28672 bytes.
   Global variables use 1301 bytes (50 % ) of dynamic memory, leaving 1259 bytes for local variables. Maximum is 2560 bytes.
-  
-D1 - lite :
+
+  D1 - lite :
   Sketch uses 288657 bytes (30 % ) of program storage space. Maximum is 958448 bytes.
     Global variables use 30300 bytes (36 % ) of dynamic memory, leaving 51620 bytes for local variables. Maximum is 81920 bytes.
 
