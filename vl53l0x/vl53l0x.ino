@@ -158,7 +158,9 @@ FloatRecognizer  cli;
 
 //////////////////////////
 void setup() {
+  TRACE_ENTRY
   Serial.begin(115200);
+  while (!Serial); //trying to fix debug itself
 
   //up to 64 chars will buffer waiting for usb serial to open
   Serial.println("VL53L0X tester (github/980f)");
@@ -167,33 +169,14 @@ void setup() {
   ranger.agent.arg.sampleRate_ms = 33;// a leisurely rate. Since it is nonzero continuous measurement will be initiated when the device is capable of it
   ranger.agent.arg.gpioPin = 3;//todo: #define near top of file/class
   VL53L0X::initLogging(); //api doesn't know how logging is configured
-
+  dbg("Ranger.setup");
   ranger.setup(devicePaces ? NonBlocking::DataStream : NonBlocking::OnDemand);
 }
 
 
 void loop() {
-  if (MilliTicked) {
-
-
-    if (!Serial) {//make sure we have debug before we invoke activity
-      return;
-    }
-
-    //  if (!connected) {
-    //    if (connectionPacer.lap() > 100000) { //10Hz retry on connect
-    //      if (!lox.begin()) {
-    //        connectionPacer.start();
-    //      } else {
-    //        connected = true;
-    //        if (devicePaces) {
-    //          startContinuous();
-    //        }
-    //      }
-    //    }
-    //  }
-
-
+  TRACE_ENTRY
+  if (MilliTicked) { //nothing happens quickly with the VL53L0 on I2C
     for (unsigned some = Serial.available(); some-- > 0;) {
       int one = Serial.read();
       if (cli(one)) {
@@ -212,12 +195,18 @@ void loop() {
             reportPolls = !reportPolls;
             break;
           case 'x':
+            dbg("Requesting arbitrary error to e thrown");
             ranger.startProcess(NonBlocking::ThrowSomething, cli);
+            break;
+          case 'l':
+            LocationStack::onEntry = cli > 0;
+            break;
+          default:
+            dbg(cli, char(one), " means nothing to me");
             break;
         }
       }
     }
-
 
     ranger.loop(MilliTicked.recent());//all work is done via callbacks to ranger.
     //
