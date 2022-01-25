@@ -2,10 +2,7 @@
 /////////////////////////
 #include "cheaptricks.h" //eztypes.h
 
-#include "chainprinter.h"
-ChainPrinter dbg(Serial, true);
-
-
+#include "dbgserial.h"
 
 #include "clirp.h"
 
@@ -28,6 +25,14 @@ class SUI {
       }
     }
 
+    unsigned has2() const {
+      return cli.twoargs();
+    }
+
+    bool hasarg() const {
+      return bool(cli.arg);
+    }
+
     operator unsigned() {
       return cli.arg;
     }
@@ -42,13 +47,11 @@ class SUI {
 
 DigitalOutput imAlive(LED_BUILTIN);
 
-//DigitalOutput dataReadyToggle(11);//led on seeed-xia0
-
 //millis() utilities
 #include "millievent.h"
 OneShot pulse;
-DigitalOutput T1(10);
-DigitalOutput T2(9);
+DigitalOutput T1(12);//12,11 are LEDs on xia0
+DigitalOutput T2(11);
 
 
 //used to report on any action that takes longer than a millisecond
@@ -62,9 +65,7 @@ MilliChecker skipper;
 SUI sui(Serial, Serial);
 
 void setup() {
-  //  Serial.begin(115200);
-  //  while(!Serial);//I hate doing this, but can't get dbg stable without it. It will work for dozens of downloads, then not work.
-  //  dbg.stifled = !Serial;
+
 }
 
 
@@ -104,7 +105,7 @@ void loop() {
         break;
 
       case 'p':
-        pulse = sui ? : 1234; //if no param then a bit over one second.
+        pulse = sui.hasarg() ? sui : 1234; //if no param then a bit over one second.
         [[fallthrough]];
       case ' '://info for regression being worked on
         dbg("RB :", pulse.isRunning(), bool(pulse), " due:", pulse.due(), " now:", MilliTicker);

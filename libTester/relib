@@ -6,6 +6,8 @@ ln -sf lib/ezcpp/char.h
 ln -sf lib/ezcpp/cheaptricks.h
 ln -sf lib/clirp.h
 ln -sf lib/ezcpp/cstr.h
+ln -sf lib/dbgserial.cpp
+ln -sf lib/dbgserial.h
 ln -sf lib/digitalpin.h
 ln -sf lib/ezcpp/eztypes.h
 ln -sf lib/ezcpp/index.h
