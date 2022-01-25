@@ -33,8 +33,7 @@
 /////////////////////////
 #include "cheaptricks.h" //changed()
 
-#include "chainprinter.h"
-ChainPrinter dbg(Serial, true);
+#include "dbgserial.h"
 
 #include "digitalpin.h"
 
@@ -171,17 +170,19 @@ unsigned connectionAttempts = 0;
 unsigned connectionSuccesses = 0;
 
 void loop() {
-  if (MilliTicked) {//keep the processor cool, nothing happens fast with this sensor
+  if (MilliTicker) {//keep the processor cool, nothing happens fast with this sensor
 
-    imAlive = bool(Serial);
-
-    if (changed(dbg.stifled, !Serial)) {//takes wildly variable amount of time, 800..1600 so far.
-      dbg("VL53L0X tester (github/980f) ", MilliTicked.recent()); //does nothing if stifled.
-      dbg(connected ? "Connected" : "not Connected");
+    if (dbg.stifled) {
+      if (changed(dbg.stifled, !Serial)) {//takes wildly variable amount of time, 800..1600 so far.
+        dbg("VL53L0X tester (github/980f) ", MilliTicker.recent()); //does nothing if stifled.
+        dbg(connected ? "Connected" : "not Connected");
+      }
     }
+
     if (!sampler.isRunning()) { //until we figure out why it stops
       sampler.start();
     }
+
     if (sampler) {//it as been a while, see if the ranger needs some support or has data
       if (!connected) {
         ++connectionAttempts;
@@ -193,7 +194,7 @@ void loop() {
           } else {
             sampler.start();
           }
-        } else {
+        } else {//connection attempt failed
           if (connectionAttempts % 50 == 0) {
             dbg("Attempts:", connectionAttempts, " Successes:", connectionSuccesses);
           }
@@ -204,9 +205,6 @@ void loop() {
         if (devicePaces) {
           bool measurementIsReady = measurementSeemsReady();
           if (!measurementIsReady) {
-            if (reportPolls) {
-              reportTime("Poll took ");// ~0.4 ms, ~16 I2C bytes
-            }
             //perhaps increment sampler to slow down poll a bit, BUT it should be ready except for clock gain differences between us and VL53.
             sampler.start();
           } else {
@@ -226,7 +224,8 @@ void loop() {
     }
 
     for (unsigned some = Serial.available(); some-- > 0;) {
-      int one = Serial.read();
+      char one = Serial.read();
+      bool isUpper = one < 'a';
       switch (tolower(one)) {
         case ' ':
           dbg("SE:", sampler.elapsed(), " SP:", sampler, " Sr:", sampler.isRunning());
@@ -249,10 +248,10 @@ void loop() {
           scanI2C(dbg, 0x30, 0x20);
           break;
         case 'p':
-          reportPolls = !reportPolls;
+          reportPolls = isUpper;
           break;
         default:
-          dbg(char(one), " means nothing to me.");
+          dbg(one, " means nothing to me. (", HEXLY(one), ')');
           break;
       }
     }

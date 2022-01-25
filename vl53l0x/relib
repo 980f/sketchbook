@@ -1,19 +1,21 @@
 ## recreate links to library sources
-ln -sf ../shared/arduous arduous
-ln -sf lib/chainprinter.h chainprinter.h
-ln -sf lib/ezcpp/char.cpp char.cpp
-ln -sf lib/ezcpp/char.h char.h
-ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
-ln -sf lib/ezcpp/cstr.h cstr.h
-ln -sf lib/digitalpin.h digitalpin.h
-ln -sf lib/ezcpp/eztypes.h eztypes.h
-ln -sf lib/floatrecognizer.h floatrecognizer.h
-ln -sf lib/ezcpp/index.h index.h
-ln -sf ../shared/lardls lardls
-ln -sf lib/millievent.cpp millievent.cpp
-ln -sf lib/millievent.h millievent.h
-ln -sf lib/ezcpp/minimath.cpp minimath.cpp
-ln -sf lib/ezcpp/minimath.h minimath.h
-ln -sf lib/minmax.h minmax.h
-ln -sf lib/scani2c.h scani2c.h
-ln -sf lib/ezcpp/textkey.h textkey.h
+ln -sf ../shared/arduous
+ln -sf lib/chainprinter.h
+ln -sf lib/ezcpp/char.cpp
+ln -sf lib/ezcpp/char.h
+ln -sf lib/ezcpp/cheaptricks.h
+ln -sf lib/ezcpp/cstr.h
+ln -sf lib/dbgserial.cpp
+ln -sf lib/dbgserial.h
+ln -sf lib/digitalpin.h
+ln -sf lib/ezcpp/eztypes.h
+ln -sf lib/floatrecognizer.h
+ln -sf lib/ezcpp/index.h
+ln -sf ../shared/lardls
+ln -sf lib/millievent.cpp
+ln -sf lib/millievent.h
+ln -sf lib/ezcpp/minimath.cpp
+ln -sf lib/ezcpp/minimath.h
+ln -sf lib/minmax.h
+ln -sf lib/scani2c.h
+ln -sf lib/ezcpp/textkey.h

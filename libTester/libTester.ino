@@ -50,6 +50,8 @@ DigitalOutput imAlive(LED_BUILTIN);
 //millis() utilities
 #include "millievent.h"
 OneShot pulse;
+MonoStable periodic;
+
 DigitalOutput T1(12);//12,11 are LEDs on xia0
 DigitalOutput T2(11);
 
@@ -104,6 +106,17 @@ void loop() {
         delay(sui);
         break;
 
+      case 'o':
+        if (sui.hasarg()) {
+          periodic = sui;
+        } else {
+          periodic.start();
+        }
+        [[fallthrough]];
+      case 'l':
+        dbg("MS :", periodic.isRunning(), bool(periodic), " due:", periodic.due(), " now:", MilliTicker);
+        break;
+
       case 'p':
         pulse = sui.hasarg() ? sui : 1234; //if no param then a bit over one second.
         [[fallthrough]];
@@ -112,7 +125,6 @@ void loop() {
         break;
     }
   });
-
 }
 
 
