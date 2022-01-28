@@ -1,3 +1,5 @@
+#include <Adafruit_ZeroDMA.h>
+
 /* This started as an example program from Adafruit.
   It has been modified by 980F so that instead of a canned demo you can pick from the various modes of the original.
   It also allows for other things to happen such as testing inputs to change what gets done.
@@ -21,6 +23,8 @@
 #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
 #endif
 
+//pin that is monitored for automatic running. When low interactive, when high (missing jumper ;) automatic.
+#define AutoRunPin 0
 
 //980F patched the pins.h in the adafruit_neopicel_zerodma_master directory under libraries in otder to add the XAIO with DMA
 //if your board isn't in that file don't use DMA!
@@ -31,7 +35,7 @@
 #define LED_PIN   10
 
 // How many NeoPixels are attached to the Arduino?
-#define LED_COUNT 92
+#define LED_COUNT ((3*30)+(4*8)+20)
 
 
 #if UseDMA
@@ -51,21 +55,6 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 //   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
-
-
-// setup() function -- runs once at startup --------------------------------
-
-void setup() {
-  Serial.begin(115200);
-  while (!Serial);
-  Serial.println("led strand tester");
-  Serial.println("i: init (only once!)");
-  Serial.println("c,t,r,e: different displays");
-
-}
-
-
-bool began = !UseDMA;
 
 
 
@@ -233,9 +222,79 @@ class Rainbow: public LightingEffect {
 } rainbow;
 
 
+/*
+  // Theater-marquee-style chasing lights. Pass in a color (32-bit value,
+  // a la strip.Color(r,g,b) as mentioned above), and a delay time (in ms)public:
+
+  // between frames.
+  void theaterChase(uint32_t color, int wait) {
+  Serial.print("chase:");
+  Serial.println(color);
+  for (int a = 0; a < 10; a++) { // Repeat 10 times...
+    for (int b = 0; b < 3; b++) { //  'b' counts from 0 to 2...
+      strip.clear();         //   Set all pixels in RAM to 0 (off)
+      // 'c' counts up from 'b' to end of strip in steps of 3...
+      for (int c = b; c < strip.numPixels(); c += 3) {
+        strip.setPixelColor(c, color); // Set pixel 'c' to value 'color'
+      }
+      strip.show(); // Update strip with new contents
+      delay(wait);  // Pause for a moment
+    }
+  }
+  }
+
+*/
+class Marquee: public LightingEffect {
+    //for (int a = 0; a < 10; a++) { // Repeat 10 times...
+    //    for (int b = 0; b < 3; b++) { //  'b' counts from 0 to 2...
+    uint32_t color;
+    int a;
+    int b;
+
+  public:
+
+    void start(bool inreverse) override {
+      color = strip.Color(127, 64, 32); //todo: allow entry
+
+      a = 10;
+      b = 3;
+      LightingEffect::start(inreverse);
+    }
+
+    bool tick() override {
+      if (--b == 0) {
+        if (--a == 0) {
+          return true;//cycle complete
+        }
+        b = 3;
+      }
+      strip.clear();
+      for (looper = b; looper < numPixels; looper += 3) {
+        set(color);
+      }
+      return false;
+    }
+
+    void buggy() override {
+      LightingEffect::buggy();
+      Serial.println();
+    }
+
+
+    const char *name() {
+      return "Marquee";
+    }
+
+} marquee;
 
 LightingEffect *currentEffect = nullptr;
 unsigned updateRate;
+
+bool began = !UseDMA;
+
+bool showticks = true;
+
+bool autoRunning = false;
 
 
 void startEffect(LightingEffect &effect, unsigned steprate_ms = 50) {
@@ -249,7 +308,45 @@ void startEffect(LightingEffect &effect, unsigned steprate_ms = 50) {
   effect.buggy();
 }
 
-bool showticks = true;
+
+
+void beginInteractive() {
+  Serial.begin(115200);
+  while (!Serial);
+  Serial.println("led strand tester");
+  Serial.println("i: init (only once!)");
+  Serial.println("c,t,r,e: different displays");
+}
+
+void initDriver() {
+  if (began) return; //runonce
+  //formerly automatic in setup but locks up the processor if you forget to check the return from begin()
+  Serial.println("init library-");
+#if UseDMA
+  began = strip.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  if (!began) {
+    Serial.println("given LED_PIN does not work");
+    return;
+  }
+#else
+  strip.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+#endif
+  Serial.println("All off");
+  strip.show();            // Turn OFF all pixels ASAP
+  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  Serial.println("-library is init, lights should be off");
+}
+
+
+void setup() {
+  autoRunning = false;//digitalRead(AutoRunPin) == HIGH;
+  if (!autoRunning) {
+    beginInteractive();
+  } else {
+    beginInteractive();//until we have automation
+  }
+}
+
 void loop() {
   if ((millis() % updateRate) == 0) {
     if (currentEffect) {
@@ -268,129 +365,55 @@ void loop() {
     }
   }
 
-  if (Serial.available()) {
-    switch (tolower(Serial.read())) {
-      case 'i':
-        //formerly automatic in setup but locks up the processor if you forget to check the return from begin()
-        Serial.println("init library-");
-#if UseDMA
-        began = strip.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-        if (!began) {
-          Serial.println("given LED_PIN does not work");
-          return;
-        }
-#else
-        strip.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-#endif
-        Serial.println("All off");
-        strip.show();            // Turn OFF all pixels ASAP
-        strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
-        Serial.println("-library is init, lights should be off");
-        break;
-      case 'b':
-        if (currentEffect) {
-          currentEffect->buggy();
-        }
-        break;
-      case 'c':
-        Serial.println("ColorWipe");
-        startEffect(wiper);
-        break;
-      //      case 't':
-      //        if (!began) {
-      //          Serial.println("you must init with an i first");
-      //          return;
-      //        }
-      //        // Do a theater marquee effect in various colors...
-      //        theaterChase(strip.Color(127, 127, 127), 50); // White, half brightness
-      //        theaterChase(strip.Color(127,   0,   0), 50); // Red, half brightness
-      //        theaterChase(strip.Color(  0,   0, 127), 50); // Blue, half brightness
-      //
-      //        break;
-      case 'r':
-        Serial.println("rainbow");
-        startEffect(rainbow, 10);
-        break;
-      case 'e':
-        break;
-      case 'h':
-        currentEffect = nullptr; //freeze
-        Serial.println("Enter letter for effect:");
-        break;
-      case 't':
-        showticks = !showticks;
-        Serial.println(showticks ? "ticking" : "quiet");
+  if (autoRunning) {
+    if (digitalRead(AutoRunPin) == LOW) {
+      //todo: switch to interactive. That entails making sure Serial is working.
     }
-  }
-
-}
-
-
-// Some functions of our own for creating animated effects -----------------
-#if 0
-// Fill strip pixels one after another with a color. Strip is NOT cleared
-// first; anything there will be covered pixel by pixel. Pass in color
-// (as a single 'packed' 32-bit value, which you can get by calling
-// strip.Color(red, green, blue) as shown in the loop() function above),
-// and a delay time (in milliseconds) between pixels.
-void colorWipe(uint32_t color, int wait) {
-  Serial.print("wipe:");
-  Serial.println(color);
-  for (int i = 0; i < strip.numPixels(); i++) { // For each pixel in strip...
-    strip.setPixelColor(i, color);         //  Set pixel's color (in RAM)
-    strip.show();                          //  Update strip to match
-    delay(wait);                           //  Pause for a moment
-  }
-}
-
-#endif
-
-// Theater-marquee-style chasing lights. Pass in a color (32-bit value,
-// a la strip.Color(r,g,b) as mentioned above), and a delay time (in ms)
-// between frames.
-void theaterChase(uint32_t color, int wait) {
-  Serial.print("chase:");
-  Serial.println(color);
-  for (int a = 0; a < 10; a++) { // Repeat 10 times...
-    for (int b = 0; b < 3; b++) { //  'b' counts from 0 to 2...
-      strip.clear();         //   Set all pixels in RAM to 0 (off)
-      // 'c' counts up from 'b' to end of strip in steps of 3...
-      for (int c = b; c < strip.numPixels(); c += 3) {
-        strip.setPixelColor(c, color); // Set pixel 'c' to value 'color'
+  } else {
+    if (Serial.available()) {
+      char key = Serial.read();
+      switch (tolower(key)) {
+        case 13: case 10://buffered serial gets us newlines of any flavor.
+          break;
+        case 'i':
+          initDriver();
+          break;
+        case 'b':
+          if (currentEffect) {
+            currentEffect->buggy();
+          }
+          break;
+        case 'c':
+          Serial.println("ColorWipe");
+          startEffect(wiper);
+          break;
+        case 'm':
+          Serial.println("marquee");
+          startEffect(marquee, 20);
+          break;
+        case 'r':
+          Serial.println("rainbow");
+          startEffect(rainbow, 10);
+          break;
+        case 'e':
+          break;
+        case 'h':
+          currentEffect = nullptr; //freeze
+          Serial.println("Enter letter for effect:");
+          break;
+        case 't':
+          showticks = !showticks;
+          Serial.println(showticks ? "ticking" : "quiet");
+        default:
+          Serial.print(key);
+          Serial.println("? I don't understand that.");
+          break;
       }
-      strip.show(); // Update strip with new contents
-      delay(wait);  // Pause for a moment
     }
   }
+  \
 }
 
-#if 0
-// Rainbow cycle along whole strip. Pass delay time (in ms) between frames.
-void rainbow(int wait) {
-  Serial.println("rainbow");
-  // Hue of first pixel runs 5 complete loops through the color wheel.
-  // Color wheel has a range of 65536 but it's OK if we roll over, so
-  // just count from 0 to 5*65536. Adding 256 to firstPixelHue each time
-  // means we'll make 5*65536/256 = 1280 passes through this outer loop:
-  for (long firstPixelHue = 0; firstPixelHue < 5 * 65536; firstPixelHue += 256) {
-    for (int i = 0; i < strip.numPixels(); i++) { // For each pixel in strip...
-      // Offset pixel hue by an amount to make one full revolution of the
-      // color wheel (range of 65536) along the length of the strip
-      // (strip.numPixels() steps):
-      int pixelHue = firstPixelHue + (i * 65536L / strip.numPixels());
-      // strip.ColorHSV() can take 1 or 3 arguments: a hue (0 to 65535) or
-      // optionally add saturation and value (brightness) (each 0 to 255).
-      // Here we're using just the single-argument hue variant. The result
-      // is passed through strip.gamma32() to provide 'truer' colors
-      // before assigning to each pixel:
-      strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue)));
-    }
-    strip.show(); // Update strip with new contents
-    delay(wait);  // Pause for a moment
-  }
-}
-
-#endif
 
 // Rainbow-enhanced theater marquee. Pass delay time (in ms) between frames.
 void theaterChaseRainbow(int wait) {
