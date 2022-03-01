@@ -1,0 +1,27 @@
+arduous
+chainprinter.h
+char.cpp
+char.h
+cheaptricks.h
+clirp.h
+cstr.cpp
+cstr.h
+digitalpin.h
+extremer.h
+eztypes.h
+histogrammer.h
+#IDE file edit conflict misfires reliably creating these:
+index.h
+lardls
+microevent.cpp
+microevent.h
+millichecker.cpp
+millichecker.h
+millievent.cpp
+millievent.h
+minimath.h
+*\.replaced
+stopwatch.cpp
+stopwatch.h
+textkey.h
+unsignedrecognizer.h

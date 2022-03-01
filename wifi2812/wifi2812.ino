@@ -3,8 +3,7 @@
 #include <NeoPixelAnimator.h>
 #include <NeoPixelBrightnessBus.h>
 
-#undef countof  //macro was defined in deeply nested headers but is too generic a name
-//#define countof(arr) (sizeof(arr)/sizeof(*arr))
+#undef countof  //macro was defined in deeply nested headers but is too generic a name, and conflicted with following includes
 
 #include "WS2812FX.h"
 
@@ -48,7 +47,18 @@ DigitalOutput blinker(LED_BUILTIN);
 
 DigitalInput beDark(D5, LOW);
 
+//we don't immediately react to button, so that operator can bobble it without changing state
 bool isDark = false;
+bool wantDark = false;
+
+const char * darkness(bool darkly) {
+  return darkly ? "Dark" : "Light";
+}
+
+/** triggered on going dark, stays dark while active */
+MonoStable bouncer(2000);
+OneShot updelay;
+
 
 void showem() {
   showTimer.start();
@@ -89,33 +99,10 @@ struct FxTriplet {
 
 
 /////////////////////////////////////////////
-void setup() {
-  Serial.begin(115200);
-  ws2812fx.init();
-  isDark = !beDark; //force apparent change
 
-  fx[0].mode = FX_MODE_RAINBOW ;
-  fx[0].brightness = 100;
-  fx[0].speed = 200;
-
-  fx[1].mode = FX_MODE_SPARKLE;
-  fx[1].brightness = 100;
-  fx[1].speed = 200;
-
-
-  fx[1].apply();
-  // set the custom show function
-  ws2812fx.setCustomShow(myCustomShow);
-
-
-  ws2812fx.start();
-
-
-  // MUST run strip.Begin() after ws2812fx.init(), so GPIOx is initalized properly
-  strip.Begin();
-  showem();
+void buggy(const char *prefix) {
+  dbg(prefix, " ", bouncer.isRunning() ? 'R' : 's', " ", bouncer.due(), " @", MilliTick(bouncer));
 }
-
 
 void clido(int key) {
 
@@ -126,7 +113,9 @@ void clido(int key) {
       fx[1].show(dbg);
       dbg("0/Light:");
       fx[0].show(dbg);
-      dbg("Active:", isDark ? "Dark" : "Light");
+      dbg("Active:", darkness(isDark));
+      dbg("Pending:", darkness(wantDark));
+      dbg("Bouncing:", bouncer.due());
       break;
     case 'm':
       ws2812fx.setMode(fx[beDark].mode = cli.arg);
@@ -145,6 +134,37 @@ void clido(int key) {
         }
       }
       break;
+    case 't'://test the timer!
+      buggy("init");
+      dbg(bouncer.set(15000));
+      buggy("Via set:");
+      bouncer.start();
+      buggy("started");
+      bouncer.stop();
+      buggy("stopped");
+      bouncer = 23654;
+      buggy("op=");
+      delay(1654);
+      buggy("later");
+      break;
+    case 'u':
+      dbg(MilliTicker.recent(), "?=", millis(), " +10k:", MilliTicker[10000]);
+      {
+        OneShot wtf;
+        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+        wtf = 1234;
+        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+        delay(200);
+        MilliTicker.ticked();
+        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+        for (unsigned trials = 6; trials-- > 0;) {
+          delay(300);
+          MilliTicker.ticked();
+          dbg("bool:", bool(wtf));
+          dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+        }
+      }
+      break;
     default:
       dbg("Key:", key, " (", char(key), ")");
       break;
@@ -160,26 +180,63 @@ void checkcli() {
   }
 }
 
-MonoStable toggler(2000);
+void setup() {
+  Serial.begin(115200);
+  ws2812fx.init();
+  wantDark = !beDark; //force apparent change
+  isDark = !wantDark;
+
+  fx[0].mode = FX_MODE_RAINBOW ;
+  fx[0].brightness = 100;
+  fx[0].speed = 200;
+
+  fx[1].mode = FX_MODE_SPARKLE;
+  fx[1].brightness = 100;
+  fx[1].speed = 200;
+
+
+  fx[1].apply();
+  // set the custom show function (link FX lib and fast Neopixel writer?)
+  ws2812fx.setCustomShow(myCustomShow);
+
+
+  ws2812fx.start();
+
+
+  // MUST run strip.Begin() after ws2812fx.init(), so GPIOx is initalized properly
+  strip.Begin();
+  showem();
+}
+
 
 void loop() {
   if (MilliTicker) {
 
     if (changed(dbg.stifled, !bool(Serial))) {
       dbg("\nWifilights  ");
+      clido(' ');
     }
 
     ws2812fx.service();
-   
+
     checkcli();
-    
-    if (changed(isDark, beDark)) {
-      dbg("Switching to mode:", isDark ? "Dark" : "Light");
-      fx[isDark].apply();
+
+    if (changed(wantDark, beDark)) {
+      dbg("Button:", darkness(wantDark));
+      bouncer.start();
+      updelay=2000;
     }
 
-    blinker = bool(Serial);
-    
+//    if (bouncer.isDone()) {//is failing to autodisable when done!
+    if(updelay){
+      if (changed(isDark, wantDark)) {
+        dbg("Switching to mode:", darkness(isDark));
+        fx[isDark].apply();
+      }
+    }
+
+    blinker = updelay.isRunning();
+
   }
 }
 //EOF.
