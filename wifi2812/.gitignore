@@ -9,6 +9,7 @@ cstr.h
 digitalpin.h
 extremer.h
 eztypes.h
+histogrammer.h
 index.h
 lardls
 millievent.cpp

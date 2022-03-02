@@ -9,6 +9,8 @@
 
 #define LED_COUNT 200
 
+
+//D4 on d1-mini, D2 on esp32-wroom devkit
 #define LED_PIN 2
 
 
@@ -22,7 +24,7 @@
 
 WS2812FX ws2812fx = WS2812FX(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_PIN); //NB: LED_PIN is ignored for some methods but always tolerated
+NeoPixelBus<NeoGrbFeature, NeoEsp32I2s1800KbpsMethod> strip(LED_COUNT, LED_PIN); //NB: LED_PIN is ignored for some methods but always tolerated
 
 
 #include "millievent.h"
@@ -30,7 +32,7 @@ NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_PI
 #include "stopwatch.h"
 Histogrammer<100> showTimes;
 StopWatchCore showTimer(false, true); //2nd true->micros
-Histogrammer<100>::ShowOptions showopts{true, true, 3000};
+Histogrammer<100>::ShowOptions showopts(true, true, 3000);
 
 #include "chainprinter.h"
 ChainPrinter dbg(Serial, true);
@@ -39,11 +41,17 @@ ChainPrinter dbg(Serial, true);
 #undef cli
 
 #include "clirp.h"
-CLIRP cli;
+CLIRP<> cli;
 
 #include "digitalpin.h"
-
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 18
+#endif
 DigitalOutput blinker(LED_BUILTIN);
+
+#ifndef D5
+#define D5 14
+#endif
 
 DigitalInput beDark(D5, LOW);
 
@@ -115,6 +123,7 @@ void clido(int key) {
       fx[0].show(dbg);
       dbg("Active:", darkness(isDark));
       dbg("Pending:", darkness(wantDark));
+      dbg("Switch:",darkness(beDark));
       dbg("Bouncing:", bouncer.due());
       break;
     case 'm':
@@ -224,11 +233,11 @@ void loop() {
     if (changed(wantDark, beDark)) {
       dbg("Button:", darkness(wantDark));
       bouncer.start();
-      updelay=2000;
+      updelay = 2000;
     }
 
-//    if (bouncer.isDone()) {//is failing to autodisable when done!
-    if(updelay){
+    //    if (bouncer.isDone()) {//is failing to autodisable when done!
+    if (updelay) {
       if (changed(isDark, wantDark)) {
         dbg("Switching to mode:", darkness(isDark));
         fx[isDark].apply();

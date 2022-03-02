@@ -10,6 +10,7 @@ ln -sf lib/ezcpp/cstr.h
 ln -sf lib/digitalpin.h
 ln -sf ../safely/cppext/extremer.h
 ln -sf lib/ezcpp/eztypes.h
+ln -sf lib/histogrammer.h
 ln -sf lib/ezcpp/index.h
 ln -sf ../shared/lardls
 ln -sf lib/millievent.cpp
