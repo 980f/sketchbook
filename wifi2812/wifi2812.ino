@@ -9,6 +9,8 @@
 
 #define LED_COUNT 200
 
+
+//D4 on d1-mini, D2 on esp32-wroom devkit. Use GPIO value here.
 #define LED_PIN 2
 
 
@@ -30,7 +32,7 @@ NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_PI
 #include "stopwatch.h"
 Histogrammer<100> showTimes;
 StopWatchCore showTimer(false, true); //2nd true->micros
-Histogrammer<100>::ShowOptions showopts{true, true, 3000};
+Histogrammer<100>::ShowOptions showopts(true, true, 3000);
 
 #include "chainprinter.h"
 ChainPrinter dbg(Serial, true);
@@ -39,11 +41,17 @@ ChainPrinter dbg(Serial, true);
 #undef cli
 
 #include "clirp.h"
-CLIRP cli;
+CLIRP<> cli;
 
 #include "digitalpin.h"
-
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 18
+#endif
 DigitalOutput blinker(LED_BUILTIN);
+
+#ifndef D5
+#define D5 14
+#endif
 
 DigitalInput beDark(D5, LOW);
 
@@ -96,7 +104,21 @@ struct FxTriplet {
     ws2812fx.setMode(mode);
   }
 } fx[2];
+/////////////////////////////////////////////
+//static randomish with some flicker
+uint16_t staticFlicker(){
+//  for(unsigned i=ws2812fx._seg->start; i <= ws2812fx._seg->stop; i++) { //_seg not available, custom modes are not convenient at all!
+  for(unsigned pi=LED_COUNT;pi-->0;){
+    ws2812fx.setPixelColor(pi, ws2812fx.color_wheel(ws2812fx.random8()));
+  }
+//  SET_CYCLE;
+  return fx[0].speed;
+}
 
+//auto myname=F("Sorcerer");
+void registerMode(){ //add 57 for testing
+  ws2812fx.setCustomMode(staticFlicker);
+}
 
 /////////////////////////////////////////////
 
@@ -115,6 +137,7 @@ void clido(int key) {
       fx[0].show(dbg);
       dbg("Active:", darkness(isDark));
       dbg("Pending:", darkness(wantDark));
+      dbg("Switch:",darkness(beDark));
       dbg("Bouncing:", bouncer.due());
       break;
     case 'm':
@@ -188,17 +211,17 @@ void setup() {
 
   fx[0].mode = FX_MODE_RAINBOW ;
   fx[0].brightness = 100;
-  fx[0].speed = 200;
+  fx[0].speed = 2000;
 
-  fx[1].mode = FX_MODE_SPARKLE;
-  fx[1].brightness = 100;
-  fx[1].speed = 200;
+  fx[1].mode = FX_MODE_BREATH;
+  fx[1].brightness = 50;
+  fx[1].speed = 1000;
 
 
   fx[1].apply();
   // set the custom show function (link FX lib and fast Neopixel writer?)
   ws2812fx.setCustomShow(myCustomShow);
-
+  registerMode();
 
   ws2812fx.start();
 
@@ -224,11 +247,11 @@ void loop() {
     if (changed(wantDark, beDark)) {
       dbg("Button:", darkness(wantDark));
       bouncer.start();
-      updelay=2000;
+      updelay = 2000;
     }
 
-//    if (bouncer.isDone()) {//is failing to autodisable when done!
-    if(updelay){
+    //    if (bouncer.isDone()) {//is failing to autodisable when done!
+    if (updelay) {
       if (changed(isDark, wantDark)) {
         dbg("Switching to mode:", darkness(isDark));
         fx[isDark].apply();
