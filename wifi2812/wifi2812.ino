@@ -106,18 +106,13 @@ struct FxTriplet {
 } fx[2];
 /////////////////////////////////////////////
 //static randomish with some flicker
+// 18 up 12 over 20ish down, 10 on floor, 1 hidden, match first up, then differently spaced
 uint16_t staticFlicker(){
-//  for(unsigned i=ws2812fx._seg->start; i <= ws2812fx._seg->stop; i++) { //_seg not available, custom modes are not convenient at all!
   for(unsigned pi=LED_COUNT;pi-->0;){
-    ws2812fx.setPixelColor(pi, ws2812fx.color_wheel(ws2812fx.random8()));
+    uint8_t scrambled=pi<<4 | ((pi>>4)&0xF);
+    ws2812fx.setPixelColor(pi, ws2812fx.color_wheel(scrambled));
   }
-//  SET_CYCLE;
   return fx[0].speed;
-}
-
-//auto myname=F("Sorcerer");
-void registerMode(){ //add 57 for testing
-  ws2812fx.setCustomMode(staticFlicker);
 }
 
 /////////////////////////////////////////////
@@ -206,25 +201,21 @@ void checkcli() {
 void setup() {
   Serial.begin(115200);
   ws2812fx.init();
-  wantDark = !beDark; //force apparent change
-  isDark = !wantDark;
-
-  fx[0].mode = FX_MODE_RAINBOW ;
+  ws2812fx.setCustomShow(myCustomShow);
+  ws2812fx.setCustomMode(staticFlicker);
+  
+  fx[0].mode = FX_MODE_CUSTOM ;
   fx[0].brightness = 100;
-  fx[0].speed = 2000;
+  fx[0].speed = 2022;
 
   fx[1].mode = FX_MODE_BREATH;
   fx[1].brightness = 50;
-  fx[1].speed = 1000;
+  fx[1].speed = 5000;
 
-
-  fx[1].apply();
-  // set the custom show function (link FX lib and fast Neopixel writer?)
-  ws2812fx.setCustomShow(myCustomShow);
-  registerMode();
-
+  isDark = wantDark = beDark; //match switch on powerup
+  fx[isDark].apply();
+  
   ws2812fx.start();
-
 
   // MUST run strip.Begin() after ws2812fx.init(), so GPIOx is initalized properly
   strip.Begin();
