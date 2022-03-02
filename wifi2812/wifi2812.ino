@@ -7,11 +7,11 @@
 
 #include "WS2812FX.h"
 
-#define LED_COUNT 200
+const unsigned LED_COUNT = 3 * 30 + 60 + 8; //3 strips of 30, 1 of 60, might add a ring of 8.
 
 
-//D4 on d1-mini, D2 on esp32-wroom devkit. Use GPIO value here.
-#define LED_PIN 2
+//D4 on d1-mini, D2 on esp32-wroom devkit. Use GPIO value here, not arduino pin name.
+const unsigned LED_GPIO = 2;
 
 
 /*
@@ -22,9 +22,9 @@
   D7/GPIO 13: MOSI
 */
 
-WS2812FX ws2812fx = WS2812FX(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+WS2812FX ws2812fx = WS2812FX(LED_COUNT, LED_GPIO, NEO_GRB + NEO_KHZ800);
 
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_PIN); //NB: LED_PIN is ignored for some methods but always tolerated
+NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_GPIO); //NB: LED_GPIO is ignored for some methods but always tolerated
 
 
 #include "millievent.h"
@@ -107,10 +107,15 @@ struct FxTriplet {
 /////////////////////////////////////////////
 //static randomish with some flicker
 // 18 up 12 over 20ish down, 10 on floor, 1 hidden, match first up, then differently spaced
-uint16_t staticFlicker(){
-  for(unsigned pi=LED_COUNT;pi-->0;){
-    uint8_t scrambled=pi<<4 | ((pi>>4)&0xF);
-    ws2812fx.setPixelColor(pi, ws2812fx.color_wheel(scrambled));
+uint16_t staticFlicker() {
+  static unsigned dutycycler = 0;
+  //pick one randomly to be white for one cycle
+  unsigned twinkler = (++dutycycler % 10) ? ~0 : random(LED_COUNT);
+
+  for (unsigned pi = LED_COUNT; pi-- > 0;) {
+    uint8_t scrambled = pi << 4 | ((pi >> 4) & 0xF);
+    auto color = pi == twinkler ? ~0 : ws2812fx.color_wheel(scrambled);
+    ws2812fx.setPixelColor(pi, color);
   }
   return fx[0].speed;
 }
@@ -132,7 +137,7 @@ void clido(int key) {
       fx[0].show(dbg);
       dbg("Active:", darkness(isDark));
       dbg("Pending:", darkness(wantDark));
-      dbg("Switch:",darkness(beDark));
+      dbg("Switch:", darkness(beDark));
       dbg("Bouncing:", bouncer.due());
       break;
     case 'm':
@@ -203,10 +208,10 @@ void setup() {
   ws2812fx.init();
   ws2812fx.setCustomShow(myCustomShow);
   ws2812fx.setCustomMode(staticFlicker);
-  
+
   fx[0].mode = FX_MODE_CUSTOM ;
   fx[0].brightness = 100;
-  fx[0].speed = 2022;
+  fx[0].speed = 22;
 
   fx[1].mode = FX_MODE_BREATH;
   fx[1].brightness = 50;
@@ -214,7 +219,7 @@ void setup() {
 
   isDark = wantDark = beDark; //match switch on powerup
   fx[isDark].apply();
-  
+
   ws2812fx.start();
 
   // MUST run strip.Begin() after ws2812fx.init(), so GPIOx is initalized properly
