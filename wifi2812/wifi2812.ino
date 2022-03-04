@@ -10,20 +10,12 @@
 const unsigned LED_COUNT = 3 * 30 + 60 + 8; //3 strips of 30, 1 of 60, might add a ring of 8.
 
 
+
 //D4 on d1-mini, D2 on esp32-wroom devkit. Use GPIO value here, not arduino pin name.
-const unsigned LED_GPIO = 2;
+const unsigned LED_GPIO = 2; //esp8266 uart 1 tx
 
-
-/*
-  other pin preferences:
-  D1:SCL
-  D2:SDA
-  D3: force boot mode (aka FLASH)
-  D7/GPIO 13: MOSI
-*/
 
 WS2812FX ws2812fx = WS2812FX(LED_COUNT, LED_GPIO, NEO_GRB + NEO_KHZ800);
-
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_GPIO); //NB: LED_GPIO is ignored for some methods but always tolerated
 
 
@@ -123,7 +115,7 @@ uint16_t staticFlicker() {
 /////////////////////////////////////////////
 
 void buggy(const char *prefix) {
-  dbg(prefix, " ", bouncer.isRunning() ? 'R' : 's', " ", bouncer.due(), " @", MilliTick(bouncer));
+  dbg(prefix, " ", bouncer.isRunning() ? 'R' : 's', " ", bouncer.due(), " @", bouncer.expiry());
 }
 
 void clido(int key) {
@@ -158,9 +150,12 @@ void clido(int key) {
       }
       break;
     case 't'://test the timer!
+      {
+      auto spewmenot=SoftMilliTimer::logging(true);
       buggy("init");
       dbg(bouncer.set(15000));
       buggy("Via set:");
+      bouncer = 13000;
       bouncer.start();
       buggy("started");
       bouncer.stop();
@@ -169,10 +164,12 @@ void clido(int key) {
       buggy("op=");
       delay(1654);
       buggy("later");
+      }
       break;
     case 'u':
-      dbg(MilliTicker.recent(), "?=", millis(), " +10k:", MilliTicker[10000]);
+      dbg(MilliTicker.recent(), "?=", millis(), " +10k:", MilliTicker[10000]);      
       {
+        auto spewmenot=SoftMilliTimer::logging(true);
         OneShot wtf;
         dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
         wtf = 1234;
@@ -254,7 +251,7 @@ void loop() {
       }
     }
 
-    blinker = updelay.isRunning();
+//    blinker = updelay.isRunning();
 
   }
 }
