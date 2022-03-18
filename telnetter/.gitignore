@@ -17,7 +17,10 @@ minimath.h
 nvblock.h
 pinclass.h
 pinuser.h
+strz.cpp
 strz.h
+telnetter.cpp
 telnetter.h
 textkey.cpp
 textkey.h
+valuestacker.h
