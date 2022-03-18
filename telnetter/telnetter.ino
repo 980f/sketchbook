@@ -80,9 +80,17 @@ const char *Chatter::hostname() {
   return Hostname;//todo:eeprom
 }
 
+void goslow(const char *msg) {
+  Serial.println(msg);
+  delay(1000);
+}
+
+//////////////////////////////
 void setup() {
+  goslow("setup");
   Serial.begin(115200);
 
+  goslow("loads");
   //EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
   cred.load(CredAddress);
   keepip.load();
@@ -99,7 +107,7 @@ void setup() {
     dbg("\nSaved credentials at ", CredAddress);
     keepip.save();
   }
-
+  goslow("net.begin");
   net.begin(cred);
 }
 
@@ -109,7 +117,9 @@ void loop() {
     //by only checking once per millisecond we lower total power consumption a smidgeon.
 
     Telnetter::Verbose = Verbose;//update before calling serve() as it uses this concept
+    goslow("serve");
     if (net.serve()) {
+      goslow("broadcast");
       net.broadcast(Serial);
     } else {
       if (size_t len = Serial.available()) {
@@ -119,6 +129,7 @@ void loop() {
 
         unsigned passat = strztok(sbuf, len, '@');
         if (passat != ~0U) {
+          goslow("set creds");
           if (passat++) { //then we have a ssid in front, the ++ skips over the '@'
             cred.setID(sbuf);
           }
