@@ -20,3 +20,4 @@ ln -sf lib/ezcpp/stopwatch.cpp
 ln -sf lib/ezcpp/stopwatch.h
 ln -sf lib/ezcpp/textkey.h
 ln -sf lib/unsignedrecognizer.h
+ln -sf lib/valuestacker.h

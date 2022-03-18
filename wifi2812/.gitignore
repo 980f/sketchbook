@@ -25,3 +25,4 @@ stopwatch.cpp
 stopwatch.h
 textkey.h
 unsignedrecognizer.h
+valuestacker.h

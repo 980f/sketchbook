@@ -114,9 +114,14 @@ uint16_t staticFlicker() {
 
 /////////////////////////////////////////////
 
-void buggy(const char *prefix) {
-  dbg(prefix, " ", bouncer.isRunning() ? 'R' : 's', " ", bouncer.due(), " @", bouncer.expiry());
+void bugshot(const char *prefix,const OneShot &bugger){
+  dbg(prefix, " ", bugger.isRunning()? 'R' : 's', " ", bouncer.due(), " @", bouncer.expiry());
 }
+
+void buggy(const char *prefix) {
+  bugshot(prefix, bouncer);
+}
+
 
 void clido(int key) {
 
@@ -151,37 +156,44 @@ void clido(int key) {
       break;
     case 't'://test the timer!
       {
-      auto spewmenot=SoftMilliTimer::logging(true);
-      buggy("init");
-      dbg(bouncer.set(15000));
-      buggy("Via set:");
-      bouncer = 13000;
-      bouncer.start();
-      buggy("started");
-      bouncer.stop();
-      buggy("stopped");
-      bouncer = 23654;
-      buggy("op=");
-      delay(1654);
-      buggy("later");
-      }
-      break;
-    case 'u':
-      dbg(MilliTicker.recent(), "?=", millis(), " +10k:", MilliTicker[10000]);      
-      {
-        auto spewmenot=SoftMilliTimer::logging(true);
-        OneShot wtf;
-        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
-        wtf = 1234;
-        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
-        delay(200);
-        MilliTicker.ticked();
-        dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+        auto spewmenot = SoftMilliTimer::logging(true);
+        buggy("init");
+        dbg("previous:", bouncer.set(1500));
+        buggy("Via set:");
+        bouncer.start();
+        buggy("started");
         for (unsigned trials = 6; trials-- > 0;) {
           delay(300);
           MilliTicker.ticked();
-          dbg("bool:", bool(wtf));
-          dbg(wtf.expiry(), " Due:", wtf.due(), " isRunning:", wtf.isRunning());
+          buggy("ticked");
+        }
+
+        bouncer.stop();
+        buggy("stopped");
+
+        bouncer = 654;
+        buggy("op=");
+        delay(754);
+        MilliTicker.ticked();
+        buggy("later");
+      }
+      break;
+    case 'u':
+      dbg(MilliTicker.recent(), "?=", millis(), " +10k:", MilliTicker[10000]);
+      {
+        auto spewmenot = SoftMilliTimer::logging(true);
+        OneShot wtf;
+        
+        wtf = 1234;
+        bugshot("u1:",wtf);       
+        delay(200);
+        MilliTicker.ticked();
+        bugshot("Ticked:",wtf);
+        for (unsigned trials = 6; trials-- > 0;) {
+          delay(300);
+          MilliTicker.ticked();
+          dbg("tick:", bool(wtf));
+          bugshot("tock:",wtf);
         }
       }
       break;
@@ -227,7 +239,7 @@ void setup() {
 
 void loop() {
   if (MilliTicker) {
-
+    auto pop = SoftMilliTimer::logging(false);
     if (changed(dbg.stifled, !bool(Serial))) {
       dbg("\nWifilights  ");
       clido(' ');
@@ -239,7 +251,7 @@ void loop() {
 
     if (changed(wantDark, beDark)) {
       dbg("Button:", darkness(wantDark));
-      bouncer.start();
+      //      bouncer.start();
       updelay = 2000;
     }
 
@@ -251,7 +263,7 @@ void loop() {
       }
     }
 
-//    blinker = updelay.isRunning();
+    //    blinker = updelay.isRunning();
 
   }
 }
