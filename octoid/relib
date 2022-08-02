@@ -1,14 +1,16 @@
 ## recreate links to library sources
-ln -sf ../shared/arduous arduous
-ln -sf lib/chainprinter.h chainprinter.h
-ln -sf lib/ezcpp/cheaptricks.h cheaptricks.h
-ln -sf lib/digitalpin.h digitalpin.h
-ln -sf lib/edgyinput.h edgyinput.h
-ln -sf lib/ezcpp/eztypes.h eztypes.h
-ln -sf ../shared/lardls lardls
-ln -sf lib/millievent.cpp millievent.cpp
-ln -sf lib/millievent.h millievent.h
-ln -sf lib/ezcpp/minimath.h minimath.h
-ln -sf lib/scani2c.h scani2c.h
-ln -sf lib/ezcpp/twiddler.cpp twiddler.cpp
-ln -sf lib/ezcpp/twiddler.h twiddler.h
+ln -sf ../shared lib
+ln -sf ../shared/arduous
+ln -sf lib/chainprinter.h
+ln -sf lib/ezcpp/cheaptricks.h
+ln -sf lib/digitalpin.h
+ln -sf lib/edgyinput.h
+ln -sf lib/ezcpp/eztypes.h
+ln -sf ../shared/lardls
+ln -sf lib/millievent.cpp
+ln -sf lib/millievent.h
+ln -sf lib/ezcpp/minimath.h
+ln -sf lib/scani2c.h
+ln -sf lib/ezcpp/twiddler.cpp
+ln -sf lib/ezcpp/twiddler.h
+ln -sf lib/valuestacker.h

@@ -54,7 +54,7 @@ void setup() {
 }
 
 void loop() {
-  auto ticked = MilliTicked.ticked();
+  auto ticked = MilliTicker.ticked();
   B.loop(ticked);
 //your code goes here
 }

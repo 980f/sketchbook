@@ -16,3 +16,4 @@ pinuser.h
 scani2c.h
 twiddler.cpp
 twiddler.h
+valuestacker.h

@@ -57,7 +57,9 @@ const int NumControls = TTL_COUNT; //number of TTL outputs, an 8 here is why we 
 
 #include <EEPROM.h>
 using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
-
+#ifndef E2END  //EEPROM implementation is often incoherent. ESP32 does not declare a length and its length() method is not const.
+  #error "your processor does not define the E2END constant for EEPROM size precluding us computing allocations for our use of it."
+#endif
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
 // RealSerial is output for programmed device
@@ -99,19 +101,20 @@ namespace Octoid {
 using VersionTag = byte[5];//type for version numbering.
 
 //still keeping old EEPROM layout for simpler cloning to existing hardware
-enum EEAlloc {//values are stepping stone to reorganization.
+enum EEAlloc : EEAddress {//values are stepping stone to reorganization.
   ProgStart = 0,
   ConfigurationStart = ProgStart + 2 * 500,  //legacy 500 samples for 1k EEProm
   ProgEnd = ConfigurationStart,
-  ProgSize = ProgStart - ProgEnd,
 
   StampEnd = E2END + 1, //E2END is address of last byte
   StampStart = StampEnd - sizeof(VersionTag),
-  StampSize = StampStart - StampEnd,
 
   ConfigurationEnd = StampStart,
-  ConfigurationSize = ConfigurationEnd - ConfigurationStart
 };
+
+const unsigned ProgSize = ProgStart - ProgEnd;
+const unsigned StampSize = StampStart - StampEnd;
+const unsigned ConfigurationSize = ConfigurationEnd - ConfigurationStart;
 
 struct VersionInfo {
   bool ok = false;//formerly init to "OK" even though it is not guaranteed to be valid via C startup code.
@@ -154,7 +157,7 @@ struct VersionInfo {
 // then SPI GPIO
 // last group is interception point for custom modules
 
-//hooks for custom output channels:r
+//hooks for custom output channels: //todo: declare weak versions that do nothing.
 extern "C" void octoid(unsigned pinish, bool action);
 extern "C" void octoidConfig(EEAddress start, byte sized,  bool writeit);
 
@@ -258,7 +261,7 @@ struct Opts  {
         we will therefore interpret incoming bytes where we still have something similar
 
     */
-    enum LegacyIndex {//the enum that they should have created ;)
+    enum LegacyIndex : EEAddress {//the enum that they should have created ;)
       PIN_MAP_SLOT = 0,  //add 1002 to get offset in OctoBlaster_TTL.
       TTL_TYPES_SLOT,
       MEDIA_TYPE_SLOT,
@@ -593,7 +596,7 @@ struct Sequencer {
     /** amount of time after end of program to ignore trigger: */
     MilliTick deadtime;
 
-    static const int SAMPLE_COUNT = EEAlloc::ProgSize / 2; //#truncating divide desired, do not round.
+    static const int SAMPLE_COUNT = ProgSize / 2; //#truncating divide desired, do not round.
 
     Channel output[sizeof(Opts::output)];
 
@@ -888,7 +891,7 @@ struct Cloner {
   }
 
   unsigned configSize() const {
-    return legacy ? Opts::LegacyIndex::MEM_SLOTS : EEAlloc::ConfigurationSize;
+    return legacy ? Opts::LegacyIndex::MEM_SLOTS : ConfigurationSize;
   }
 
   //user must confirm versions match before calling this
@@ -897,7 +900,7 @@ struct Cloner {
   }
 
   bool sendFrames() {
-    return sendChunk('S', EEAlloc::ProgStart, EEAlloc::ProgSize);//send all, not just 'used'
+    return sendChunk('S', EEAlloc::ProgStart, ProgSize);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -917,7 +920,7 @@ struct Cloner {
 
     while (sendingLeft) {//push as much as we can into sender buffer
       //multiple of 4 at least as large as critical chunk:
-      byte chunk[( max(EEAlloc::ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+      byte chunk[( max(ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
       if (legacy && tosend >= EEAlloc::ConfigurationStart && tosend < EEAlloc::ConfigurationEnd) { //if legacy format and sending config
         auto offset = tosend - ConfigurationStart;
@@ -1240,7 +1243,7 @@ struct Blaster {
   void loop(bool ticked) {
     cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
-    if (MilliTicked.ticked()) { //once per millisecond, be aware that it will occasionally skip some
+    if (ticked) { //once per millisecond, be aware that it will occasionally skip some
       blink.onTick();
 
       cli.cloner.onTick();//background transmission
@@ -1272,7 +1275,7 @@ struct Blaster {
 } ;
 
 //put here so that we can feed version pieces from compiled constants
-static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, EEAlloc::ConfigurationSize - sizeof(Opts), 0, 0 };
+const VersionTag VersionInfo::buff = {TTL_COUNT, 64, ConfigurationSize - sizeof(Opts), 0, 0 };
 
 }
 //end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.
