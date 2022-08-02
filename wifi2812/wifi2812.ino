@@ -1,3 +1,12 @@
+
+
+
+#include <ESPTelnet.h>
+
+#if defined(ARDUINO_ARCH_ESP8266)
+#define DoWakeup 1
+#endif
+
 #include <NeoPixelSegmentBus.h>
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
@@ -41,7 +50,7 @@ CLIRP<> cli;
 #endif
 DigitalOutput blinker(LED_BUILTIN);
 
-#ifndef D5
+#ifndef D5  //using this to distinguish between ESP01 and D1 variants
 #define D5 14
 #endif
 
@@ -114,8 +123,8 @@ uint16_t staticFlicker() {
 
 /////////////////////////////////////////////
 
-void bugshot(const char *prefix,const OneShot &bugger){
-  dbg(prefix, " ", bugger.isRunning()? 'R' : 's', " ", bouncer.due(), " @", bouncer.expiry());
+void bugshot(const char *prefix, const OneShot &bugger) {
+  dbg(prefix, " ", bugger.isRunning() ? 'R' : 's', " ", bouncer.due(), " @", bouncer.expiry());
 }
 
 void buggy(const char *prefix) {
@@ -183,17 +192,17 @@ void clido(int key) {
       {
         auto spewmenot = SoftMilliTimer::logging(true);
         OneShot wtf;
-        
+
         wtf = 1234;
-        bugshot("u1:",wtf);       
+        bugshot("u1:", wtf);
         delay(200);
         MilliTicker.ticked();
-        bugshot("Ticked:",wtf);
+        bugshot("Ticked:", wtf);
         for (unsigned trials = 6; trials-- > 0;) {
           delay(300);
           MilliTicker.ticked();
           dbg("tick:", bool(wtf));
-          bugshot("tock:",wtf);
+          bugshot("tock:", wtf);
         }
       }
       break;
@@ -211,7 +220,103 @@ void checkcli() {
     }
   }
 }
+////////////////////////
 
+class WifiSerial {
+
+    ESPTelnet telnet;
+    IPAddress ip;
+
+#if DoWakeup
+    bool woke = false;
+    Monostable waking; //200 after forceSleepWake
+#endif
+    bool connected = false;
+
+  public://todo: make a constructor as these are likely to be constants
+    uint16_t  port = 23;
+    const char* ssid;
+    const char* password;
+
+    void attach(){
+  // todo: use these instead of tryConnect state machine
+//  
+//  telnet.onConnect();
+//  telnet.onConnectionAttempt(onTelnetConnectionAttempt);
+//  telnet.onReconnect(onTelnetReconnect);
+//  telnet.onDisconnect(onTelnetDisconnect);
+//  
+  //
+  telnet.onInputReceived([](String str) {
+    // checks for a certain command
+    if (str == "ping") {
+      telnet.println("> pong");
+      Serial.println("- Telnet: pong");
+    // disconnect the client
+    } else if (str == "bye") {
+      telnet.println("> disconnecting you...");
+      telnet.disconnectClient();
+      }
+  });
+
+  Serial.print("- Telnet: ");
+  if (telnet.begin(port)) {
+    Serial.println("running");
+  } else {
+    Serial.println("error.");
+    errorMsg("Will reboot...");
+  }
+}
+    }
+
+    ////////////////////////////////////////
+
+    bool isConnected() const {
+      return (WiFi.status() == WL_CONNECTED);
+    }
+
+    bool tryConnect() {
+      if (changed(connected, isConnected())) {
+        if (connected) { //then just connected
+          WiFi.setAutoReconnect(true);
+          WiFi.persistent(true);
+          return true;
+        } else {
+          //lost connection, do we need to do anything?
+        }
+      }
+
+      WiFi.mode(WIFI_STA);
+#if DoWakeup
+      if (waking.done()) { //the 'true once' function
+        woke = true;
+      } else if (waking) {
+        return false;
+      }
+      if (!woke) {
+        WiFi.forceSleepWake();
+        waking = 200;
+        return false;
+      }
+#endif
+
+      WiFi.begin(ssid, password);
+
+      return isConnected();
+    }
+
+
+
+    void onTick() {
+      tryConnect();
+      if(connected){
+         
+      }
+    }
+
+};
+
+////////////////////////
 void setup() {
   Serial.begin(115200);
   ws2812fx.init();
