@@ -15,15 +15,18 @@
 #define SAMPLE_END 1000
 //number of controlled outputs. You can make this smaller but to be more than 8 will take some work in octoid, it packs them all into a byte for EEPROM efficiency. 
 #define TTL_COUNT 8
+// end of optional compile time options
+///////////////////////
 
+
+// compile time options must precede this header file
 #include "octoid.h"
-Octoid::Blaster B;
-
 
 //////////////////////////////////////////////////////////////
 // this is a user hook for implementing 'virtual outputs', things controlled by the octo sequencer
 void octoid(unsigned pinish, bool action) {
   //print statements here will usually bog the system down horribly. Perhaps single chars can be printed, just not faster than 1000 per second (which would be very annoying and probably not possible without setting the frame time short)
+  //pinish will be in the range 0 to 31 for configured pin number 48 through 127.
   return;
 }
 
@@ -48,15 +51,19 @@ void octoidMore(EEAddress start, byte sized,  bool writeit) {
   }  
 }
 
-///////////////////////////////////////////////////////
+////////////////////////////////////
+// all you really need starts here with the header someplace above.
+
+Octoid::Blaster B;
+
 void setup() {
   B.setup();
 //your code goes here
 }
 
 void loop() {
-  auto ticked = MilliTicker.ticked();
+  bool ticked = MilliTicker.ticked();//true once per millisecond.
   B.loop(ticked);
 //your code goes here
 }
-//end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.
+//end of octoid example sketch
