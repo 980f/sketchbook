@@ -59,6 +59,12 @@ Octoid::Blaster B;
 void setup() {
   B.setup();
 //your code goes here
+  if(true){ //overriding configuration until we know that it works, or if we detect it is invalid.
+    B.cli.O.output[0]={5}; //force config low active D5
+    B.cli.O.output[1]={12,0,1}; //force config, high active D12, often the builtin_led
+    B.cli.O.save();
+  }
+  
 }
 
 void loop() {
