@@ -1243,7 +1243,10 @@ struct Blaster {
     cli.printer(F("Alive"));
   }
 
-  void loop(bool ticked) {
+  /** @param ticked is whether the main timer has issued a tick since this method was last called.
+  @returns whether the sequencer just started */
+  bool loop(bool ticked) {
+    bool justStarted=false;
     cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
     if (ticked) { //once per millisecond, be aware that it will occasionally skip some
@@ -1259,6 +1262,7 @@ struct Blaster {
       if (T.onTick()) {//trigger is active
         if (S.trigger()) {//ignores trigger being active while sequence is active
           cli.printer(F("Playing sequence..."));
+          justStarted=true;
         }
       }
 
@@ -1271,7 +1275,9 @@ struct Blaster {
           blink.pulse(350, 650);
         }
       }
+      return justStarted;
     }
+    return false;
   }
 
 } ;
