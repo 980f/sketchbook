@@ -1,10 +1,13 @@
-#pragma once
+#pragma once  //(C) Andy Heilveil (githib/980F) 2021,2022.
 
 /*
-   inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
-   Octobanger had blocking delays in many places, and halfbaked attempts to deal with the consequences.
+   inspired by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
+   Octobanger had blocking delays in many places, and half-baked attempts to deal with the consequences.
    If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
    By ignoring potential weirdness from editing a program while it is running 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
+
+  All of the code is in a .h file so that compile time options can be set in user's project rather than having them edit this header or rely upon a build system.
+  This is not a code burden as the code compiles fairly rapidly and typically is only referenced from one source file.
 
   test: guard against user spec'ing rx/tx pins
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
@@ -16,7 +19,7 @@
   todo: temporary mask via pin config, ie a group of 'bit bucket'
 
   Timer tweaking:
-  The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
+  The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift, only with initial error.
   This is implemented while also allowing the frame time to be dynamically set to something other than 50ms.
 
   If certain steps need to be a precise time from other steps then use a good oscillator.
@@ -122,7 +125,7 @@ struct VersionInfo {
   //version info, sometimes only first 3 are reported.
   static const VersionTag buff ;//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
-  bool verify() {
+  bool verify() const {
     for (int i = 0; i < sizeof(VersionTag); i++)  {
       if (EEPROM.read(StampStart + i) != buff[i]) {
         return false;
@@ -131,11 +134,11 @@ struct VersionInfo {
     return true;
   }
 
-  void burn() {
+  void burn() const {
     EEPROM.put(StampStart, buff);
   }
 
-  void print(Print &printer, bool longform = false) {
+  void print(Print &printer, bool longform = false) const {
     for (int i = 0; i < longform ? StampSize : 3; i++) {
       if (i) {
         printer.print(".");
@@ -172,7 +175,7 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
 __attribute__((weak)) void octoidConfig(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
   // else EEPROM.get(start,*yourcfgobject);
-  //but yourcfgobject must be no bigger than sized.
+  //but your cfgobject must be no bigger than param sized.
 }
 
 //todo: compile time hook for configuration EEPROM allocation.
@@ -186,7 +189,7 @@ struct Channel {
     unsigned active: 1; //polarity to send for active
   } def;
 
-  void operator = (bool activate) {
+  void operator = (bool activate) const {
     bool setto = activate ? def.active : ! def.active  ;
     switch (def.group) {
       case 0://pin
@@ -303,16 +306,18 @@ struct Opts  {
 
 
     byte legacy(unsigned index) {
-      byte packer = 0;
       switch (index) {
         case PIN_MAP_SLOT: //
           return 2;//custom config
         case TTL_TYPES_SLOT: //polarities packed
+        {
+          byte packer = 0;
           for (unsigned i = arraySize(output); i-- > 0;) {
             auto pindef = output[i];
-            packer |= (pindef.active ) << i;
+            packer |= (pindef.active) << i;
           }
           return packer;
+        }
         case MEDIA_TYPE_SLOT:
         case MEDIA_DELAY_SLOT:
           return 0;//no longer supported
@@ -378,7 +383,7 @@ struct Opts  {
       }
     }
 
-    void reportPins(Print &printer, const char*header, bool polarity) {
+    void reportPins(Print &printer, const char*header, bool polarity) const {
       printer.print(header);
       for (unsigned i = 0; i < arraySize(output); ++i) {
         if (!i) {
@@ -391,7 +396,7 @@ struct Opts  {
 
     }
 
-    void report(ChainPrinter & printer) {//legacy format
+    void report(ChainPrinter & printer) const {//legacy format
       printer(F("Reset Delay Secs: "), deadbandSeconds);
       if (bootSeconds != 0)  {
         printer(F("Boot Delay Secs: "), bootSeconds);
@@ -442,7 +447,7 @@ struct Trigger {
   }
 
   /** syntactic sugar for "I'm not listening"*/
-  bool operator ~() {
+  bool operator ~() { //not const because isRunning might change when called.
     return suppressUntil.isRunning();
   }
 
@@ -624,7 +629,7 @@ struct Sequencer {
       }
 
       /** @returns whether this step is NOT the terminating step of the sequence. */
-      operator bool()const {
+      operator bool() const {
         return frames != 0 || pattern != 0; //0 frames is escape, escape 0 is 'end of program'
       }
 
@@ -686,7 +691,7 @@ struct Sequencer {
         }
 
         /** @returns index of current values, NaV if out of storage range */
-        operator unsigned() {
+        operator unsigned() const {
           return haveNext() ? index : NaV;
         }
 
@@ -824,7 +829,7 @@ struct Sequencer {
     }
 
 
-    void reportFrames(ChainPrinter & printer) {
+    void reportFrames(ChainPrinter & printer) const {
       unsigned used = 0;
       auto frames = duration(used);
       printer(F("Frame Count: "), used * 2); //legacy 2X
@@ -835,7 +840,6 @@ struct Sequencer {
     }
 
     Sequencer(Trigger &T): T(T) {}
-
 
 };
 
@@ -1064,7 +1068,7 @@ struct CommandLineInterpreter {
       case 'M': //expects 1 byte of packed outputs //manual TTL state command
         expecting = Datum;
         return true;//need more
-      default:
+      default: //todo: make hook for user commands, that must comply with this protocol
         printer(F("unk char:"), letter);
         break;
     }
@@ -1184,7 +1188,6 @@ struct Blinker {
     }
   }
 
-
   void pulse(unsigned on, unsigned off = 0) {
     /** reasoning: we set an off to guarantee pulse gets seen so expend that first.*/
     onAt = off;
@@ -1249,7 +1252,7 @@ struct Blaster {
       cli.cloner.onTick();//background transmission
       if (S.onTick()) { //active frame event.
         if (S.amRecording) {
-          //here is where we update S.pattern with data to record.
+          //todo: here is where we update S.pattern with data to record.
         }
       }
 
@@ -1269,7 +1272,6 @@ struct Blaster {
         }
       }
     }
-
   }
 
 } ;
