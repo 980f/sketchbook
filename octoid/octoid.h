@@ -24,6 +24,12 @@
   todo: add external reference timer to FrameSynch class.
 
 */
+////////////////////////////////////////////////////////////
+//C++ language missing pieces:
+//number of array elements, rather than sharing a #defined declaration and presuming it is used as its name suggests
+#define arraySize(arrayname) sizeof(arrayname)/sizeof(*arrayname)
+//for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
+#define NaV ~0U
 
 ///////////////////////////////////
 //build options, things that we don't care to make runtime options
@@ -34,12 +40,12 @@ FrameTweaking 1
 #endif
 
 #ifndef SAMPLE_END
-#warning Defaulting sample storage space to 1000 bytes/ 500
+#warning Defaulting sample storage space to 1000 bytes/ 500 samples
 #define SAMPLE_END 1000
 #endif
 
 #ifndef TTL_COUNT
-@warning Setting number of controls to legacy value of 8
+#warning Setting number of controls to legacy value of 8
 #define TTL_COUNT 8
 #endif
 
@@ -81,12 +87,7 @@ using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are 
 #endif
 #endif
 
-////////////////////////////////////////////////////////////
-//C++ language missing pieces:
-//number of array elements, rather than sharing a #defined declaration and presuming it is used as its name suggests
-#define arraySize(arrayname) sizeof(arrayname)/sizeof(*arrayname)
-//for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
-#define NaV ~0U
+
 ////////////////////////////////////////////////////////////
 #include "millievent.h"   //convenient tools for millis()
 #include "chainprinter.h" //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
@@ -841,8 +842,7 @@ struct Sequencer {
 
 
 ///////////////////////////////////////////////////////
-/** transmit program et al to another octoid
-*/
+/** transmit program et al to another octoid */
 struct Cloner {
   Stream *target = nullptr;
   //background sending
@@ -943,7 +943,7 @@ struct Cloner {
 
 };
 ////////////////////////////////////////////
-// does not block, expectes its check() to be called frequently
+// does not block, expects its check() to be called frequently
 struct CommandLineInterpreter {
   Sequencer &S;
   Opts O; //options are mostly part of the command interface.
