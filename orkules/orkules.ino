@@ -112,15 +112,29 @@ Actuator pins[] = {
 //we will rely upon index 0 being the only input, the trigger.
 Actuator& triggerPin(pins[0]);
 
+Actuator *actually(const char key){
+  for(auto &actor:pins){
+    if(actor.pinSetter==key){
+      return &actor;
+    }
+    //separate clauses for debug
+    if(actor.timeSetter==key){
+      return &actor;
+    }    
+  }
+  return nullptr;
+}
+
 const unsigned numActuators=sizeof(pins)/sizeof(pins[0]);
 
 
-#ifdef ARDUINO_SEED_XIA0_M0
+#ifdef ARDUINO_SEEED_XIAO_M0
   #include "digitalpin.h"
-  DigitalOutput debug1(LED2);
-  DigitalOutput debug2(LED3);
+  DigitalOutput debug1(PIN_LED2);
+  DigitalOutput debug2(PIN_LED3);
 #else
   bool debug1; 
+  bool debug2;
 #endif
 
 /** wrapper for state machine that does the timing */
@@ -210,8 +224,76 @@ void setup() {
   orkules.setup();
 }
 
+
+#include "sui.h" //Simple or Serial user interface
+
+SUI sui(Serial, Serial);// default serial for in and out
+/*
+Trigger sequence
+  -
+
+  Test light
+  Q,q
+
+  Test kicker
+  0,1,2,3 for the drv8871 control code.
+*/
+
 void loop() {
   if(MilliTicker){//true just once for each millisecond. 
     orkules.onTick();
   }
+  
+  sui([](char key) {//the sui will process input, and when a command is present will call the following code.
+    bool upper = key < 'a';
+    switch (tolower(key)) {
+      default:
+        dbg("ignored:", unsigned(sui), ',', key);
+        break;
+        case ' '://status dump
+        dbg.stifled=false;
+        dbg("Orkules:");
+        break;
+      case 'x':// all off
+        orkules.allOff();
+        break;
+      case '0':
+      case '1':
+      case '2':
+      case '3':{
+        auto forward= actually('F');
+        auto retract= actually('B');
+        if(forward&&retract){//which will be true unless we have horked the config
+          *retract=key&1;
+          *forward=key&2;
+        }
+      } break;
+      
+      case 'q':
+        //todo: light on or off per case.
+        debug2 = upper;
+      break;
+        
+//      case 'd':
+//        dbg.stifled = upper; 
+//        break;
+
+//
+//      case 'o':
+//        if (sui.hasarg()) {
+//          periodic = sui;
+//        } else {
+//          periodic.start();
+//        }
+//        [[fallthrough]];
+//      case 'l':
+//        dbg("MS :", periodic.isRunning(), bool(periodic), " due:", periodic.due(), " now:", MilliTicker);
+//        break;
+//
+//      case 'p':
+//        pulse = sui.hasarg() ? sui : 1234; //if no param then a bit over one second.
+//        [[fallthrough]];
+
+    }
+  });
 }
