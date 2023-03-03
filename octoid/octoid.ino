@@ -64,6 +64,7 @@ void setup() {
     B.cli.O.output[1]={12,0,1}; //force config, high active D12, often the builtin_led
     B.cli.O.save();
   }
+  CliSerial.print("\nLive from New York!\n");
   
 }
 
@@ -71,5 +72,6 @@ void loop() {
   bool ticked = MilliTicker.ticked();//true once per millisecond.
   B.loop(ticked);
 //your code goes here
+ 
 }
 //end of octoid example sketch

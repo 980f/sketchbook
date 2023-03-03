@@ -141,13 +141,19 @@ struct VersionInfo {
   void print(Print &printer, bool longform = false) const {
     for (int i = 0; i < longform ? StampSize : 3; i++) {
       if (i) {
-        printer.print(".");
+        printer.print('.');
       }
       printer.print(buff[i]);
     }
   }
 
   void report(ChainPrinter & printer, bool longform) { //else legacy format
+    SerialUSB.print(" vinfo ");
+    SerialUSB.print(StampSize);
+    SerialUSB.print(" bytes\n");   
+    if(true){
+      return; 
+    }
     printer(F("OctoBanger TTL v"));
     print(printer.raw, longform); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
   }
@@ -1024,9 +1030,13 @@ struct CommandLineInterpreter {
   bool onLetter(char letter) {
     if (resynch.isKey(letter)) { // @@ is the same as a single @, recursively.
       expecting = Letter;
-      return true; // ths is a bit hacky, but saves some code space
+      return true; // this is a bit hacky, but saves some code space
     }
-
+    if(true){//todo: configurable echo enable.
+      stream.print('=');
+      stream.print(letter);
+//      printer(letter);
+    }
     switch (letter) {
       case 'V': //return version
         O.stamp.print(stream);
@@ -1084,8 +1094,13 @@ struct CommandLineInterpreter {
     at end of configuration load burns ~15 (size of configuration).
   */
   void check() {
+     
     unsigned int bytish = stream.read(); //returns all ones on 'nothing there', traditionally quoted as -1 but that is the only negative value returned so let us use unsigned.
-    if (bytish != NaV) {
+    
+    if (bytish != NaV && bytish !=255) { //getting 255 on tapping shift key      
+      stream.print(expecting);
+      stream.print('-');
+      stream.print(bytish);
       switch (expecting) {
         case At:
           if (resynch.isKey(bytish)) {
@@ -1158,6 +1173,10 @@ struct CommandLineInterpreter {
           }
           break;
       }
+    } else {
+//      if((MilliTicker.recent()%2000) == 0){
+//        stream.println("I'm alive");
+//      }
     }
   }
 
