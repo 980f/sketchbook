@@ -9,6 +9,7 @@ dbgserial.cpp
 dbgserial.h
 digitalpin.h
 eztypes.h
+histogrammer.h
 index.h
 lardls
 millichecker.cpp
@@ -19,3 +20,4 @@ millievent.h
 scani2c.h
 textkey.h
 unsignedrecognizer.h
+valuestacker.h

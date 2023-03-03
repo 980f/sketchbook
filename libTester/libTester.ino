@@ -4,9 +4,9 @@
 
 #include "dbgserial.h"
 
-#include "clirp.h"
+#include "clirp.h" //commandline interpreter wtih reverse polish input, all args preceed operator.
 
-class SUI {
+class SUI { //Simple User Interface. Binds together a console and an RPN command parser.
     CLIRP<> cli;
     decltype(Serial) &cin;
     ChainPrinter cout;
@@ -16,8 +16,8 @@ class SUI {
     using User = void(*)(char key);
 
     void operator()(User handler) {
-      for (unsigned strokes = Serial.available(); strokes-- > 0;) {
-        char key = Serial.read();
+      for (unsigned strokes = cin.available(); strokes-- > 0;) {
+        char key = cin.read();
         bool upper = key < 'a';
         if (cli.doKey(key)) {
           handler(key);
@@ -44,52 +44,59 @@ class SUI {
 };
 
 #include "digitalpin.h"
+#ifndef LED_BUILTIN
+//todo: ifdef on boasrd identifiers, or fix esp32 board files!
+#define LED_BUILTIN 13
+#endif
 
 DigitalOutput imAlive(LED_BUILTIN);
+//initially named 'T1' and 'T2' those names conflicted with what should have been enumis in Arduino.h of the ESP32.
+DigitalOutput Tester1(12);//12,11 are LEDs on xia0
+DigitalOutput Tester2(11);
 
-//millis() utilities
-#include "millievent.h"
+ 
+#include "millievent.h" //millis() utilities
 OneShot pulse;
 MonoStable periodic;
 
-DigitalOutput T1(12);//12,11 are LEDs on xia0
-DigitalOutput T2(11);
 
 
-//used to report on any action that takes longer than a millisecond
-#include "millichecker.h"
-MilliChecker skipper;
 
-//check the I2C bus for devices
-#include "scani2c.h"
+#include "millichecker.h" //used to report on any action that takes longer than a millisecond
+MilliChecker<100> skipper;
+
+
+#include "scani2c.h" //checks the I2C bus for devices
 /////////////////////////////
 
 SUI sui(Serial, Serial);
 
 void setup() {
-
+  Serial.begin(115200);//ignored by SerialUSB implementations.
 }
 
 
 ////////////////////////////
 void loop() {
-  T1 = pulse.isRunning();
-  T2 = dbg.stifled;
+  Tester1 = pulse.isRunning();
+  Tester2 = dbg.stifled;
 
   if (dbg.stifled) {
     //NB: polling Serial for connection gets whacked by a delay(10ms) in that code. There is no explanation for why that is required.
-    if (changed(dbg.stifled, !Serial)) {//ignoring direction of change serves as a test of stifling
-      dbg("libTester Connected at ", MilliTicker.recent());
+    if (changed(dbg.stifled, !Serial)) {
+      dbg("libTester Connected at ", MilliTicker.recent());//disconnect might queue a 'connected' message ?!
     }
   }
 
-  if (MilliTicker) {
-    if (skipper(dbg.raw, 1000, true)) { //see if we are occasionally skipping milliseconds
-      dbg("Absolute time:", MilliTicker);
-    }
+  if (MilliTicker) {//this is true once per millisecond
+    skipper.check();
+    //the following seems to be written for some unknown variant of the millichecker, but I found no branch with such a thing.
+//    if (skipper(dbg.raw, 1000, true)) { //see if we are occasionally skipping milliseconds
+//      dbg("Absolute time:", MilliTicker);
+//    }
   }
 
-  sui([](char key) {
+  sui([](char key) {//the sui will process input, and when a command is present will call the following code.
     bool upper = key < 'a';
     switch (tolower(key)) {
       default:
@@ -99,7 +106,7 @@ void loop() {
         scanI2C(dbg);
         break;
       case 'd':
-        dbg.stifled = upper;
+        dbg.stifled = upper; 
         break;
 
       case 'x':
