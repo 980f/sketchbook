@@ -62,25 +62,27 @@
 
 */
 
+#include "millievent.h" //millisecond timer via polling
 
 class Actuator {
-  public://for rpn engine access?
+  public://letters for interactive setting interface:
     const char timeSetter;
     const char pinSetter;
 
-  public:
-    //arduino digital.. functions
+  public://digital pin assignments and attributes. The usage of the time in ms varies with each pin.
+    //arduino digital.. functions. Not using pinclass as we have field configurable pin assignments.
     unsigned pinNumber;
-    //associated time for activation to be complete. Deactivation is Somebody Else's Problem.
-    unsigned ms;
     //whether a 1 activates the feature. This allows for easy hardware mode to add an inverting buffer.
     bool highActive;
-    //tokens for field configuration:
-    
+    //associated time for activation to be complete. Deactivation is Somebody Else's Problem.
+    MilliTick ms;
+
+    //for use in array init
     Actuator(  const char timeSetter,  const char pinSetter,    unsigned pinNumber,  bool highActive,  unsigned ms):
       timeSetter(timeSetter), pinSetter(pinSetter),  pinNumber(pinNumber),  ms(ms),  highActive(highActive) {
       //wait for setup() to do any actions
     }
+    
     //allow default copy and move constructors
 
     bool operator =(bool active) {
@@ -89,57 +91,127 @@ class Actuator {
     }
 
     void setup() {
-      //todo: configure pin
-      //todo: set to inactive level
+      pinMode(pinNumber,pinSetter=='T'?INPUT:OUTPUT);// 'T' for trigger
+      *this = false;//while this also writes to the trigger pin that does nothing
     }
 
-    void configure() {
-      //todo: mate to RPN input machine
+    operator bool () const {
+      return digitalRead(pinNumber)==highActive;
     }
 
 };
 
+//putting into an array for ease of nvmemory management:
 Actuator pins[] = {
-  {'U', 'L', 3, 1, 330},
+  {'D', 'T', 0, 0, 90},   //Trigger: debounce time
+  {'U', 'L', 3, 1, 330},  //Latch: time to retract lock
+  {'K', 'F', 2, 1, 560},  //MotorForward: time to guarantee full extension
+  {'O', 'B', 1, 1, 680},  //MotorBackward: seemed slower on the retract
 };
 
-class Action {
-  public:
-    const Actuator &actuator;
-    bool actuation;//true/1 for on, false/0 for off
+//we will rely upon index 0 being the only input, the trigger.
+Actuator& triggerPin(pins[0]);
 
-};
+const unsigned numActuators=sizeof(pins)/sizeof(pins[0]);
 
+
+#ifdef ARDUINO_SEED_XIA0_M0
+  #include "digitalpin.h"
+  DigitalOutput debug1(LED2);
+  DigitalOutput debug2(LED3);
+#else
+  bool debug1; 
+#endif
+
+/** wrapper for state machine that does the timing */
 class Program {
-
+  enum Stage {Listening,Unlocking,Kicking,Withdrawing,Done} stage;
+  OneShot stepper;
+  bool trigger;
   public:
-    unsigned doneAt;//timer
-    void setup() {
-      //todo: don't trust compiler generated init.
+   
+    /** apply pin configuration to pins */
+    void updatePins() const {
+      for(unsigned pi=numActuators;pi-->0;){//we include the trigger here
+        pins[pi].setup();
+      }      
+    }
 
+  void allOff() const {
+    for(unsigned pi=numActuators;pi-->1;){//we exclude the trigger
+      pins[pi]=0;
+    }
+  }
+   
+    void setup() {
+      //todo: if eeprom has valid contents copy it to pins      
+      updatePins();//includes 'allOff' execution
+      stage = Listening;
+    }
+
+    void startStage(Stage newstage){
+        stage = newstage;
+        pins[stage]=1;
+        stepper=pins[stage].ms;                   
+    }
+
+    void step(){
+      switch(stage){
+        case Listening://then we triggered
+        startStage(Unlocking);
+        return;
+        
+      case Unlocking://time to kick
+        startStage(Kicking);
+        return;
+        
+       case Kicking:
+        pins[Unlocking]=0;
+        startStage(Withdrawing);                   
+        return; 
+       case Withdrawing:
+          pins[Withdrawing]=0;
+          startStage(Listening);//slightly abusive code, does a useless actuation
+          return;        
+      }
     }
 
     bool onTick() {
-      //todo: on timer expired go to next step
-      if (doneAt != ~0 && doneAt--) {
-        //do nothing
-        return false;
+      bool rawTrigger=pins[0];//always read so that we can reflect it to a debug pin.
+      //todo: Led tracks trigger
+      debug1=rawTrigger;
+          
+      if (stage==Listening){
+        //debounce input
+        if(rawTrigger==trigger){//still stable
+          stepper=pins[0].ms;//repeatedly reset instead of freezing
+          return false;
+        }         
       }
-
-      //maydo: abort sequence if trigger goes to zero.
-      //debounce trigger input
+      //if we are listening and get here then input has been different from last stable value for quite some time
+      if(stepper.isDone()) {
+        if(stage==Listening){
+          trigger = rawTrigger;//often gratuitous but needed some time before returning to Listening state
+          if(!trigger){
+            return false; //puzzle finally reset
+          }
+        }
+        step();
+        return true;
+      }
+      return false;
     }
-} sequencer;
+} orkules;
 
 /********************************************************/
 
 void setup() {
-  //for each actuator
-  //the state machine
-
+  Serial.begin(115200);//needed for most platforms
+  orkules.setup();
 }
 
 void loop() {
-  //if it has been a millisecond call the Program onTick()
-
+  if(MilliTicker){//true just once for each millisecond. 
+    orkules.onTick();
+  }
 }
