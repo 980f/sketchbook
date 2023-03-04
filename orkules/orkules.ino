@@ -62,13 +62,19 @@
 
 */
 
+const unsigned ProgramVersion=1;
+
+#include "sui.h" //Simple or Serial user interface, used for debug (and someday configuration).
+
+SUI sui(Serial, Serial);// default serial for in and out
+
 #include "millievent.h" //millisecond timer via polling
 
 class Actuator {
   public://letters for interactive setting interface:
-    const char timeSetter;
     const char pinSetter;
-
+    const char timeSetter;
+    
   public://digital pin assignments and attributes. The usage of the time in ms varies with each pin.
     //arduino digital.. functions. Not using pinclass as we have field configurable pin assignments.
     unsigned pinNumber;
@@ -78,8 +84,8 @@ class Actuator {
     MilliTick ms;
 
     //for use in array init
-    Actuator(  const char timeSetter,  const char pinSetter,    unsigned pinNumber,  bool highActive,  unsigned ms):
-      timeSetter(timeSetter), pinSetter(pinSetter),  pinNumber(pinNumber),  ms(ms),  highActive(highActive) {
+    Actuator(const char pinSetter, const char timeSetter, unsigned pinNumber, bool highActive, unsigned ms):
+      pinSetter(pinSetter), timeSetter(timeSetter), pinNumber(pinNumber), highActive(highActive), ms(ms) {
       //wait for setup() to do any actions
     }
     
@@ -112,7 +118,8 @@ Actuator pins[] = {
 //we will rely upon index 0 being the only input, the trigger.
 Actuator& triggerPin(pins[0]);
 
-Actuator *actually(const char key){
+Actuator *actually(char key){
+  key=toupper(key);//allow for sloppy user
   for(auto &actor:pins){
     if(actor.pinSetter==key){
       return &actor;
@@ -139,9 +146,11 @@ const unsigned numActuators=sizeof(pins)/sizeof(pins[0]);
 
 /** wrapper for state machine that does the timing */
 class Program {
+  public: //4debug
   enum Stage {Listening,Unlocking,Kicking,Withdrawing,Done} stage;
   OneShot stepper;
-  bool trigger;
+  bool trigger; //debounced state of trigger
+  
   public:
    
     /** apply pin configuration to pins */
@@ -151,11 +160,11 @@ class Program {
       }      
     }
 
-  void allOff() const {
-    for(unsigned pi=numActuators;pi-->1;){//we exclude the trigger
-      pins[pi]=0;
+    void allOff() const {
+      for(unsigned pi=numActuators;pi-->1;){//we exclude the trigger
+        pins[pi]=0;
+      }
     }
-  }
    
     void setup() {
       //todo: if eeprom has valid contents copy it to pins      
@@ -164,57 +173,65 @@ class Program {
     }
 
     void startStage(Stage newstage){
-        stage = newstage;
-        pins[stage]=1;
-        stepper=pins[stage].ms;                   
+      stage = newstage;
+      pins[stage]=1;
+      stepper=pins[stage].ms;  
+      dbg("->",pins[stage].timeSetter);
     }
 
     void step(){
       switch(stage){
         case Listening://then we triggered
-        startStage(Unlocking);
-        return;
+          startStage(Unlocking);
+          return;
         
-      case Unlocking://time to kick
-        startStage(Kicking);
-        return;
+        case Unlocking://time to kick
+          startStage(Kicking);
+          return;
         
-       case Kicking:
-        pins[Unlocking]=0;
-        startStage(Withdrawing);                   
-        return; 
-       case Withdrawing:
+        case Kicking:
+          pins[Kicking]=0;
+          startStage(Withdrawing);                   
+          return; 
+           
+        case Withdrawing:
           pins[Withdrawing]=0;
           startStage(Listening);//slightly abusive code, does a useless actuation
-          return;        
+          return;
+          
+        default: //should never occur. If it does try to start over
+          startStage(Listening);//slightly abusive code, does a useless actuation
+          allOff();
       }
     }
 
     bool onTick() {
       bool rawTrigger=pins[0];//always read so that we can reflect it to a debug pin.
       //todo: Led tracks trigger
-      debug1=rawTrigger;
+      debug1 = rawTrigger;
           
       if (stage==Listening){
         //debounce input
         if(rawTrigger==trigger){//still stable
           stepper=pins[0].ms;//repeatedly reset instead of freezing
           return false;
-        }         
+        }   
       }
-      //if we are listening and get here then input has been different from last stable value for quite some time
+      //if we are listening and get here then input is different from last stable value
       if(stepper.isDone()) {
-        if(stage==Listening){
-          trigger = rawTrigger;//often gratuitous but needed some time before returning to Listening state
+        if(stage==Listening){ //then input has been different from last stable value for the debounce time
+          trigger = rawTrigger; //record state of signal has change
           if(!trigger){
             return false; //puzzle finally reset
           }
         }
+        //so timer has expired and either we are in one of the action states or we just saw a positive edge on the trigger
         step();
         return true;
       }
       return false;
     }
+    
 } orkules;
 
 /********************************************************/
@@ -225,9 +242,6 @@ void setup() {
 }
 
 
-#include "sui.h" //Simple or Serial user interface
-
-SUI sui(Serial, Serial);// default serial for in and out
 /*
 Trigger sequence
   -
@@ -250,12 +264,15 @@ void loop() {
       default:
         dbg("ignored:", unsigned(sui), ',', key);
         break;
-        case ' '://status dump
+      case ' '://status dump
         dbg.stifled=false;
-        dbg("Orkules:");
+        dbg("Orkules: ");
+        dbg("Stage:\t", pins[orkules.stage].timeSetter);
+        dbg("Timer:\t", orkules.stepper.due());
+        dbg("Trigger:\t",orkules.trigger);
         break;
-      case 'x':// all off
-        orkules.allOff();
+      case 'x':// reset state machine.
+        orkules.setup();
         break;
       case '0':
       case '1':
@@ -273,26 +290,35 @@ void loop() {
         //todo: light on or off per case.
         debug2 = upper;
       break;
-        
-//      case 'd':
-//        dbg.stifled = upper; 
-//        break;
 
-//
-//      case 'o':
-//        if (sui.hasarg()) {
-//          periodic = sui;
-//        } else {
-//          periodic.start();
-//        }
-//        [[fallthrough]];
-//      case 'l':
-//        dbg("MS :", periodic.isRunning(), bool(periodic), " due:", periodic.due(), " now:", MilliTicker);
-//        break;
-//
-//      case 'p':
-//        pulse = sui.hasarg() ? sui : 1234; //if no param then a bit over one second.
-//        [[fallthrough]];
+      case '-': //'-' instead of '+' for keyboarding convenience
+      case '=': //same key as '+' but without shift
+        orkules.step();
+      break;
+
+      case 'D': case 'U': case 'K': case 'O': //set pin config
+        dbg("pin reconfiguration not yet supported");
+      break;
+
+      case 'T': case 'L': case 'F': case 'B': {//set step time
+        auto activity = actually(key);
+        if(activity){
+          if(sui.hasarg()){
+            activity->ms = sui;
+          }
+          dbg("Time ",key," is:",activity->ms);
+        } else { //serious software error
+          dbg("Core Meltdown in progress!");
+        }
+      } break;
+
+      case '?': case '/':
+        dbg("Version:\t",ProgramVersion);
+        for(unsigned pi=numActuators;pi-->0;){
+          const auto &cfg= pins[pi];
+          dbg(pi,":\t",cfg.timeSetter,'\t',cfg.ms,'\t',cfg.pinNumber,'\t',cfg.highActive);
+        }
+      break;
 
     }
   });
