@@ -176,7 +176,7 @@ class Program {
       stage = newstage;
       pins[stage]=1;
       stepper=pins[stage].ms;  
-      dbg("->",pins[stage].timeSetter);
+      dbg("->",pins[stage].timeSetter," at:",MilliTicker.recent());
     }
 
     void step(){
@@ -200,6 +200,7 @@ class Program {
           return;
           
         default: //should never occur. If it does try to start over
+          dbg("wtf in step:",stage,pins[stage].timeSetter," at:",MilliTicker.recent());
           startStage(Listening);//slightly abusive code, does a useless actuation
           allOff();
       }
@@ -222,7 +223,10 @@ class Program {
         if(stage==Listening){ //then input has been different from last stable value for the debounce time
           trigger = rawTrigger; //record state of signal has change
           if(!trigger){
+            dbg("trigger released");
             return false; //puzzle finally reset
+          } else {
+            dbg("triggered");
           }
         }
         //so timer has expired and either we are in one of the action states or we just saw a positive edge on the trigger
@@ -260,7 +264,7 @@ void loop() {
   
   sui([](char key) {//the sui will process input, and when a command is present will call the following code.
     bool upper = key < 'a';
-    switch (tolower(key)) {
+    switch (toupper(key)) {
       default:
         dbg("ignored:", unsigned(sui), ',', key);
         break;
@@ -271,7 +275,7 @@ void loop() {
         dbg("Timer:\t", orkules.stepper.due());
         dbg("Trigger:\t",orkules.trigger);
         break;
-      case 'x':// reset state machine.
+      case 'X':// reset state machine.
         orkules.setup();
         break;
       case '0':
@@ -286,7 +290,7 @@ void loop() {
         }
       } break;
       
-      case 'q':
+      case 'Q':
         //todo: light on or off per case.
         debug2 = upper;
       break;
