@@ -110,9 +110,9 @@ class Actuator {
 //putting into an array for ease of nvmemory management:
 Actuator pins[] = {
   {'D', 'T', 0, 0, 90},   //Trigger: debounce time
-  {'U', 'L', 1, 1, 330},  //Latch: time to retract lock
+  {'U', 'L', 3, 1, 330},  //Latch: time to retract lock
   {'K', 'F', 2, 1, 560},  //MotorForward: time to guarantee full extension
-  {'O', 'B', 3, 1, 680},  //MotorBackward: seemed slower on the retract
+  {'O', 'B', 1, 1, 680},  //MotorBackward: seemed slower on the retract
 };
 
 //we will rely upon index 0 being the only input, the trigger.
