@@ -2,15 +2,23 @@
 ln -sf ../shared lib
 ln -sf ../shared/arduous
 ln -sf lib/chainprinter.h
+ln -sf lib/ezcpp/char.cpp
+ln -sf lib/ezcpp/char.h
 ln -sf lib/ezcpp/cheaptricks.h
+ln -sf lib/clirp.h
+ln -sf lib/ezcpp/cstr.h
+ln -sf lib/dbgserial.cpp
+ln -sf lib/dbgserial.h
 ln -sf lib/digitalpin.h
-ln -sf lib/edgyinput.h
 ln -sf lib/ezcpp/eztypes.h
+ln -sf lib/histogrammer.h
+ln -sf lib/ezcpp/index.h
 ln -sf ../shared/lardls
+ln -sf lib/millichecker.cpp
+ln -sf lib/millichecker.h
 ln -sf lib/millievent.cpp
 ln -sf lib/millievent.h
-ln -sf lib/ezcpp/minimath.h
 ln -sf lib/scani2c.h
-ln -sf lib/ezcpp/twiddler.cpp
-ln -sf lib/ezcpp/twiddler.h
+ln -sf lib/ezcpp/textkey.h
+ln -sf lib/unsignedrecognizer.h
 ln -sf lib/valuestacker.h

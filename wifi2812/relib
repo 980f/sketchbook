@@ -1,27 +1,23 @@
 ## recreate links to library sources
-ln -sf ../shared/ lib
-ln -sf lib/arduous
-ln -sf lib/ezcpp/boolish.h
+ln -sf ../shared/arduous
 ln -sf lib/chainprinter.h
 ln -sf lib/ezcpp/char.cpp
 ln -sf lib/ezcpp/char.h
 ln -sf lib/ezcpp/cheaptricks.h
+ln -sf lib/clirp.h
 ln -sf lib/ezcpp/cstr.cpp
 ln -sf lib/ezcpp/cstr.h
+ln -sf lib/digitalpin.h
+ln -sf ../safely/cppext/extremer.h
 ln -sf lib/ezcpp/eztypes.h
+ln -sf lib/histogrammer.h
 ln -sf lib/ezcpp/index.h
-ln -sf lib/lardls
-ln -sf lib/millichecker.h
+ln -sf ../shared/lardls
 ln -sf lib/millievent.cpp
 ln -sf lib/millievent.h
 ln -sf lib/ezcpp/minimath.h
-ln -sf lib/nvblock.h
-ln -sf lib/pinclass.h
-ln -sf lib/pinuser.h
-ln -sf lib/strz.cpp
-ln -sf lib/strz.h
-ln -sf lib/telnetter.cpp
-ln -sf lib/telnetter.h
-ln -sf lib/ezcpp/textkey.cpp
+ln -sf lib/ezcpp/stopwatch.cpp
+ln -sf lib/ezcpp/stopwatch.h
 ln -sf lib/ezcpp/textkey.h
+ln -sf lib/unsignedrecognizer.h
 ln -sf lib/valuestacker.h

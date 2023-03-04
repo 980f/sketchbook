@@ -1,0 +1,4 @@
+editor.split.widescreen=true
+editor.dock=true
+serial.unbuffered=true
+serial.onclose.forget=false

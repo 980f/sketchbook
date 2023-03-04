@@ -1,10 +1,13 @@
-#pragma once
+#pragma once  //(C) Andy Heilveil (githib/980F) 2021,2022.
 
 /*
-   inspird by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
-   Octobanger had blocking delays in many places, and halfbaked attempts to deal with the consequences.
+   inspired by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
+   Octobanger had blocking delays in many places, and half-baked attempts to deal with the consequences.
    If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
    By ignoring potential weirdness from editing a program while it is running 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
+
+  All of the code is in a .h file so that compile time options can be set in user's project rather than having them edit this header or rely upon a build system.
+  This is not a code burden as the code compiles fairly rapidly and typically is only referenced from one source file.
 
   test: guard against user spec'ing rx/tx pins
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
@@ -16,7 +19,7 @@
   todo: temporary mask via pin config, ie a group of 'bit bucket'
 
   Timer tweaking:
-  The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift which, only with initial error.
+  The legacy technique of using a tweak to the millis/frame doesn't deal with temperature and power supply drift, only with initial error.
   This is implemented while also allowing the frame time to be dynamically set to something other than 50ms.
 
   If certain steps need to be a precise time from other steps then use a good oscillator.
@@ -24,6 +27,12 @@
   todo: add external reference timer to FrameSynch class.
 
 */
+////////////////////////////////////////////////////////////
+//C++ language missing pieces:
+//number of array elements, rather than sharing a #defined declaration and presuming it is used as its name suggests
+#define arraySize(arrayname) sizeof(arrayname)/sizeof(*arrayname)
+//for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
+#define NaV ~0U
 
 ///////////////////////////////////
 //build options, things that we don't care to make runtime options
@@ -34,12 +43,12 @@ FrameTweaking 1
 #endif
 
 #ifndef SAMPLE_END
-#warning Defaulting sample storage space to 1000 bytes/ 500
+#warning Defaulting sample storage space to 1000 bytes/ 500 samples
 #define SAMPLE_END 1000
 #endif
 
 #ifndef TTL_COUNT
-@warning Setting number of controls to legacy value of 8
+#warning Setting number of controls to legacy value of 8
 #define TTL_COUNT 8
 #endif
 
@@ -57,7 +66,9 @@ const int NumControls = TTL_COUNT; //number of TTL outputs, an 8 here is why we 
 
 #include <EEPROM.h>
 using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
-
+#ifndef E2END  //EEPROM implementation is often incoherent. ESP32 does not declare a length and its length() method is not const.
+  #error "your processor does not define the E2END constant for EEPROM size precluding us computing allocations for our use of it."
+#endif
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
 // RealSerial is output for programmed device
@@ -79,12 +90,7 @@ using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are 
 #endif
 #endif
 
-////////////////////////////////////////////////////////////
-//C++ language missing pieces:
-//number of array elements, rather than sharing a #defined declaration and presuming it is used as its name suggests
-#define arraySize(arrayname) sizeof(arrayname)/sizeof(*arrayname)
-//for when an unsigned integer variable has no value, we use the least useful value:  (Not a Value)
-#define NaV ~0U
+
 ////////////////////////////////////////////////////////////
 #include "millievent.h"   //convenient tools for millis()
 #include "chainprinter.h" //less verbose code in your module when printing, similar to BASIC's print statement. Makes for easy #ifdef'ing to remove debug statements.
@@ -99,26 +105,27 @@ namespace Octoid {
 using VersionTag = byte[5];//type for version numbering.
 
 //still keeping old EEPROM layout for simpler cloning to existing hardware
-enum EEAlloc {//values are stepping stone to reorganization.
+enum EEAlloc : EEAddress {//values are stepping stone to reorganization.
   ProgStart = 0,
   ConfigurationStart = ProgStart + 2 * 500,  //legacy 500 samples for 1k EEProm
   ProgEnd = ConfigurationStart,
-  ProgSize = ProgStart - ProgEnd,
 
   StampEnd = E2END + 1, //E2END is address of last byte
   StampStart = StampEnd - sizeof(VersionTag),
-  StampSize = StampStart - StampEnd,
 
   ConfigurationEnd = StampStart,
-  ConfigurationSize = ConfigurationEnd - ConfigurationStart
 };
+
+const unsigned ProgSize = ProgStart - ProgEnd;
+const unsigned StampSize = StampStart - StampEnd;
+const unsigned ConfigurationSize = ConfigurationEnd - ConfigurationStart;
 
 struct VersionInfo {
   bool ok = false;//formerly init to "OK" even though it is not guaranteed to be valid via C startup code.
   //version info, sometimes only first 3 are reported.
   static const VersionTag buff ;//avr not the latest c++ so we need separate init = {8, 2, 0, 2, 6}; //holder for stamp, 8 tells PC app that we have 8 channels
 
-  bool verify() {
+  bool verify() const {
     for (int i = 0; i < sizeof(VersionTag); i++)  {
       if (EEPROM.read(StampStart + i) != buff[i]) {
         return false;
@@ -127,20 +134,26 @@ struct VersionInfo {
     return true;
   }
 
-  void burn() {
+  void burn() const {
     EEPROM.put(StampStart, buff);
   }
 
-  void print(Print &printer, bool longform = false) {
+  void print(Print &printer, bool longform = false) const {
     for (int i = 0; i < longform ? StampSize : 3; i++) {
       if (i) {
-        printer.print(".");
+        printer.print('.');
       }
       printer.print(buff[i]);
     }
   }
 
   void report(ChainPrinter & printer, bool longform) { //else legacy format
+    SerialUSB.print(" vinfo ");
+    SerialUSB.print(StampSize);
+    SerialUSB.print(" bytes\n");   
+    if(true){
+      return; 
+    }
     printer(F("OctoBanger TTL v"));
     print(printer.raw, longform); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
   }
@@ -154,7 +167,7 @@ struct VersionInfo {
 // then SPI GPIO
 // last group is interception point for custom modules
 
-//hooks for custom output channels:r
+//hooks for custom output channels: //todo: declare weak versions that do nothing.
 extern "C" void octoid(unsigned pinish, bool action);
 extern "C" void octoidConfig(EEAddress start, byte sized,  bool writeit);
 
@@ -168,7 +181,7 @@ __attribute__((weak)) void octoid(unsigned pinish, bool action) {
 __attribute__((weak)) void octoidConfig(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
   // else EEPROM.get(start,*yourcfgobject);
-  //but yourcfgobject must be no bigger than sized.
+  //but your cfgobject must be no bigger than param sized.
 }
 
 //todo: compile time hook for configuration EEPROM allocation.
@@ -182,7 +195,7 @@ struct Channel {
     unsigned active: 1; //polarity to send for active
   } def;
 
-  void operator = (bool activate) {
+  void operator = (bool activate) const {
     bool setto = activate ? def.active : ! def.active  ;
     switch (def.group) {
       case 0://pin
@@ -258,7 +271,7 @@ struct Opts  {
         we will therefore interpret incoming bytes where we still have something similar
 
     */
-    enum LegacyIndex {//the enum that they should have created ;)
+    enum LegacyIndex : EEAddress {//the enum that they should have created ;)
       PIN_MAP_SLOT = 0,  //add 1002 to get offset in OctoBlaster_TTL.
       TTL_TYPES_SLOT,
       MEDIA_TYPE_SLOT,
@@ -299,16 +312,18 @@ struct Opts  {
 
 
     byte legacy(unsigned index) {
-      byte packer = 0;
       switch (index) {
         case PIN_MAP_SLOT: //
           return 2;//custom config
         case TTL_TYPES_SLOT: //polarities packed
+        {
+          byte packer = 0;
           for (unsigned i = arraySize(output); i-- > 0;) {
             auto pindef = output[i];
-            packer |= (pindef.active ) << i;
+            packer |= (pindef.active) << i;
           }
           return packer;
+        }
         case MEDIA_TYPE_SLOT:
         case MEDIA_DELAY_SLOT:
           return 0;//no longer supported
@@ -374,7 +389,7 @@ struct Opts  {
       }
     }
 
-    void reportPins(Print &printer, const char*header, bool polarity) {
+    void reportPins(Print &printer, const char*header, bool polarity) const {
       printer.print(header);
       for (unsigned i = 0; i < arraySize(output); ++i) {
         if (!i) {
@@ -387,7 +402,7 @@ struct Opts  {
 
     }
 
-    void report(ChainPrinter & printer) {//legacy format
+    void report(ChainPrinter & printer) const {//legacy format
       printer(F("Reset Delay Secs: "), deadbandSeconds);
       if (bootSeconds != 0)  {
         printer(F("Boot Delay Secs: "), bootSeconds);
@@ -438,7 +453,7 @@ struct Trigger {
   }
 
   /** syntactic sugar for "I'm not listening"*/
-  bool operator ~() {
+  bool operator ~() { //not const because isRunning might change when called.
     return suppressUntil.isRunning();
   }
 
@@ -593,7 +608,7 @@ struct Sequencer {
     /** amount of time after end of program to ignore trigger: */
     MilliTick deadtime;
 
-    static const int SAMPLE_COUNT = EEAlloc::ProgSize / 2; //#truncating divide desired, do not round.
+    static const int SAMPLE_COUNT = ProgSize / 2; //#truncating divide desired, do not round.
 
     Channel output[sizeof(Opts::output)];
 
@@ -620,7 +635,7 @@ struct Sequencer {
       }
 
       /** @returns whether this step is NOT the terminating step of the sequence. */
-      operator bool()const {
+      operator bool() const {
         return frames != 0 || pattern != 0; //0 frames is escape, escape 0 is 'end of program'
       }
 
@@ -682,7 +697,7 @@ struct Sequencer {
         }
 
         /** @returns index of current values, NaV if out of storage range */
-        operator unsigned() {
+        operator unsigned() const {
           return haveNext() ? index : NaV;
         }
 
@@ -820,7 +835,7 @@ struct Sequencer {
     }
 
 
-    void reportFrames(ChainPrinter & printer) {
+    void reportFrames(ChainPrinter & printer) const {
       unsigned used = 0;
       auto frames = duration(used);
       printer(F("Frame Count: "), used * 2); //legacy 2X
@@ -832,14 +847,12 @@ struct Sequencer {
 
     Sequencer(Trigger &T): T(T) {}
 
-
 };
 
 
 
 ///////////////////////////////////////////////////////
-/** transmit program et al to another octoid
-*/
+/** transmit program et al to another octoid */
 struct Cloner {
   Stream *target = nullptr;
   //background sending
@@ -888,7 +901,7 @@ struct Cloner {
   }
 
   unsigned configSize() const {
-    return legacy ? Opts::LegacyIndex::MEM_SLOTS : EEAlloc::ConfigurationSize;
+    return legacy ? Opts::LegacyIndex::MEM_SLOTS : ConfigurationSize;
   }
 
   //user must confirm versions match before calling this
@@ -897,7 +910,7 @@ struct Cloner {
   }
 
   bool sendFrames() {
-    return sendChunk('S', EEAlloc::ProgStart, EEAlloc::ProgSize);//send all, not just 'used'
+    return sendChunk('S', EEAlloc::ProgStart, ProgSize);//send all, not just 'used'
   }
 
   //and since we are mimicing OctoField programmer:
@@ -917,7 +930,7 @@ struct Cloner {
 
     while (sendingLeft) {//push as much as we can into sender buffer
       //multiple of 4 at least as large as critical chunk:
-      byte chunk[( max(EEAlloc::ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+      byte chunk[( max(ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
       if (legacy && tosend >= EEAlloc::ConfigurationStart && tosend < EEAlloc::ConfigurationEnd) { //if legacy format and sending config
         auto offset = tosend - ConfigurationStart;
@@ -940,7 +953,7 @@ struct Cloner {
 
 };
 ////////////////////////////////////////////
-// does not block, expectes its check() to be called frequently
+// does not block, expects its check() to be called frequently
 struct CommandLineInterpreter {
   Sequencer &S;
   Opts O; //options are mostly part of the command interface.
@@ -1017,9 +1030,13 @@ struct CommandLineInterpreter {
   bool onLetter(char letter) {
     if (resynch.isKey(letter)) { // @@ is the same as a single @, recursively.
       expecting = Letter;
-      return true; // ths is a bit hacky, but saves some code space
+      return true; // this is a bit hacky, but saves some code space
     }
-
+    if(true){//todo: configurable echo enable.
+      stream.print('=');
+      stream.print(letter);
+//      printer(letter);
+    }
     switch (letter) {
       case 'V': //return version
         O.stamp.print(stream);
@@ -1061,7 +1078,7 @@ struct CommandLineInterpreter {
       case 'M': //expects 1 byte of packed outputs //manual TTL state command
         expecting = Datum;
         return true;//need more
-      default:
+      default: //todo: make hook for user commands, that must comply with this protocol
         printer(F("unk char:"), letter);
         break;
     }
@@ -1077,8 +1094,13 @@ struct CommandLineInterpreter {
     at end of configuration load burns ~15 (size of configuration).
   */
   void check() {
+     
     unsigned int bytish = stream.read(); //returns all ones on 'nothing there', traditionally quoted as -1 but that is the only negative value returned so let us use unsigned.
-    if (bytish != NaV) {
+    
+    if (bytish != NaV && bytish !=255) { //getting 255 on tapping shift key      
+      stream.print(expecting);
+      stream.print('-');
+      stream.print(bytish);
       switch (expecting) {
         case At:
           if (resynch.isKey(bytish)) {
@@ -1151,6 +1173,10 @@ struct CommandLineInterpreter {
           }
           break;
       }
+    } else {
+//      if((MilliTicker.recent()%2000) == 0){
+//        stream.println("I'm alive");
+//      }
     }
   }
 
@@ -1180,7 +1206,6 @@ struct Blinker {
       BlinkerLed = true;
     }
   }
-
 
   void pulse(unsigned on, unsigned off = 0) {
     /** reasoning: we set an off to guarantee pulse gets seen so expend that first.*/
@@ -1237,22 +1262,26 @@ struct Blaster {
     cli.printer(F("Alive"));
   }
 
-  void loop(bool ticked) {
+  /** @param ticked is whether the main timer has issued a tick since this method was last called.
+  @returns whether the sequencer just started */
+  bool loop(bool ticked) {
+    bool justStarted=false;
     cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
-    if (MilliTicked.ticked()) { //once per millisecond, be aware that it will occasionally skip some
+    if (ticked) { //once per millisecond, be aware that it will occasionally skip some
       blink.onTick();
 
       cli.cloner.onTick();//background transmission
       if (S.onTick()) { //active frame event.
         if (S.amRecording) {
-          //here is where we update S.pattern with data to record.
+          //todo: here is where we update S.pattern with data to record.
         }
       }
 
       if (T.onTick()) {//trigger is active
         if (S.trigger()) {//ignores trigger being active while sequence is active
           cli.printer(F("Playing sequence..."));
+          justStarted=true;
         }
       }
 
@@ -1265,14 +1294,15 @@ struct Blaster {
           blink.pulse(350, 650);
         }
       }
+      return justStarted;
     }
-
+    return false;
   }
 
 } ;
 
 //put here so that we can feed version pieces from compiled constants
-static const VersionTag VersionInfo::buff = {TTL_COUNT, 64, EEAlloc::ConfigurationSize - sizeof(Opts), 0, 0 };
+const VersionTag VersionInfo::buff = {TTL_COUNT, 64, ConfigurationSize - sizeof(Opts), 0, 0 };
 
 }
 //end of octoid, firmware that understands octobanger configuration prototocol and includes picoboo style button programming with one or two boards.

@@ -1,13 +1,13 @@
-octoid is a merger of a highly cleaned up OctoBlaster_TTL and James M's OctoField field programmer for it.
+octoid is a merger of a highly cleaned up OctoBlaster_TTL and James Manley's OctoField field programmer for it.
 
 
 Differences from OctoBlaster_TTL:
 
 * does not block the serial command interface while doing things, in fact all blocking has been removed. Any 'business logic' blocking is done with state machines, not delay() or functions which have long execution. 
-* sets of hard coded pins with a configurable selectin of which set has been replaced with using EEPROM to select Arduino pin and polarity for the output channels and 2 trigger pins. You break a relay in the field and you can fix it in the field without a firmware download.
+* sets of hard coded pins with a configurable selection of which set has been replaced with using EEPROM to select Arduino pin and polarity for the output channels and 2 trigger pins. You break a relay in the field and you can fix it in the field without a firmware download.
 * (soon) accepts configuration from OctoBlaster tools, which config style is determinable from number of config bytes being sent.
 * timeouts on program download has been replaced with watching for 5 '@'s in a row which is an unnecessary program sequence and allows the host/programmer to blow off a download at will without having to wait for whatever the timeout was. This is especially handy when debugging sending a program, you can single step and breakpoint in your transmitting routines without the octoid blowing you off.
-* does NOT use ram for the full program, which is a massive reduction in use.
+* does NOT use ram for the full program, which is a massive reduction in ram use.
 * audio support removed, was blocking in places and can be brought back in as a psuedo output.
 * the trigger out is configurable polarity, handy for when you need to stick an inverting amp into your system at the last minute (a.k.a. known as a transistor)
 * (soon) the trigger out is configurable width in milliseconds.
@@ -29,7 +29,7 @@ New logic features that would be easy to implement:
 
 I2C programmer:
 
-One variant of programming panel could be over I2C or SPI using a simply 16 bit GPIO device.
+One variant of programming panel could be over I2C or SPI using a simple 16 bit GPIO device.
 It would interface to:
 - 8 bistable switches for relay content
 - a bistable switch for RECORD mode
@@ -45,5 +45,5 @@ It would interface to:
 An LED for power would not attach to the GPIO.
 
 
-Note: the octoblaster implements a uart transmit-only connection for the audio device, using asm for precise timing and killing usage of the Serial while it is active. They could have used some gates to share the TX line and saved a lot of programming effort. 
+Note: the octobanger implements a uart transmit-only connection for the audio device, using asm for precise timing and killing usage of the Serial while it is active. They could have used some gates to share the TX line and saved a lot of programming effort. 
 

@@ -22,10 +22,11 @@
 #include <ESP8266WiFi.h>
 #endif
 
-Stream &debug(Serial);
+#include "chainprinter.h"
+ChainPrinter dbg(Serial);
 
 #include "millievent.h"
-#include "EEPROM.h"
+//#include "EEPROM.h"
 
 
 #include "pinclass.h"
@@ -35,7 +36,7 @@ const InputPin<2, LOW> Verbose;
 //a pin used to enable reload some params from eeprom
 const InputPin<0, LOW> Initparams;
 
-#include "strz.h"
+#include "strz.h"  //strztok 
 
 #include "telnetter.h"
 Credentials cred;
@@ -79,35 +80,46 @@ const char *Chatter::hostname() {
   return Hostname;//todo:eeprom
 }
 
+void goslow(const char *msg) {
+  Serial.println(msg);
+  delay(1000);
+}
+
+//////////////////////////////
 void setup() {
+  goslow("setup");
   Serial.begin(115200);
 
-  //can't find dox on this  EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
+  goslow("loads");
+  //EEPROM.begin(4096);//4096:esp8266 max psuedo eeprom
   cred.load(CredAddress);
   keepip.load();
-
+  Telnetter::Verbose = Verbose;
   if (Verbose) {
     dbg("\nStored Credentials:", cred.ssid, cred.password);
     dbg("\nStored IP: ", mystaticip);
   }
 
   if (Initparams) {
-    cred.setID("honeypot");
-    cred.setPWD("brigadoon-will-be-back-soon");
+    cred.setID("honeyspot").setPWD("brigadoonwillbebacksoon");
     mystaticip = IPAddress (192, 168, 12, 65); //65=='A'
     cred.save(CredAddress);
     dbg("\nSaved credentials at ", CredAddress);
     keepip.save();
   }
-
+  goslow("net.begin");
   net.begin(cred);
 }
 
 
 void loop() {
-  if (MilliTicked) { //must be polled for MonoStables to work
+  if (MilliTicker) { //must be polled for MonoStables to work
     //by only checking once per millisecond we lower total power consumption a smidgeon.
+
+    Telnetter::Verbose = Verbose;//update before calling serve() as it uses this concept
+    goslow("serve");
     if (net.serve()) {
+      goslow("broadcast");
       net.broadcast(Serial);
     } else {
       if (size_t len = Serial.available()) {
@@ -117,6 +129,7 @@ void loop() {
 
         unsigned passat = strztok(sbuf, len, '@');
         if (passat != ~0U) {
+          goslow("set creds");
           if (passat++) { //then we have a ssid in front, the ++ skips over the '@'
             cred.setID(sbuf);
           }
