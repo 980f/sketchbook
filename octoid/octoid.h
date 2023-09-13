@@ -1,5 +1,10 @@
 #pragma once  //(C) Andy Heilveil (githib/980F) 2021,2022.
-
+#if __has_include("EEPROM.h")
+#include "EEPROM.h"
+#else
+#warning "won't link until you provide a working EEPROM.h"
+#include "noEEPROM.h"
+#endif 
 /*
    inspired by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
    Octobanger had blocking delays in many places, and half-baked attempts to deal with the consequences.
@@ -63,11 +68,14 @@ const int LedPinNumber =
 
 const int NumControls = TTL_COUNT; //number of TTL outputs, an 8 here is why we call this 'Octobanger'
 
-
+#if __has_include("EEPROM.h")
 #include <EEPROM.h>
 using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are doing with this typedef
 #ifndef E2END  //EEPROM implementation is often incoherent. ESP32 does not declare a length and its length() method is not const.
-  #error "your processor does not define the E2END constant for EEPROM size precluding us computing allocations for our use of it."
+#error "your processor does not define the E2END constant for EEPROM size precluding us computing allocations for our use of it."
+#endif
+#else
+#warning "your processor doesn't have EEPROM support, consider makeing a dummy for it"
 #endif
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
@@ -148,11 +156,13 @@ struct VersionInfo {
   }
 
   void report(ChainPrinter & printer, bool longform) { //else legacy format
+#if 0  //need to include debug facility with indirected debug output
     SerialUSB.print(" vinfo ");
     SerialUSB.print(StampSize);
-    SerialUSB.print(" bytes\n");   
-    if(true){
-      return; 
+    SerialUSB.print(" bytes\n");
+#endif
+    if (true) {
+      return;
     }
     printer(F("OctoBanger TTL v"));
     print(printer.raw, longform); //false is legacy of short version number, leaving two version digits for changes that don't affect configuration
@@ -316,14 +326,14 @@ struct Opts  {
         case PIN_MAP_SLOT: //
           return 2;//custom config
         case TTL_TYPES_SLOT: //polarities packed
-        {
-          byte packer = 0;
-          for (unsigned i = arraySize(output); i-- > 0;) {
-            auto pindef = output[i];
-            packer |= (pindef.active) << i;
+          {
+            byte packer = 0;
+            for (unsigned i = arraySize(output); i-- > 0;) {
+              auto pindef = output[i];
+              packer |= (pindef.active) << i;
+            }
+            return packer;
           }
-          return packer;
-        }
         case MEDIA_TYPE_SLOT:
         case MEDIA_DELAY_SLOT:
           return 0;//no longer supported
@@ -519,7 +529,7 @@ struct Trigger {
   At present 8 bits of resolution on tweaking has been implemented, the limitation being in the configuration data allocation.
   For finer tweaking we can add more configuration bytes and get more precise than the stability of the oscillator over time and temperature.
 
-  todo: implement configuration option to use a digital input as the frame clock, with this module just looking for an edge or edges.	
+  todo: implement configuration option to use a digital input as the frame clock, with this module just looking for an edge or edges.
 
 */
 
@@ -644,7 +654,7 @@ struct Sequencer {
         frames = 0;
         pattern = 0;
       }
-      
+
       /** prepare to record a program step */
       void start(byte newpattern) {
         frames = 1;
@@ -1032,10 +1042,10 @@ struct CommandLineInterpreter {
       expecting = Letter;
       return true; // this is a bit hacky, but saves some code space
     }
-    if(true){//todo: configurable echo enable.
+    if (true) { //todo: configurable echo enable.
       stream.print('=');
       stream.print(letter);
-//      printer(letter);
+      //      printer(letter);
     }
     switch (letter) {
       case 'V': //return version
@@ -1094,10 +1104,10 @@ struct CommandLineInterpreter {
     at end of configuration load burns ~15 (size of configuration).
   */
   void check() {
-     
+
     unsigned int bytish = stream.read(); //returns all ones on 'nothing there', traditionally quoted as -1 but that is the only negative value returned so let us use unsigned.
-    
-    if (bytish != NaV && bytish !=255) { //getting 255 on tapping shift key      
+
+    if (bytish != NaV && bytish != 255) { //getting 255 on tapping shift key
       stream.print(expecting);
       stream.print('-');
       stream.print(bytish);
@@ -1174,9 +1184,9 @@ struct CommandLineInterpreter {
           break;
       }
     } else {
-//      if((MilliTicker.recent()%2000) == 0){
-//        stream.println("I'm alive");
-//      }
+      //      if((MilliTicker.recent()%2000) == 0){
+      //        stream.println("I'm alive");
+      //      }
     }
   }
 
@@ -1263,9 +1273,9 @@ struct Blaster {
   }
 
   /** @param ticked is whether the main timer has issued a tick since this method was last called.
-  @returns whether the sequencer just started */
+    @returns whether the sequencer just started */
   bool loop(bool ticked) {
-    bool justStarted=false;
+    bool justStarted = false;
     cli.check();//unlike other checks this guy doesn't need any millis, we want it to be rapid response
 
     if (ticked) { //once per millisecond, be aware that it will occasionally skip some
@@ -1281,7 +1291,7 @@ struct Blaster {
       if (T.onTick()) {//trigger is active
         if (S.trigger()) {//ignores trigger being active while sequence is active
           cli.printer(F("Playing sequence..."));
-          justStarted=true;
+          justStarted = true;
         }
       }
 

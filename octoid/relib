@@ -2,14 +2,13 @@
 ln -sf ../shared lib
 ln -sf ../shared/arduous
 ln -sf lib/chainprinter.h
-ln -sf lib/ezcpp/cheaptricks.h
 ln -sf lib/digitalpin.h
 ln -sf lib/edgyinput.h
-ln -sf lib/ezcpp/eztypes.h
 ln -sf ../shared/lardls
 ln -sf lib/millievent.cpp
 ln -sf lib/millievent.h
 ln -sf lib/ezcpp/minimath.h
+ln -sf lib/noEEPROM.h
 ln -sf lib/scani2c.h
 ln -sf lib/ezcpp/twiddler.cpp
 ln -sf lib/ezcpp/twiddler.h

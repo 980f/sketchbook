@@ -45,7 +45,7 @@ void octoidMore(EEAddress start, byte sized,  bool writeit) {
     return;
   }
   if(writeit){
-     EEPROM.put(start,myfig);
+    EEPROM.put(start,myfig);
   } else {
     EEPROM.get(start,myfig);   
   }  

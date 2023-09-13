@@ -1,4 +1,5 @@
 
+*.inot
 *~
 arduous
 chainprinter.h
@@ -6,12 +7,12 @@ cheaptricks.h
 digitalpin.h
 edgyinput.h
 eztypes.h
-*.inot
 lardls
 lib
 millievent.cpp
 millievent.h
 minimath.h
+noEEPROM.h
 pinuser.h
 scani2c.h
 twiddler.cpp
