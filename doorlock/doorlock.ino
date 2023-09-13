@@ -10,12 +10,12 @@
 */
 
 
-#include "edgypin.h"
-#include "motorshield.h"
+#include "edgypin.h"    //980F debounced digital inputs
+#include "motorshield.h" //the doorlock mechanism needs bipolar drive
 
-#include "millievent.h"
+#include "millievent.h"  //we use explicit timers
 
-
+//using hardware PWM, which is on different pins because ESP guys don't read specifications:
 #ifdef ARDUINO_ESP8266_GENERIC
 #define pulseopen 2
 #define pulseclose 0
@@ -35,29 +35,31 @@ EdgyPin toggler(6, LOW, 30);
 EdgyPin pulseopener(pulseopen, LOW, 30);
 EdgyPin pulsecloser(pulseclose, LOW,  30);
 
-
+//eventually we will add other driver options, here is where we will ifdef them
 using Moveit =   L298Bridge::Code ; // 'Code' was too generic, L298Brdige might get replaced with L293 in a more generic build
 
 struct PulsedMotor {
-  SeeedStudioMotorShield driver;
+  SeeedStudioMotorShield driver; //from motorshield.h
 
   //after some time the drive level is dropped, either by going to hold state or disabling (todo: configuration flag to indicate which should be used vs recompiling code)
-  MonoStable holder;
+  MonoStable holder; //from millievent.h
 
-  Moveit lastCommand;
+  Moveit lastCommand; //from L298 included in motorshield.h
 
+  //call this from setup, or when configuration is dynamically changed
   void begin(MilliTick backoff) {
     *this =  stable.raw() ? Moveit::Forward : Moveit::Backward;
     holder = backoff; //which also starts it
   }
 
+  //this is how you move
   void operator =(Moveit newstate) {
     lastCommand = newstate;
     driver = newstate;
     holder.start();
   }
 
-  /** if toggleit then if last issued command was a direction go in other direction, else if off go to hold */
+  /** if @param toggleit then if last issued command was a direction go in other direction, else if off go to hold */
   void toggle (bool toggleit = true) {
     if (toggleit && lastCommand != Moveit::Off) { //if off leave off, do not go to hold
       *this = L298Bridge::reverseof(lastCommand);
@@ -66,11 +68,13 @@ struct PulsedMotor {
 
 
   void onTick() {
-    if (holder) {
+    if (holder) {//a MonoStable is true once when its time has elapsed
       driver = Moveit::Off;
     }
   }
 };
+
+////////////////////////////////////
 
 PulsedMotor driver;
 
@@ -85,8 +89,8 @@ void setup() {
 
 
 void loop() {
-  if (MilliTicked) {
-    //debounce all even if overriding/ignoring.
+  if (MilliTicker) {//true once per millisecond regardless of how often called
+    //debounce all even if they will be overridden or ignored:
     auto togglerticked = toggler.onTick();
     auto stableticked = stable.onTick();
     auto openerticked = pulseopener.onTick();
