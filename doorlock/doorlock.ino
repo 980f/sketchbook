@@ -1,11 +1,14 @@
 /**
-  Drives bi-directional motor based on two different types of input.
+  Drives bi-directional motor based on different types of input.
 
-	One is a fwd/back switch, which is acted upon when it changes.
-	The other is a momentary which toggles the state of the system when pressed.
+	One is a fwd/back switch, which is acted upon when it changes. It is also acted upon when processor is reset.
+	Next is a momentary which toggles the state of the system when pressed.
+  Third is a pair of momentaries, one for forward, one for reverse
 
-	todo: implement fallback to holding value after a time.
-  todo: add checking jumpers for pulse time.
+
+	todo: implement eeprom config for fallback to holding value after a time.
+  todo: implement eeprom config for debounce times
+  todo: soft limit switches, one for each direction, closed == permission to move.
 
 */
 
@@ -15,7 +18,7 @@
 
 #include "millievent.h"  //we use explicit timers
 
-//using hardware PWM, which is on different pins because ESP guys don't read specifications:
+//former comment was incorrect, these assignments are for ease of mechanical connections:
 #ifdef ARDUINO_ESP8266_GENERIC
 #define pulseopen 2
 #define pulseclose 0
@@ -25,15 +28,19 @@
 #endif
 
 
-//debounce is good, we don't want to rapidly dick with the mechanism, although the first use could get away with that.
+//we debounce all inputs as we don't want to rapidly dick with the mechanism
 
-//this is state input, not toggle, for when you can't see the mechanism
+//this is state input, not toggle, for when you can't see the mechanism. It works well with hardware limit switches in series between the arduino and the motor driver.
+//it is also the powerup state, it is checked at configuration time and executed.
 EdgyPin stable(7, LOW, 15);
-//this is toggle, used when you can see the mechanism
+//this is toggle, used when you can see the mechanism and can press again if it is going in the wrong direction
 EdgyPin toggler(6, LOW, 30);
-//two buttons
+//two buttons, safest approach whenever you can manage it.
 EdgyPin pulseopener(pulseopen, LOW, 30);
 EdgyPin pulsecloser(pulseclose, LOW,  30);
+
+//maximum motor run time, from last command. If you issue new commands while running it will continue to run.
+MilliTick timeout(300);
 
 //eventually we will add other driver options, here is where we will ifdef them
 using Moveit =   L298Bridge::Code ; // 'Code' was too generic, L298Brdige might get replaced with L293 in a more generic build
@@ -66,13 +73,18 @@ struct PulsedMotor {
     }
   }
 
-
+  /** you must call this once every millisecond */
   void onTick() {
     if (holder) {//a MonoStable is true once when its time has elapsed
       driver = Moveit::Off;
     }
   }
 };
+////////////////////////////////////
+#include "sui.h" //Simple User Interface
+
+SUI sui(Serial, Serial);// default serial for in and out, first use of file is on a Leonardo
+
 
 ////////////////////////////////////
 
@@ -84,29 +96,54 @@ void setup() {
   pulseopener.begin();
   pulsecloser.begin();
 
-  driver.begin(300);//todo: parameter at top of file or EEProm
+  driver.begin(timeout);
 }
 
+void onTick() {
+  driver.onTick();//for delayed shutoff.
+  //debounce all even if they will be overridden or ignored:
+  auto togglerticked = toggler.onTick();
+  auto stableticked = stable.onTick();
+  auto openerticked = pulseopener.onTick();
+  auto closerticked = pulsecloser.onTick();
+
+  //priority scan, only honor one per millitick. Simultaneous means some may get ignored.
+  if (togglerticked && toggler) { //tested first as the othes are idempotent, repeating them gets the same action.
+    driver.toggle(toggler);
+  } else if (openerticked && pulseopener) { //could drop the trailing term to fire on release as well as press
+    driver = Moveit::Forward;
+  } else if (closerticked && pulsecloser) {
+    driver = Moveit::Backward;
+  } else  if (stable.onTick()) {
+    driver = stable ? Moveit::Forward : Moveit::Backward; //if this is backwards swap the wires to the device :)
+  }
+}
 
 void loop() {
   if (MilliTicker) {//true once per millisecond regardless of how often called
-    //debounce all even if they will be overridden or ignored:
-    auto togglerticked = toggler.onTick();
-    auto stableticked = stable.onTick();
-    auto openerticked = pulseopener.onTick();
-    auto closerticked = pulsecloser.onTick();
-
-    //priority scan, only honor one per millitick. Simultaneous means some may get ignored.
-    if (togglerticked && toggler) { //tested first as the othes are idempotent, repeating them gets the same action.
-      driver.toggle(toggler);
-    } else if (openerticked && pulseopener) { //could drop the trailing term to fire on release as well as press
-      driver = Moveit::Forward;
-    } else if (closerticked && pulsecloser) {
-      driver = Moveit::Backward;
-    } else  if (stable.onTick()) {
-      driver = stable ? Moveit::Forward : Moveit::Backward; //if this is backwards swap the wires to the device :)
-    }
+    onTick();//moved code out of line for editing convenience
   }
+  sui([](char key) {//the sui will process input, and when a command is present will call the following code.
+    bool upper = key < 'a';
+    switch (toupper(key)) {
+      default:
+        dbg("ignored:", unsigned(sui), ',', key);
+        break;
+      case ' '://status dump 0 is off, 1 or 2 is direction, 3 is 'hold/brake'
+        dbg(driver.lastCommand, '\t', driver.holder.due());
+        break;
+      case '[':
+        driver = Moveit::Forward;
+        break;
+      case ']':
+        driver = Moveit::Backward;
+        break;
+      case 'H': //holdoff time
+        driver.begin(timeout = sui);
+        break;
+        //todo: debounce times
+    }
+  });
 }
 
 //end of file.

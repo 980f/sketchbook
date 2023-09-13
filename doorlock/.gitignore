@@ -1,10 +1,18 @@
 arduous
 boolish.h
+chainprinter.h
+char.cpp
+char.h
 cheaptricks.h
+clirp.h
+cstr.h
+dbgserial.cpp
+dbgserial.h
 digitalpin.h
 edgyinput.h
 edgypin.h
 eztypes.h
+index.h
 lardls
 millievent.cpp
 millievent.h
@@ -12,3 +20,7 @@ motordrivers.h
 motorshield.h
 pinclass.h
 pinuser.h
+sui.h
+textkey.h
+unsignedrecognizer.h
+valuestacker.h
