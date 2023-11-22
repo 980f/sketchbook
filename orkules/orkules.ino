@@ -1,4 +1,8 @@
 /**
+ * noEEPROM branch is a stripped down version with no field configurability or debuggability
+ * the program that shipped is the commit before the noEEPROM branch was made.
+ * 
+ 
   control timing of drawer kicker for Orkules puzzle.
 
   1) activate drawer latch (HW note: is not polarity sensitive, can use half-H driver)
@@ -19,80 +23,29 @@
 */
 
 
-/** 
-A large part of this program provides field configurability of pin assignments and timing. That is useful during development, and should the mechanism change a bit in the future, but actually storing and restoring the config from EEPROM has not been done. After experimenting with values they still need to be entered into the program around line 122 or so, then recompiled and downloaded for the new values to 'stick'.
+const unsigned ProgramVersion = 2;
 
-  field configurablity (EEPROM contents):
-  The three timing parameters in milliseconds.
-  [milliseconds],U  time between unlock and start kick
-  [milliseconds],K  time between start kick and end kick
-  [milliseconds],O  time between end kick and power off
-
-  [milliseconds],D  debouncer filter time
-
-  If cheap enough:
-  pin choices and polarities
-
-  [pin number],[0|1],L  latch
-  [pin number],[0|1],F  kick out
-  [pin number],[0|1],B  retract
-
-  [pin number],[0|1],T  trigger input
-
-
-  preserve settings: (NYI)
-  Z
-
-  list settings and state
-  [space]
-
-  --------------------------
-  Testing conveniences
-
-
-  Trigger sequence
-  [-|=]
-
-  Test light
-  Q,q
-
-  Test kicker
-  [0..3] .
-
-  All off
-  x
-
-*/
-
-const unsigned ProgramVersion = 1;
-
-#include "sui.h" //Simple or Serial user interface, used for debug (and someday configuration).
-
-SUI sui(Serial, Serial);// default serial for in and out
+#include "dbgserial.h"
 
 #include "millievent.h" //millisecond timer via polling
 
-/* a class output/control pins.
+/* a class for output/control pins.
    it wraps Arduino function oriented syntax so that activating a pin is done via assigning a 1, deactivating by assigning a 0
    it has the concept of 'active level' such that if we have to stick in an inverting buffer the only change to the source code
    is in the pin constructor, not each place of use.
    It includes a "time required to actually do its job" parameter. */
 class Actuator {
-  public://letters for interactive setting interface:
-    const char pinSetter;
-    const char timeSetter;
 
   public://digital pin assignments and attributes. The usage of the time in ms varies with each pin.
     //arduino digital.. functions. Not using 980f's digitalpin class as we have field configurable pin assignments.
-    unsigned pinNumber;
+    const unsigned pinNumber;
     //whether a 1 activates the feature. This allows for easy hardware mode to add an inverting buffer.
-    bool highActive;
+    const bool highActive;
     //associated time for activation to be complete. Deactivation is Somebody Else's Problem.
-    MilliTick ms;
+    const MilliTick ms;
 
     //for use in array init
-    constexpr Actuator(const char pinSetter, const char timeSetter, unsigned pinNumber, bool highActive, unsigned ms):
-      pinSetter(pinSetter), timeSetter(timeSetter), pinNumber(pinNumber), highActive(highActive), ms(ms) {
+    constexpr Actuator(unsigned pinNumber, bool highActive, unsigned ms): pinNumber(pinNumber), highActive(highActive), ms(ms) {
       //wait for setup() to do any actions, so that we can constexpr construct items.
     }
 
@@ -105,8 +58,8 @@ class Actuator {
     }
 
 		//tell Arduino support library what we are doing with this pin, also deactivates the pin.
-    void setup() const {
-      pinMode(pinNumber, timeSetter == 'T' ? INPUT_PULLUP : OUTPUT); // 'T' for trigger
+    void setup(bool asTrigger) const {
+      pinMode(pinNumber, asTrigger ? INPUT_PULLUP : OUTPUT); // 'T' for trigger
       *this = false;//while this also writes to the trigger pin that does nothing
     }
 
@@ -119,31 +72,16 @@ class Actuator {
 
 //putting into an array for ease of nvmemory management:
 //not const so that we can reconfigure them on the fly, if we ever actually implement using EEPROM for configuration, useful if we burn out a pin in the field.
-Actuator pins[] = {
-  {'D', 'T', 0, 0, 90},   //Trigger: debounce time
-  {'U', 'L', 3, 1, 330},  //Latch: time to retract lock
-  {'K', 'F', 2, 1, 560},  //MotorForward: time to guarantee full extension
-  {'O', 'B', 1, 1, 680},  //MotorBackward: seemed slower on the retract
+const Actuator pins[] = {
+  { 0, 0, 90},   //Trigger: debounce time
+  { 3, 1, 330},  //Latch: time to retract lock
+  { 2, 1, 560},  //MotorForward: time to guarantee full extension
+  { 1, 1, 680},  //MotorBackward: seemed slower on the retract
 };
 const unsigned numActuators = sizeof(pins) / sizeof(pins[0]);
 
 //we will rely upon index 0 being the only input, the trigger.
 const Actuator& triggerPin(pins[0]);
-
-/** get the pin configuration object for a user entered letter */
-Actuator *actually(char key) {
-  key = toupper(key); //allow for sloppy user
-  for (auto &actor : pins) {
-    if (actor.pinSetter == key) {
-      return &actor;
-    }
-    //separate clauses for debug
-    if (actor.timeSetter == key) {
-      return &actor;
-    }
-  }
-  return nullptr;
-}
 
 
 #ifdef ARDUINO_SEEED_XIAO_M0
@@ -158,7 +96,7 @@ bool debug2;
 /** wrapper for state machine that does the timing */
 class Program {
   public: //4debug
-    enum Stage {Listening, Unlocking, Kicking, Withdrawing, Done} stage;
+    enum Stage {Listening, Unlocking, Kicking, Withdrawing, Done} stage;//N.B.: these are used as indexes into the pins[] array of actuators!
     OneShot stepper;
     bool trigger; //debounced state of trigger
 
@@ -167,7 +105,7 @@ class Program {
     /** apply pin configuration to pins */
     void updatePins() const {
       for (unsigned pi = numActuators; pi-- > 0;) { //we include the trigger here
-        pins[pi].setup();
+        pins[pi].setup(pi==Listening);//Listening 'activates' the trigger input
       }
     }
 
@@ -187,7 +125,7 @@ class Program {
       stage = newstage;
       pins[stage] = 1;
       stepper = pins[stage].ms;
-      dbg("->", pins[stage].timeSetter, " at:", MilliTicker.recent());
+      dbg("->",stage, " at:", MilliTicker.recent());
     }
 
     void step() {
@@ -213,7 +151,7 @@ class Program {
           return;
 
         default: //should never occur. If it does try to start over
-          dbg("wtf in step:", stage, pins[stage].timeSetter, " at:", MilliTicker.recent());
+          dbg("wtf in step:", stage," at:", MilliTicker.recent());
           startStage(Listening);//slightly abusive code, does a useless actuation
           allOff();
       }
@@ -222,7 +160,7 @@ class Program {
 		//call this once per millisecond
     bool onTick() {
       bool rawTrigger = pins[0]; //always read so that we can reflect it to a debug pin.
-      debug1 = rawTrigger;
+      debug1 = rawTrigger;  //## ignore spurious compiler warning, it gets upset because of a supposed ambiguity between what we want here and a deleted thing.
 
       if (stage == Listening) {  //debounce input
         if (rawTrigger == trigger) { //still stable
@@ -260,99 +198,9 @@ void setup() {
   orkules.setup();
 }
 
-
-/* User Interface Commands:
-  Trigger sequence
-  -
-
-  Test light
-  Q,q
-
-  Test kicker
-  0,1,2,3 for the drv8871 control code.
-*/
-
 void loop() {
   if (MilliTicker) { //true just once for each millisecond.
     orkules.onTick();
   }
-
-  sui([](char key) {//the sui will process input, and when a command is present will call the following code.
-    bool upper = key < 'a';
-    switch (toupper(key)) {
-      default:
-        dbg("ignored:", unsigned(sui), ',', key);
-        break;
-      case ' '://status dump
-        dbg.stifled = false;
-        dbg("Orkules: ");
-        dbg("Stage:\t", pins[orkules.stage].timeSetter);
-        dbg("Timer:\t", orkules.stepper.due());
-        dbg("Trigger:\t", orkules.trigger);
-        break;
-
-      case 'X':// reset state machine.
-        dbg("restarting program logic");
-        orkules.setup();
-        break;
-
-      case '.': {
-          unsigned bits = sui;
-          if (bits <= 3) {
-            auto forward = actually('F');
-            auto retract = actually('B');
-            if (forward && retract) { //which will be true unless we have horked the config
-              dbg("F/R:", bits);
-              *retract = bits & 1;
-              *forward = bits & 2;
-            } else {
-              dbg("wtf:\t output tester");
-            }
-          }
-        } break;
-
-      case '[': case ']': {
-          auto retract = actually('L');
-          if (retract) {
-            *retract = key & 2;
-          }
-        } break;
-
-      case 'Q':
-        //todo: light on or off per case.
-        debug2 = upper;
-        break;
-
-      case '-': //'-' instead of '+' for keyboarding convenience
-      case '=': //same key as '+' but without shift
-        orkules.step();
-        break;
-
-      case 'D': case 'U': case 'K': case 'O': //set pin config
-        dbg("pin reconfiguration not yet supported");
-        break;
-
-      case 'T': case 'L': case 'F': case 'B': {//set step time
-          auto activity = actually(key);
-          if (activity) {
-            if (sui.hasarg()) {
-              activity->ms = sui;
-            }
-            dbg("Time ", key, " is:", activity->ms);
-          } else { //serious software error
-            dbg("Core Meltdown in progress!");
-          }
-        } break;
-
-      case '?': case '/':
-        dbg("Version:\t", ProgramVersion);
-        for (unsigned pi = numActuators; pi-- > 0;) {
-          const auto &cfg = pins[pi];
-          dbg(pi, ":\t", cfg.timeSetter, '\t', cfg.ms, '\t', cfg.pinNumber, '\t', cfg.highActive);
-        }
-        break;
-
-    }
-  });
 }
 //end of file
