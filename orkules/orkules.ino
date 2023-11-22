@@ -19,7 +19,9 @@
 */
 
 
-/**
+/** 
+A large part of this program provides field configurability of pin assignments and timing. That is useful during development, and should the mechanism change a bit in the future, but actually storing and restoring the config from EEPROM has not been done. After experimenting with values they still need to be entered into the program around line 122 or so, then recompiled and downloaded for the new values to 'stick'.
+
   field configurablity (EEPROM contents):
   The three timing parameters in milliseconds.
   [milliseconds],U  time between unlock and start kick
@@ -70,13 +72,18 @@ SUI sui(Serial, Serial);// default serial for in and out
 
 #include "millievent.h" //millisecond timer via polling
 
+/* a class output/control pins.
+   it wraps Arduino function oriented syntax so that activating a pin is done via assigning a 1, deactivating by assigning a 0
+   it has the concept of 'active level' such that if we have to stick in an inverting buffer the only change to the source code
+   is in the pin constructor, not each place of use.
+   It includes a "time required to actually do its job" parameter. */
 class Actuator {
   public://letters for interactive setting interface:
     const char pinSetter;
     const char timeSetter;
 
   public://digital pin assignments and attributes. The usage of the time in ms varies with each pin.
-    //arduino digital.. functions. Not using pinclass as we have field configurable pin assignments.
+    //arduino digital.. functions. Not using 980f's digitalpin class as we have field configurable pin assignments.
     unsigned pinNumber;
     //whether a 1 activates the feature. This allows for easy hardware mode to add an inverting buffer.
     bool highActive;
@@ -84,23 +91,26 @@ class Actuator {
     MilliTick ms;
 
     //for use in array init
-    Actuator(const char pinSetter, const char timeSetter, unsigned pinNumber, bool highActive, unsigned ms):
+    constexpr Actuator(const char pinSetter, const char timeSetter, unsigned pinNumber, bool highActive, unsigned ms):
       pinSetter(pinSetter), timeSetter(timeSetter), pinNumber(pinNumber), highActive(highActive), ms(ms) {
-      //wait for setup() to do any actions
+      //wait for setup() to do any actions, so that we can constexpr construct items.
     }
 
     //allow default copy and move constructors
 
-    bool operator =(bool active) {
+		//assignment is how you change the state of the control
+    bool operator =(bool active) const {
       digitalWrite(pinNumber, active == highActive);
       return active;
     }
 
-    void setup() {
+		//tell Arduino support library what we are doing with this pin, also deactivates the pin.
+    void setup() const {
       pinMode(pinNumber, timeSetter == 'T' ? INPUT_PULLUP : OUTPUT); // 'T' for trigger
       *this = false;//while this also writes to the trigger pin that does nothing
     }
 
+		//report whether it is activated.
     operator bool () const {
       return digitalRead(pinNumber) == highActive;
     }
@@ -108,16 +118,19 @@ class Actuator {
 };
 
 //putting into an array for ease of nvmemory management:
+//not const so that we can reconfigure them on the fly, if we ever actually implement using EEPROM for configuration, useful if we burn out a pin in the field.
 Actuator pins[] = {
   {'D', 'T', 0, 0, 90},   //Trigger: debounce time
   {'U', 'L', 3, 1, 330},  //Latch: time to retract lock
   {'K', 'F', 2, 1, 560},  //MotorForward: time to guarantee full extension
   {'O', 'B', 1, 1, 680},  //MotorBackward: seemed slower on the retract
 };
+const unsigned numActuators = sizeof(pins) / sizeof(pins[0]);
 
 //we will rely upon index 0 being the only input, the trigger.
-Actuator& triggerPin(pins[0]);
+const Actuator& triggerPin(pins[0]);
 
+/** get the pin configuration object for a user entered letter */
 Actuator *actually(char key) {
   key = toupper(key); //allow for sloppy user
   for (auto &actor : pins) {
@@ -131,8 +144,6 @@ Actuator *actually(char key) {
   }
   return nullptr;
 }
-
-const unsigned numActuators = sizeof(pins) / sizeof(pins[0]);
 
 
 #ifdef ARDUINO_SEEED_XIAO_M0
@@ -197,7 +208,7 @@ class Program {
         case Withdrawing:
 //          pins[Withdrawing] = 0;
 //          pins[Unlocking] = 0;
-          startStage(Listening);//slightly abusive code, does a useless actuation
+          startStage(Listening);//slightly abusive code, does a useless actuation in addition to doing what is commented out above.
           allOff();
           return;
 
@@ -208,9 +219,9 @@ class Program {
       }
     }
 
+		//call this once per millisecond
     bool onTick() {
       bool rawTrigger = pins[0]; //always read so that we can reflect it to a debug pin.
-      //todo: Led tracks trigger
       debug1 = rawTrigger;
 
       if (stage == Listening) {  //debounce input
@@ -218,10 +229,10 @@ class Program {
           stepper = pins[0].ms; //repeatedly reset instead of freezing
           return false;
         } else if (stepper.isDone()) {
-          trigger = rawTrigger; //record state of signal has change
+          trigger = rawTrigger; //record that state of signal has change
           if (!trigger) {
             dbg("trigger released");
-            return false; //puzzle finally reset
+            return false; //the puzzle finally reset
           } else {
             dbg("triggered");
             step();
@@ -240,17 +251,17 @@ class Program {
       return false;
     }
 
-} orkules;
+} orkules; //one and only one puzzle per processor.
 
 /********************************************************/
 
 void setup() {
-  Serial.begin(115200);//needed for most platforms
+  Serial.begin(115200);//needed for most platforms, can be a problem on some which use USB native for Serial and may not function unless connected to a USB host.
   orkules.setup();
 }
 
 
-/*
+/* User Interface Commands:
   Trigger sequence
   -
 
