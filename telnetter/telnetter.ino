@@ -25,11 +25,9 @@
 #include "chainprinter.h"
 ChainPrinter dbg(Serial);
 
-#include "millievent.h"
-//#include "EEPROM.h"
+#include "millievent.h"  //foreground timer utilities
 
-
-#include "pinclass.h"
+#include "pinclass.h" // digital I/O as boolean variables
 
 //a pin used to enable extra debug spew:
 const InputPin<2, LOW> Verbose;
@@ -38,16 +36,18 @@ const InputPin<0, LOW> Initparams;
 
 #include "strz.h"  //strztok 
 
-#include "telnetter.h"
+#include "telnetter.h"  //980F/ TelnetActor and related classes
 Credentials cred;
 
 
-#include "nvblock.h"
+#include "nvblock.h" //980F's utilities for storing objects in non-volatile memory
 //static ip set for ease of debug, instead of hunting something down via mDNS
-IPAddress mystaticip {192, 168, 12, 65}; //65=='A'
+IPAddress mystaticip {192, 168, 0, 65}; //65=='A'. Andy always sets his DHCP servers to start at 100, to make it easier to assign fixed addresses to dumb devices such as this one.
 
+/** where credentials are to be stored in nv memory */
 const unsigned CredAddress = 0;
 
+/** allocate some nv memory for this application */
 const Nvblock keepip = Nvblock::For(mystaticip, 128); //todo: allocation scheme to ensure no overlap, without wrapping with a struct.
 //const Nvblock keepip2 <IPAddress>(mystaticip, 128); //todo: allocation scheme to ensure no overlap, without wrapping with a struct.
 
@@ -80,6 +80,7 @@ const char *Chatter::hostname() {
   return Hostname;//todo:eeprom
 }
 
+/** use this when you are blocking the foreground with 'delay', and tell us why. */
 void goslow(const char *msg) {
   Serial.println(msg);
   delay(1000);
@@ -87,7 +88,7 @@ void goslow(const char *msg) {
 
 //////////////////////////////
 void setup() {
-  goslow("setup");
+  goslow("setup"); //## note- this runs at default baud rate! 
   Serial.begin(115200);
 
   goslow("loads");
@@ -102,7 +103,7 @@ void setup() {
 
   if (Initparams) {
     cred.setID("honeyspot").setPWD("brigadoonwillbebacksoon");
-    mystaticip = IPAddress (192, 168, 12, 65); //65=='A'
+    mystaticip = IPAddress (192, 168, 0, 65); //65=='A'
     cred.save(CredAddress);
     dbg("\nSaved credentials at ", CredAddress);
     keepip.save();
@@ -118,12 +119,12 @@ void loop() {
 
     Telnetter::Verbose = Verbose;//update before calling serve() as it uses this concept
     goslow("serve");
-    if (net.serve()) {
+    if (net.serve()) {// the WiFi service needs to be polled.
       goslow("broadcast");
       net.broadcast(Serial);
-    } else {
+    } else { //Check local port for something to broadcast
       if (size_t len = Serial.available()) {
-        char sbuf[len + 1]; //not standard C++! (but most compilers will let you do it)
+        char sbuf[len + 1]; //# not standard C++! (but most compilers will let you do it)
         Serial.readBytes(sbuf, len);
         sbuf[len] = 0; //avert buffer overflow
 
