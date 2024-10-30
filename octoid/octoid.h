@@ -5,16 +5,23 @@
 #warning "won't link until you provide a working EEPROM.h"
 #include "noEEPROM.h"
 #endif 
+
+#if __has_include("octoidConfig.h")
+#include "octoidConfig.h"
+#elif __has_include("octoid-config.h")
+#include "octoid-config.h"
+#else
+#warning "compiling octoid with defaults. Override via a file octoidConfig.h or octoid-config.h 
+#endif
+
+
 /*
    inspired by OctoBanger_TTL, trying to be compatible with their gui but might need a file translator.
    Octobanger had blocking delays in many places, and half-baked attempts to deal with the consequences.
    If the human is worried about programming while the device is operational they can issue a command to have the trigger ignored.
    By ignoring potential weirdness from editing a program while it is running 1k of ram is freed up, enough for this functionality to become a part of a much larger program.
 
-  All of the code is in a .h file so that compile time options can be set in user's project rather than having them edit this header or rely upon a build system.
-  This is not a code burden as the code compiles fairly rapidly and typically is only referenced from one source file.
-
-  test: guard against user spec'ing rx/tx pins
+  test: guard against user spec'ing rx/tx pins for controlled outputs (see GuardRxTx)
   todo: debate whether suppressing the trigger locally should also suppress the trigger output, as it presently does
   note: trigger held active longer than sequence results in a loop.  Consider adding config for edge vs level trigger.
   test: package into a single class so that can coexist with other code, such as the flicker code.
@@ -47,6 +54,7 @@
 FrameTweaking 1
 #endif
 
+//legacy 500 samples for 1k EEProm
 #ifndef SAMPLE_END
 #warning Defaulting sample storage space to 1000 bytes/ 500 samples
 #define SAMPLE_END 1000
@@ -75,7 +83,7 @@ using EEAddress = uint16_t ;//todo: EEPROM.h has helper classes for what we are 
 #error "your processor does not define the E2END constant for EEPROM size precluding us computing allocations for our use of it."
 #endif
 #else
-#warning "your processor doesn't have EEPROM support, consider makeing a dummy for it"
+#warning "your processor doesn't have Arduino EEPROM support, consider making a dummy for it, or perhaps you have an i2C EEPROM?"
 #endif
 /////////////////////////////////
 // different names for HardwareSerial depending upon board
@@ -115,17 +123,17 @@ using VersionTag = byte[5];//type for version numbering.
 //still keeping old EEPROM layout for simpler cloning to existing hardware
 enum EEAlloc : EEAddress {//values are stepping stone to reorganization.
   ProgStart = 0,
-  ConfigurationStart = ProgStart + 2 * 500,  //legacy 500 samples for 1k EEProm
+  ConfigurationStart = ProgStart + SAMPLE_END,  
   ProgEnd = ConfigurationStart,
-
+  //an area used to test for a valid configuration:
   StampEnd = E2END + 1, //E2END is address of last byte
   StampStart = StampEnd - sizeof(VersionTag),
 
   ConfigurationEnd = StampStart,
 };
 
-const unsigned ProgSize = ProgStart - ProgEnd;
-const unsigned StampSize = StampStart - StampEnd;
+const unsigned ProgSize = ProgEnd - ProgStart;
+const unsigned StampSize = StampEnd - StampStart;
 const unsigned ConfigurationSize = ConfigurationEnd - ConfigurationStart;
 
 struct VersionInfo {
@@ -177,24 +185,22 @@ struct VersionInfo {
 // then SPI GPIO
 // last group is interception point for custom modules
 
-//hooks for custom output channels: //todo: declare weak versions that do nothing.
+//hooks for custom output channels: 
 extern "C" void octoid(unsigned pinish, bool action);
 extern "C" void octoidConfig(EEAddress start, byte sized,  bool writeit);
 
 /** linker hook for sequenced actions, 32 flavors available */
 __attribute__((weak)) void octoid(unsigned pinish, bool action) {
   //declare a function in your code with the above signature without the 'weak' stuff and
-  //it will get called with a value 0.31 and a boolean that can be inverted by the fx artist.
+  //it will get called with a value 0..31 and a boolean that can be inverted by the fx artist.
   //if you need any configuration you will have to make more major changes to the octoblast defined concept.
 }
 
 __attribute__((weak)) void octoidConfig(EEAddress start, byte sized,  bool writeit) {
   //if writeit then EEPROM.put(start,*yourcfgobject);
   // else EEPROM.get(start,*yourcfgobject);
-  //but your cfgobject must be no bigger than param sized.
+  //but your cfgobject must be no bigger than @param sized.
 }
-
-//todo: compile time hook for configuration EEPROM allocation.
 
 //////////////////////////////////////////////////////
 //output descriptors for the 8 bits of program data, abused for trigger in and out as well.
@@ -209,7 +215,7 @@ struct Channel {
     bool setto = activate ? def.active : ! def.active  ;
     switch (def.group) {
       case 0://pin
-        //guard tx/rx pins if needed.
+        //guard tx/rx pins, ignore undefined pins
         if (def.index < GuardRxTx || def.index == NaV) {
           //disabled channel, do nothing
         } else {
@@ -279,7 +285,6 @@ struct Opts  {
 
     /** having obsoleted most of the configuration we still want to honor old programmer SW sending us a block of bytes.
         we will therefore interpret incoming bytes where we still have something similar
-
     */
     enum LegacyIndex : EEAddress {//the enum that they should have created ;)
       PIN_MAP_SLOT = 0,  //add 1002 to get offset in OctoBlaster_TTL.
@@ -291,7 +296,7 @@ struct Opts  {
       VOLUME_SLOT,
       TRIGGER_TYPE_SLOT ,
       TIMING_OFFSET_TYPE_SLOT ,
-      MEM_SLOTS  //let the compile count for us
+      num_SLOTS  //let the compile count for us
     };
 
     Channel::Definition output[NumControls];
@@ -911,7 +916,7 @@ struct Cloner {
   }
 
   unsigned configSize() const {
-    return legacy ? Opts::LegacyIndex::MEM_SLOTS : ConfigurationSize;
+    return legacy ? Opts::LegacyIndex::num_SLOTS : ConfigurationSize;
   }
 
   //user must confirm versions match before calling this
@@ -940,7 +945,7 @@ struct Cloner {
 
     while (sendingLeft) {//push as much as we can into sender buffer
       //multiple of 4 at least as large as critical chunk:
-      byte chunk[( max(ConfigurationSize, Opts::LegacyIndex::MEM_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
+      byte chunk[( max(ConfigurationSize, Opts::LegacyIndex::num_SLOTS) + 3) & ~3]; //want to send Opts as one chunk if not in legacy mode
       unsigned chunker = 0;
       if (legacy && tosend >= EEAlloc::ConfigurationStart && tosend < EEAlloc::ConfigurationEnd) { //if legacy format and sending config
         auto offset = tosend - ConfigurationStart;
