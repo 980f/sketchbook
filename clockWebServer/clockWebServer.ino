@@ -28,11 +28,7 @@ struct Login {
 };
 
 Login known[] = {
-//	{"honeypot", "brigadoon-will-be-back-soon", 4500},
-  {"Verizon-MiFi7730L-7D50", "5532f44d", 9000},
-  {"Matt's iPhone XS", "sizzlamofo", 9000},
-  {"honeypot", "brigadoon-will-be-back-soon", 4500},
-  
+  {"honeypot", "brigadoonwillbebacksoon", 4500},  
 };
 
 #include "limitedpointer.h"
@@ -47,10 +43,10 @@ ESP8266WebServer server(1859);
 //will roll() with each event.
 StopWatch since;
 void timestamp(const char *event) {
-  dbg("\n", event, ':', double(since.roll()));
+  dbg(CRLF, event, ':', double(since.roll()));
 }
 
-#include "hms.h"
+#include "hms.h"  //hours minutes seconds
 
 bool updateDesired = false;
 
@@ -61,20 +57,22 @@ const char headbody[] =
 
 unsigned refreshRate = 2;
 
-//using single letter arg names to allow use of switch()
+#define NEWL "<br>\n"
+
+//using single letter button names to allow use of switch()
 const char form[] =
   "<form > <input name='h' type='time'>"
-  "\n<button name='s' type='submit'> Set Clock </button><br>"
-  "\n<button name='z' type='submit'> Zero. </button><br>"
-  "\n<span>Steps:</span>"
+  NEWL "<button name='s' type='submit'> Set Clock </button>"
+  NEWL "<button name='z' type='submit'> Zero. </button>"
+  NEWL "<span>Steps:</span>"
   "<button name='p' type=submit' value='-100'> -100 </button>"
   "<button name='p' type=submit' value='-10'>-10 </button>"
   "<button name='p' type=submit' value='-1'>-1 </button>"
   "<button name='p' type=submit' value='1'> 1 </button>"
   "<button name='p' type=submit' value='10'> 10 </button>"
   "<button name='p' type=submit' value='100'> 100 </button>"
-  "\n<br><input name='u' type='number' value=%d> \n<button type='submit'> Submit</button><br>"
-  "\n</form><br>";
+  NEWL "<input name='u' type='number' value=%d> \n<button type='submit'> Submit</button>"
+  NEWL "</form><br>";
 
 const char clockdisplay[] =
   "\n<svg xmlns='http://www.w3.org/2000/svg' id='clock' width='250' height='250'  viewBox='0 0 250 250' >  <title>dial it up</title>"
@@ -104,22 +102,23 @@ const char clockdisplay[] =
   "\n<circle id='knob' r='6' cx='125' cy='125' style='fill: #333;'/>"
   "</svg>";
 
-;;
-
-
+;;;;;
 
 const char enddocument[] = "\n</body></html>";
 
 static char workspace[4096];//2k is biggest so far. Choosing "eeprom" page size for the ESP-01.
-#include "sprinter.h"
+#include "sprinter.h"  //String printer, that makes sure we don't run off the end of the string
 Sprinter p(workspace, sizeof(workspace));
+
+//invoke the following to start printing to the shared big block
+#define WORKSPACE p.rewind()
+
 ;;;;;
 HMS bigben(0);
 HMS desired(0);
 
 void showclock(const HMS &ck);
 
-#define WORKSPACE p.rewind()
 
 void elapsed() {
   HMS c(millis());
@@ -142,7 +141,7 @@ void diagRequest() {
 
 void showRequest() {
   diagRequest();
-  dbg("Most used: ", Sprinter::mostused);
+  dbg("Most used: ", Sprinter::mostused);//## a class static !!??!
   server.send(404, "text/plain", p.buffer);
 }
 
@@ -220,9 +219,9 @@ MonoStable timedOut;
 MonoStable pollStatus(500);//inherited value from some examples.
 
 void login() {
-	if(!logins.isValid()){
-		logins.rewind();
-	}
+  if(!logins.isValid()){
+    logins.rewind();
+  }
   dnserver = &logins.next();
   dbg("\nTrying ", dnserver->ssid, ' ', dnserver->password);
   WiFi.begin(dnserver->ssid, dnserver->password);
@@ -274,3 +273,4 @@ void loop(void) {
 void showclock(const HMS &ck) {//moving this here lets it compile, if inline where declared we get a spurious compiler error. Need to get a newer compiler than 4.8.2!
   p.printf(clockdisplay, ck.hour * 30, ck.minute * 6, ck.sec * 6, ck.hour , ck.minute, ck.sec ); //6 degrees per second and minute, 360/60, 360/12 = 30 for hour
 }
+
