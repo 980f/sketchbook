@@ -67,7 +67,9 @@ This time i opted to use a mega that was powered seperate form the octobanger an
 
 //inputs
 RBD::Button Record(11);
-RBD::Button Ch[8]={{2},{3},{4},{5},{6},{7},{8},{9}};//if compiler is too ancient for this syntax we will create 8 named objects then make an array of references to them.
+const unsigned numChannels= 8;
+RBD::Button Ch[numChannels]={{2},{3},{4},{5},{6},{7},{8},{9}};//if compiler is too ancient for this syntax we will create 8 named objects then make an array of references to them.
+
 RBD::Button Trigger(10);
 
 //timers
@@ -77,29 +79,63 @@ RBD::Timer RecordBlink(200);// for blinking status led while recording
 //outputs
 int Indicator = 13;
 
-
 //global variables
-//bool = 1 bit / 0-1
-bool recording = 0; // variable for tracking if recording is currently in progress 1 = yes
-bool BlinkStatus = 0;
+bool recording = false; // variable for tracking if recording is currently in progress 1 = yes
+bool BlinkStatus = false;
 
-// byte = 1 byte / 0-255 values
-byte Sequence[500][2]; // create empty 2d array with 2 columns, and more rows than could be needed to sequence [0]relay status int,[1]# of time steps int.
-byte RelayStat = 0 ; // number representing on/off status of each relay, ch_1 = 1, ch_2 =2, ch_3 =4, ch_4=8 etc.
-byte RelayStatLast = 0 ; // previous value for tracking changes
-byte FrameCount = 0; // number of time segments frame is active
+const unsigned numFrames=500;
+struct Step {
+  byte pins;  //sizes here determined by octobanger rules.
+  byte count;
+  Step(byte p,byte c):pins(p),count(c){} //could probably trust default constructor
+} Sequence[numFrames]; // create max rows allowed by blaster. 
 
-
-
-  
-//word = 2 bytes / 0-65535
-word Frame = 0 ; // frame number of sequence represents row in array
-
-//int = 2 byte / (-32768)-32767
+Step* active=nullptr;//was byte RelayStat = 0 ; //packed relay status bits and unsigned FrameCount = 0; // number of time segments frame is active
 
 
+byte pinsNow(){
+  byte mask = 0;
+  while(ch=8;ch-->0;){
+    if(Ch[ch].isPressed()){
+      mask |= 1<<ch;  
+    }
+  }
+  return mask;
+}
 
+void endRecording(){
+  recording = false;
+  FrameTime.stop();
+  TransmitSeq(Sequence,active); // starts transmission of the collected array.
+  firstFrame();//corrupt the sequence rather than the program's memory if we ignore we've over shot the max frame      
+}
 
+void startStep(byte pins){
+  active->pins=pin;
+  active->count=0;
+}
+
+void firstFrame(byte pins){
+  active=Sequence;
+  startStep(pins);
+}
+
+unsigned currentFrame(){
+  if(!active){
+    firstFrame(0);  
+  }
+  return (active-Sequence)/sizeof(*active);
+}
+
+bool nextFrame(byte pins){
+  if(++active && currentFrame >= numFrames){
+    endRecording();    
+    return false;
+  } else {
+    startStep(pins);
+    return true;
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -107,7 +143,7 @@ word Frame = 0 ; // frame number of sequence represents row in array
 ///V- Sub Functions -V ///
 //////////////////////////
 
-void TransmitSeq(byte a[][2]){
+void TransmitSeq(Step a[],Step *last){
 //Programming hex commands:
 //baud 115200
 //@S = begin to receive new program
@@ -118,59 +154,30 @@ void TransmitSeq(byte a[][2]){
 //------------------- //V- this section is required even if the state didn't change at the end
 //00 = Relay combo for final frame // if programming on octobanger this could have a value, but for here its easier to just force to of
 //00 = zero time duration for end of program
-  word frametrack = 0;
-  word linecount = 0;
-  byte TwoByteArray[] ={'@','S'};
 
-  Serial.write(TwoByteArray,2);
-  //Serial1.write(TwoByteArray,2);
-  //Serial.println("@S");
-  for(int y = 499; y >=0 ; y--){// go through the array and find the last updated frame without 0 frame count, thats where our program stopped
-    if(a[y][1] != 0){
-      //this is the last part of our sequence
-      frametrack = y;
-      break; // weve already found the end we can stop looking now.
-    }
-  }
+//erased as we know how many frames, we don't need to clear the memory when we begin and then do this expensive thing to find the end as we know the end!
+ // for(int y = numFrames; y -->0 ;){// go through the array and find the last updated frame without 0 frame count, thats where our program stopped
+ //   if(a[y].count != 0){
+ //     //this is the last part of our sequence
+ //     frametrack = y;
+ //     break; // weve already found the end we can stop looking now.
+ //   }
+ // }
   
-  linecount = ( frametrack + 2 )*2; // we need the total count of frames not the index, + the closing frame, multiplied by 2 to signify that we will be sending 2 lines for each frame
+  unsigned bytecount = (currentFrame()+1) *2; //+1 for extra zero step we send for good luck. 
   
-  byte low = linecount;
-  byte high = linecount >> 8;
-  TwoByteArray[0] = low;
-  TwoByteArray[1] = high;
-
-  Serial.write(TwoByteArray,2); //transmit the bottom 8 bits then the top 8 bits
-  //Serial1.write(TwoByteArray,2); //transmit the bottom 8 bits then the top 8 bits
-  //Serial.print("Number of frames hex: ");
-  //Serial.print(low);
-  //Serial.print(",");
-  //Serial.println(high);
+  Serial.write("@S",2);
+  //transmit the bottom 8 bits then the top 8 bits, don't trust that we and the destination have the same native byte orders.
+  Serial.write(linecount);
+  Serial.write(linecount >> 8);
   
-  for(int z = 0 ; z <= frametrack; z++){ // go through each frame and transmit both lines
-    Serial.write(a[z][0]);  //relay combo
-    Serial.write(a[z][1]);  //# of frames active
-    //Serial1.write(a[z][0]);  //relay combo
-    //Serial1.write(a[z][1]);  //# of frames active
-
-    //Serial.print("Frame#:");
-    //Serial.print(z+1 );
-    //Serial.print(" : ");
-    //Serial.print(a[z][0]);
-    //Serial.print(",");
-    //Serial.println(a[z][1]);
+  for(Step *step=Sequence ; step <= active; ++step){ 
+    Serial.write(step.pins); 
+    Serial.write(step.count);
   }
 
   Serial.write(0); // go ahead and send the ending frame.
-  Serial.write(0);
-
-  //Serial1.write(0); // go ahead and send the ending frame.
-  //Serial1.write(0);
-  //Serial.println("00,00");
-  //Serial.println("End Programming Sequence");
-
-
-  
+  Serial.write(0);  
 }
 
 void SequenceStream(byte b){
@@ -179,16 +186,8 @@ void SequenceStream(byte b){
 //@Mx = instantly tell octobanger to activate corresponding relays
 //      //x= hex value of relay states  
 //
-//byte ThreeByteArray[] = {64,77,b};
-  //Serial.println(b);
   byte ThreeByteArray[] = {'@','M',b};
-
-  Serial.write(ThreeByteArray,3); // confirmed in labview that this would work.
-  
-  //Serial1.write(ThreeByteArray,3); // confirmed in labview that this would work.
-  //Serial.print("@M");
-  //Serial.println(b);
- 
+  Serial.write(ThreeByteArray,3);
 }
 
 
@@ -220,29 +219,23 @@ void setup(){
 void loop(){
 
   if(!recording && Record.onPressed()){
-    recording = HIGH;
+    recording = true;
     FrameTime.restart();
-    Frame = 0; // each time you start recoridng the frame number goes back to 0.
-    for(int x=0; x<500; x++){ // make sure to clear the full array before starting programming.
-      Sequence[x][0]=0;
-      Sequence[x][1]=0; 
-    }
-    delay(20);
+    firstFrame(pinsNow());
+    delay(20);//this needs justification! We aren't sending anything to the banger so shouldn't need to guard against overrunning it.
   }
 
   if(recording && Record.onPressed()){
-    recording = LOW;
+    recording = false;
     FrameTime.stop();
     TransmitSeq(Sequence); // starts transmission of the collected array.
-    delay(500);
+    delay(500);//this needs justification! Probably needs to be inside TransmitSeq if it is to keep us from talking to a device that is not listening due to burning lots of eprom.  
   }
 
   if(Trigger.onPressed()){
     byte TwoByteArray[] ={'@','T'};
     Serial.write(TwoByteArray,2);
-    //Serial1.write(TwoByteArray,2);
-    //Serial.print("@T");
-    delay(500);
+    delay(500);//this needs justification.
   }
   
 ///^ INPUT BASED EVENTS GO ABOVE ^///
@@ -259,31 +252,17 @@ void loop(){
   }
 
   if(FrameTime.onRestart()){ // should repeat every 50 ms, re-reading all the buttons and recording them.
-    RelayStat = 0;
-    while(ch=8;ch-->0;){
-      if(Ch[ch].isPressed()){
-        RelayStat |= 1<<ch;  
-      }
+    byte pins = pinsNow();
+    if(pins == active->pins){ // if the combination of relays is the same as last round, increase the counted frames in the array
+      if(++active->count==0){//rolled over!
+        --active->count;
+        nextFrame(pins)){//ran off of the end!        
+      } 
+    } else{ // if the relay stat is not the same as the last round, move to a new frame in the array      
+      nextFrame(pins);
+      SequenceStream(pins); // send the current relay combo to the arduino to have the relay's mimic the buttons in real time.
     }
-    //Serial.println(RelayStat);
-    if(RelayStatLast == RelayStat){ // if the combination of relays is the same as last round, increase the counted frames in the array
-      ++FrameCount;
-      if(FrameCount >255){ // if the frame count goes over 255 then it needs to be moved into a new frame
-        ++Frame;
-        FrameCount=0;
-        Sequence[Frame][0] = RelayStat; // store the relay combo in column 1 of the array        
-      }
-      Sequence[Frame][1] = FrameCount; // when creating new frame the frames count is 0.
-    }
-    else{ // if the relay stat is not the same as the last round, move to a new frame in the array
-      ++Frame;
-      FrameCount=0;
-      Sequence[Frame][0] = RelayStat; // store the relay combo in column 1 of the array
-      Sequence[Frame][1] = FrameCount; // when creating new frame the frames count is 0.
-    }
-    RelayStatLast = RelayStat;
-    SequenceStream(RelayStat); // send the current relay combo to the arduino to have the relay's mimic the buttons in real time.
   }
-  
-  
-}
+   
+}  //end loop()
+
