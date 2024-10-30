@@ -55,8 +55,7 @@ This time i opted to use a mega that was powered seperate form the octobanger an
 
 //Libraries
 #include <RBD_Timer.h>
-#include <RBD_Button.h>
-
+#include <RBD_Button.h>  //not very nice in that it only lets you choose the pin at object instantiation time!
 
 ////////////////////////////////////////////////////////////////
 /// V Define System Below V ///
@@ -68,14 +67,7 @@ This time i opted to use a mega that was powered seperate form the octobanger an
 
 //inputs
 RBD::Button Record(11);
-RBD::Button Ch_1(2);
-RBD::Button Ch_2(3);
-RBD::Button Ch_3(4);
-RBD::Button Ch_4(5);
-RBD::Button Ch_5(6);
-RBD::Button Ch_6(7);
-RBD::Button Ch_7(8);
-RBD::Button Ch_8(9);
+RBD::Button Ch[8]={{2},{3},{4},{5},{6},{7},{8},{9}};//if compiler is too ancient for this syntax we will create 8 named objects then make an array of references to them.
 RBD::Button Trigger(10);
 
 //timers
@@ -208,6 +200,7 @@ void SequenceStream(byte b){
 //////////////////////// 
 
 void setup(){
+    
   Serial.begin(115200); // commuication with computer
   
   //Serial.begin(115200); // commuication with computer
@@ -267,42 +260,20 @@ void loop(){
 
   if(FrameTime.onRestart()){ // should repeat every 50 ms, re-reading all the buttons and recording them.
     RelayStat = 0;
-    if(Ch_1.isPressed()){
-      RelayStat += 1;
-    }
-    if(Ch_2.isPressed()){
-      RelayStat += 2;
-    }
-    if(Ch_3.isPressed()){
-      RelayStat += 4;
-    }
-    if(Ch_4.isPressed()){
-      RelayStat += 8;
-    }
-    if(Ch_5.isPressed()){
-      RelayStat += 16;
-    }
-    if(Ch_6.isPressed()){
-      RelayStat += 32;
-    }
-    if(Ch_7.isPressed()){
-      RelayStat += 64;
-    }
-    if(Ch_8.isPressed()){
-      RelayStat += 128;
+    while(ch=8;ch-->0;){
+      if(Ch[ch].isPressed()){
+        RelayStat |= 1<<ch;  
+      }
     }
     //Serial.println(RelayStat);
     if(RelayStatLast == RelayStat){ // if the combination of relays is the same as last round, increase the counted frames in the array
       ++FrameCount;
-      if(FrameCount <=255){
-        Sequence[Frame][1] = FrameCount; //
-      }
-      else{ // if the frame count goes over 255 then it needs to be moved into a new frame
+      if(FrameCount >255){ // if the frame count goes over 255 then it needs to be moved into a new frame
         ++Frame;
         FrameCount=0;
-        Sequence[Frame][0] = RelayStat; // store the relay combo in column 1 of the array
-        Sequence[Frame][1] = FrameCount; // when creating new frame the frames count is 0.
+        Sequence[Frame][0] = RelayStat; // store the relay combo in column 1 of the array        
       }
+      Sequence[Frame][1] = FrameCount; // when creating new frame the frames count is 0.
     }
     else{ // if the relay stat is not the same as the last round, move to a new frame in the array
       ++Frame;
