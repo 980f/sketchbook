@@ -21,28 +21,28 @@ PCF8575 bits; //We need wemos D1 I2C and that leaves us one pin short to direct 
 #include "stepper.h"
 
 #include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial);
+EasyConsole<decltype(Serial)> dbg(Serial);//using decltype(Serial) was needed as different platforms have different classes for their Serial object
 
 //soft millisecond timers are adequate for minutes and hours.
 #include "millievent.h"
 
-#if UsingEDSir
+#if UsingEDSir  //Electonic Dollar Store ir transceiver
 #include "wirewrapper.h"
 WireWrapper edsIR(0x60);//todo: see if this off by <<1
 WIred<char> irchar(edsIR, 0); //port 0 is asciified map of EDS controller
 
 MonoStable sampleIR(147);//fast enough for a crappy keypad
 
-//declare just to get pullups:
+//declare just to get pullups: (you really should add lower valued ones to ensure I2C timing)
 Pin<20, INPUT_PULLUP> SDApup;
 Pin<21, INPUT_PULLUP> SCLpup;
 
 #endif
 
+//steps per revolution of geared stepper motor:
 const unsigned baseSPR = 2048;//28BYJ-48
+//abstract speed number
 const unsigned slewspeed = 5;//5: smooth moving, no load.
-
-
 
 class ClockHand {
   public:
@@ -67,6 +67,7 @@ class ClockHand {
       }
     }
 
+    /* milliseconds per unit */
     unsigned long msperunit() const {
       switch (unit) {
         case Seconds: return 1000UL;
@@ -171,11 +172,13 @@ template <PinNumberType xp, PinNumberType xn, PinNumberType yp, PinNumberType yn
     OutputPin<yn> myn;
 
   public:
+    //least significant bit of 2 bit Grey code.
     static bool greylsb(byte step) {
       byte phase = step & 3;
       return (phase == 1) || (phase == 2);
     }
 
+    //most significant bit of 2 bit Grey code.
     static bool greymsb(byte step) {
       return (step & 3) >> 1;
     }
@@ -242,7 +245,7 @@ ULN2003<13, 11, 12, 10> hourmotor;
 
 #elif UsingLeonardo
 #if UsingUDN2540
-UDN2540<7, 5, 6, 4, 14> minutemotor; //todo: separate power pin!
+UDN2540<7, 5, 6, 4, 14> minutemotor; //todo: separate power pin for each motor!
 UDN2540<9, 16, 8, 10, 14> hourmotor;
 #else
 ULN2003<7, 5, 6, 4> minutemotor;
