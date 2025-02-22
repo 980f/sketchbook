@@ -4,7 +4,7 @@
 
 #include "dbgserial.h"
 
-#include "clirp.h" //commandline interpreter wtih reverse polish input, all args preceed operator.
+#include "clirp.h" //commandline interpreter wtih reverse polish input, all args precede operator.
 
 class SUI { //Simple User Interface. Binds together a console and an RPN command parser.
     CLIRP<> cli;
@@ -18,7 +18,6 @@ class SUI { //Simple User Interface. Binds together a console and an RPN command
     void operator()(User handler) {
       for (unsigned strokes = cin.available(); strokes-- > 0;) {
         char key = cin.read();
-        bool upper = key < 'a';
         if (cli.doKey(key)) {
           handler(key);
         }
@@ -44,13 +43,14 @@ class SUI { //Simple User Interface. Binds together a console and an RPN command
 };
 
 #include "digitalpin.h"
+
 #ifndef LED_BUILTIN
 //todo: ifdef on boasrd identifiers, or fix esp32 board files!
 #define LED_BUILTIN 13
 #endif
 
 DigitalOutput imAlive(LED_BUILTIN);
-//initially named 'T1' and 'T2' those names conflicted with what should have been enumis in Arduino.h of the ESP32.
+//initially named 'T1' and 'T2' those names conflicted with what should have been enums in Arduino.h of the ESP32.
 DigitalOutput Tester1(12);//12,11 are LEDs on xia0
 DigitalOutput Tester2(11);
 
@@ -58,8 +58,6 @@ DigitalOutput Tester2(11);
 #include "millievent.h" //millis() utilities
 OneShot pulse;
 MonoStable periodic;
-
-
 
 
 #include "millichecker.h" //used to report on any action that takes longer than a millisecond
