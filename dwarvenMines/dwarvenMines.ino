@@ -410,6 +410,234 @@ class Worker: public NowDevice {
     }
 } worker;
 
+////////////////////////////////////////////////////////
+/// maincontroller.ino:
+class Boss: public NowDevice {
+#define PIN_TRIGGER 4      // Pin 4: Trigger input
+#define PIN_AC_RELAY_1 26  // Pin 26: AC Relay 1
+#define PIN_AC_RELAY_2 25  // Pin 25: AC Relay 2
+#define PIN_AC_RELAY_3 33  // Pin 33: AC Relay 3
+#define PIN_AC_RELAY_4 32  // Pin 32: AC Relay 4
+#define PIN_AUDIO_RELAY 21 // Pin 22: I2C (temporarily Audio Relay trigger)
+// Pin 22: I2C (temporarily nothing)
+
+// Primary Receiver's MAC
+//uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
+
+// Backup Receiver's MAC
+uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
+
+// Data packet format (note there is a matching struct in the receiver's code)
+typedef struct Message {
+  int action;
+  int number;
+} Message;
+
+Message message;
+
+int triggerStateCurrent = HIGH;
+int triggerStatePrevious = HIGH;
+unsigned long triggerStateChangedTime = 0;
+unsigned long triggerDebounceDelay = 50;
+
+bool messageSent = false;
+bool sequenceRunning = false;
+int frame = 0;
+int frameDelay = 20;
+
+int sendRetryCount = 0;
+int lastMessageAction = 0;
+int lastMessageNumber = 0;
+bool lastMessageFailed = false;
+
+esp_now_peer_info_t peerInfo;
+
+// callback when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  if(status == ESP_NOW_SEND_SUCCESS){
+    Serial.println("Delivery Succeeded");
+    lastMessageFailed = false;
+  }else{
+    Serial.println("Delivery Failed");
+    lastMessageFailed = true;
+  }
+}
+ 
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(PIN_TRIGGER, INPUT);
+  pinMode(PIN_AC_RELAY_1, OUTPUT);
+  pinMode(PIN_AC_RELAY_2, OUTPUT);
+  pinMode(PIN_AC_RELAY_3, OUTPUT);
+  pinMode(PIN_AC_RELAY_4, OUTPUT);
+  pinMode(PIN_AUDIO_RELAY, OUTPUT);
+ 
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_register_send_cb(OnDataSent);
+  
+  // Register peer
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  // Turn off lights which are on by default
+  //digitalWrite(PIN_AC_RELAY_1, HIGH);
+  //digitalWrite(PIN_AC_RELAY_2, HIGH);
+  
+  Serial.println("Setup Complete");
+}
+
+void sendMessage(int action, int number){
+  // Set values to send
+  message.action = action;
+  message.number = number;
+
+  lastMessageAction = action;
+  lastMessageNumber = number;
+  
+  // Send message via ESP-NOW
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(message));
+}
+
+bool atTime(int minutes, int seconds, int milliseconds){
+  if(minutes == 0 && seconds == 0 && milliseconds == 0 && frame == 0){
+    return true;
+  }
+
+  seconds += minutes*60;
+  seconds *= 1000;
+  seconds += milliseconds;
+
+  int currentTimeMin = frame * frameDelay;
+  int currentTimeMax = currentTimeMin + frameDelay;
+
+  return seconds > currentTimeMin && seconds <= currentTimeMax;
+}
+
+void startSequence(){
+  Serial.println("Start Sequence");
+  frame = 0;
+  sequenceRunning = true;
+}
+
+void runSequence(){
+
+  if(atTime(0, 0, 0)){
+    // Start Audio
+    digitalWrite(PIN_AUDIO_RELAY, HIGH);
+    delay(100);
+    digitalWrite(PIN_AUDIO_RELAY, LOW);
+  }
+
+  if(atTime(0, 5, 0)){
+    // Send message to start ring light sequence (it has internal 3 second delay at beginning)
+    sendMessage(0, 0);
+  }
+
+  if(atTime(0, 5, 500)){
+    // Lights 1
+    digitalWrite(PIN_AC_RELAY_2, HIGH);
+  }
+
+  if(atTime(0, 6, 700)){
+    // Lights 2
+    digitalWrite(PIN_AC_RELAY_3, HIGH);
+  }
+
+  if(atTime(0, 7, 800)){
+    // Lights 3
+    digitalWrite(PIN_AC_RELAY_4, HIGH);
+  }
+
+  if(atTime(0, 18, 500)){
+    // Vortex Motor Start
+    digitalWrite(PIN_AC_RELAY_1, HIGH);
+  }
+
+  if(atTime(0, 47, 0)){
+    // Vortex Motor Stop
+    digitalWrite(PIN_AC_RELAY_1, LOW);
+  }
+
+  if(atTime(0, 50, 0)){
+    // Done
+    stopSequence();
+  }
+
+}
+
+void stopSequence(){
+  Serial.println("Stop Sequence");
+  digitalWrite(PIN_AC_RELAY_1, LOW);
+  digitalWrite(PIN_AC_RELAY_2, LOW);
+  digitalWrite(PIN_AC_RELAY_3, LOW);
+  digitalWrite(PIN_AC_RELAY_4, LOW);
+  frame = 0;
+  sequenceRunning = false;
+}
+ 
+void loop() {
+
+  // Retry any failed messages
+  if(lastMessageFailed){
+    if(sendRetryCount < 5){
+      sendRetryCount++;
+      Serial.println("Retrying");
+      sendMessage(lastMessageAction, lastMessageNumber);
+    }else{
+      sendRetryCount = 0;
+      lastMessageFailed = false;
+      Serial.println("Giving Up");
+    }
+  }
+
+  int triggerState = digitalRead(PIN_TRIGGER);
+
+  if(triggerState != triggerStatePrevious){
+    triggerStateChangedTime = millis();
+  }
+
+  if((millis() - triggerStateChangedTime) > triggerDebounceDelay){
+    if(triggerState != triggerStateCurrent){
+      triggerStateCurrent = triggerState;
+      if(triggerState == HIGH){
+          if(sequenceRunning == false){
+            startSequence();
+          }else{
+            stopSequence();
+          }
+      }
+    }
+  }
+
+  triggerStatePrevious = triggerState;
+
+  if(sequenceRunning){
+    runSequence();
+    frame++;
+  }
+
+  delay(frameDelay);
+}
+};
 //arduino's setup:
 void setup() {
   Serial.begin(115200);
