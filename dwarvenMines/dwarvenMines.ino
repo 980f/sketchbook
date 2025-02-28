@@ -8,16 +8,18 @@
 #include <esp_now.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
+//worker/remote pin allocations:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
 const int ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
-
+//Boss/main pin allocations:
 const unsigned PIN_TRIGGER = 4;     // Pin 4: Trigger input
 const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
 //the following is the only conflict between primary and remote:
 const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
 
-//todo: pick a pin to determine what this device's role is (primary or remote) or compare MAC id's and then declare the MAC ids of each end.
+//todo: pick a pin to determine what this device's role is (primary or remote) instead of comparing MAC id's and declare the MAC ids of each end.
 
+//miniature MacAddress class, more functional ones are available:
 struct MacAddress {
   static const unsigned macSize = 6;
   uint8_t octet[macSize];
@@ -108,7 +110,7 @@ struct Ticker {
 
 MilliTick Ticker::now = 0;
 ///////////////////////////////////////////////////////////////////////
-
+// yet another input debouncer, will use library one after code factoring is complete
 struct DebouncedInput {
   unsigned pin;
   bool activeHigh;
@@ -149,6 +151,7 @@ struct DebouncedInput {
 };
 ///////////////////////////////////////////////
 //communications manager:
+//todo: replace template with helper class or a base class for Messages.
 template <class Message> class NowDevice {
   protected:
 
@@ -247,8 +250,7 @@ template <class Message> class NowDevice {
 };
 
 ///////////////////////////////////////////////////////////////////////
-
-//common logic of both ends
+//other common logic of both ends
 struct Sequencer {
 
   int frame = 0;
@@ -303,13 +305,19 @@ const DesiredSequence StartSequence {
 //we should contain rather than inherit the Sequencer, but we are mutating C code and will do that later
 class Worker: public NowDevice<DesiredSequence>, Sequencer {
 #define NUM_LEDS          89
+
     const unsigned NUM_SHOW_LIGHTS   = 33;
     const unsigned RUN_LIGHT_SPACING = 15;
     const unsigned MAX_BRIGHTNESS = 80;
 
+    const CRGB ledColor = {0, 247, 255}; //todo: figure out why the argument based constructors don't work here
+    const CRGB showLightColor = {240, 222, 163};
+    const CRGB exitLightColor = {240, 0, 0};
+    const CRGB ledOff = {0, 0, 0};
+
     //grouped for easier excision.
     class ELgroup {
-        const int numPins = 8;//sizeof(ELPins) / sizeof(decltype(ELPins));
+        const int numPins = sizeof(ELPins) / sizeof(decltype(ELPins));
 
       public:
 
@@ -327,6 +335,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
         }
 
         void toggleRandom(unsigned numberToToggle) {
+          //todo:00 this is hard on relays, should compute a set of booleans and then apply them!
           allOff();
           for (int i = 0; i < numberToToggle; i++) {
             digitalWrite(ELPins[random8(0, 7)], HIGH);
@@ -335,37 +344,57 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
     } EL;
 
     CRGB leds[NUM_LEDS];
-    CRGB ledColor;
-    CRGB showLightColor;
-    CRGB exitLightColor;
-    CRGB ledOff;
+
+    CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
+      return CRGB (
+               map(phase, 0, cycle, target.r, from.r),
+               map(phase, 0, cycle, target.g, from.g),
+               map(phase, 0, cycle, target.b, from.b)
+             );
+    }
 
     int speed = 0;
     int ringLightPosition = 0;
     int ringAcceleration = 1;
 
-    const int showLightIndex[3] = {0, 30, 60};//these are inlined elsewhere
+    const unsigned showLightIndex[3] = {0, 30, 60};//these are inlined elsewhere
 
-    //no need for protoypes inside a class, you can forward reference without announcing it
-    //    bool atTime(int minutes, int seconds, int milliseconds);
-    //    void startSequence(int sequenceToPlay);
-    //    void sequence0();
-    //    void sequence1();
-    //    void sequence2();
-    //    void sequence3();
-    //    void sequence4();
+    bool isShowLight(const unsigned index) {
+      for (unsigned which = sizeof(showLightIndex) ; which-- > 0;) {
+        if (index == showLightIndex[which]) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
+
+    void LEDS_all(CRGB same) {
+      forLEDS(i) {
+        leds[i] = same;
+      }
+    }
+
+    void LEDS_allOff() {
+      LEDS_all( ledOff);
+    }
+
+
+    void setJustRunners(CRGB runnerColor) {
+      forLEDS(i) {
+        auto leavon = (i - ringLightPosition) % RUN_LIGHT_SPACING == 0;
+        leds[i] = leavon ? runnerColor : ledOff;
+      }
+    }
 
   public:
     void setup() {
       FastLED.addLeds<WS2811, LED_PIN, GRB>(leds, NUM_LEDS);
       EL.setup();
 
-      //todo: is there a constructor that takes these arguments?
-      ledColor.setRGB(0, 247, 255);
-      showLightColor.setRGB(240, 222, 163);
-      exitLightColor.setRGB(240, 0, 0);
-      ledOff.setRGB(0, 0, 0);
-
+      //color inits now done in declarations
+      
       NowDevice::setup();//call after local variables setup to ensure we are immediately ready to receive.
     }
 
@@ -426,9 +455,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       speed = 1;
       ringLightPosition = 0;
 
-      for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = ledOff;
-      }
+      LEDS_allOff();
       //todo: replace with a Ticker set for 500:
       if (atTime(0, 0, 500)) {
         startSequence(1);
@@ -455,22 +482,22 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
     // Transition to running lights
     void sequence2() {
-      int numberOfSteps = 80;
+      const unsigned numberOfSteps = 80;
 
-      for (int i = 0; i < NUM_LEDS; i++) {
-        if (i % RUN_LIGHT_SPACING == 0) {
-          if (frame < numberOfSteps) {
+      if (frame < numberOfSteps) {//invariant code motion
+
+        CRGB showy = blend(frame, numberOfSteps, showLightColor, ledColor);
+        CRGB plain = blend(frame, numberOfSteps, ledOff, ledColor);
+
+        forLEDS(i) {
+          if (i % RUN_LIGHT_SPACING == 0) {
             // Fade in running lights
-            if (i == 0 || i == 30 || i == 60) { //these are the values in showLightIndex[] init. The 1/3rd points of the chains.
+            if (isShowLight(i)) {
               // Fade from show lights
-              leds[i].r = map(frame, 0, numberOfSteps, showLightColor.r, ledColor.r);
-              leds[i].g = map(frame, 0, numberOfSteps, showLightColor.g, ledColor.g);
-              leds[i].b = map(frame, 0, numberOfSteps, showLightColor.b, ledColor.b);
+              leds[i] = showy;
             } else {
               // Fade from black
-              leds[i].r = map(frame, 0, numberOfSteps, 0, ledColor.r);
-              leds[i].g = map(frame, 0, numberOfSteps, 0, ledColor.g);
-              leds[i].b = map(frame, 0, numberOfSteps, 0, ledColor.b);
+              leds[i] = plain;
             }
           }
         }
@@ -492,14 +519,11 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
         }
       } else {
         // Once speed is past the framerate then start skipping LEDs to increase speed
-        // ringLightPosition += 1;
         if (speed <= 8) {
           ringLightPosition += speed - 4;
-          // ringLightPosition += 1;
         } else {
           // Don't go faster than speed 8
           ringLightPosition += 2;
-          // ringLightPosition += 2;
         }
       }
 
@@ -515,25 +539,16 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       } else {
         if (frame % 30 == 0) {
           // Deaccelerate
-          speed -= 1;
-          if (speed < 0) {
+          if (--speed < 0) {//decr with saturate is available in a lib
             speed = 0;
           }
         }
       }
 
       if (speed != 0) {
-        for (int i = 0; i < NUM_LEDS; i++) {
-          if ((i - ringLightPosition) % RUN_LIGHT_SPACING == 0) {
-            leds[i] = ledColor;
-          } else {
-            leds[i] = ledOff;
-          }
-        }
+        setJustRunners(ledColor);
       } else {
-        /* for(int i=0; i<NUM_LEDS; i++){
-             leds[i] = ledOff;
-          }*/
+        // LEDS_allOff()
       }
 
       if (speed >= 9 && speed < 25 && frame % (30 - speed) == 0) {
@@ -550,9 +565,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
       if (frame > 1000 && speed == 0) {
         // End of sequence
-        /* for(int i=0; i<NUM_LEDS; i++){
-           leds[i] = ledOff;
-          }*/
+        // LEDS_allOff()
         startSequence(4);
       }
 
@@ -560,20 +573,11 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
     // Cool Down
     void sequence4() {
-      Serial.println(frame);
-      for (int i = 0; i < NUM_LEDS; i++) {
-        if ((i - ringLightPosition) % RUN_LIGHT_SPACING == 0) {
-          leds[i] = exitLightColor;
-        } else {
-          leds[i] = ledOff;
-        }
-      }
-
+      //spews:      Serial.println(frame);
+      setJustRunners(exitLightColor);
       if (frame > 500) {
         // End of sequence
-        for (int i = 0; i < NUM_LEDS; i++) {
-          leds[i] = ledOff;
-        }
+        LEDS_allOff();
         startSequence(-1);
       }
     }
