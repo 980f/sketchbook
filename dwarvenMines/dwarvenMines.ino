@@ -2,8 +2,10 @@
 #define FASTLED_INTERNAL
 #include <FastLED.h>
 //you should never need to include this in an .ino file: #include <Arduino.h>
-#include <esp_now.h>
+//wifi includes ordered by layer
 #include <WiFi.h>
+#include <esp_wifi.h>
+#include <esp_now.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
@@ -14,13 +16,59 @@ const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
 //the following is the only conflict between primary and remote:
 const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
 
-//todo: pick a pin to determine what this device's role is (primarey or remote) or compare MAC id's and then declare the MAC ids of each end.
+//todo: pick a pin to determine what this device's role is (primary or remote) or compare MAC id's and then declare the MAC ids of each end.
+
+struct MacAddress {
+  static const unsigned macSize=6;
+  uint8_t octet[macSize];
+
+  operator uint8_t*() {
+    return octet;
+  }
+
+  bool operator ==(const MacAddress &other) {
+    for (unsigned i = 0; i < macSize; ++i) {
+      if (octet[i] != other.octet[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool isBroadcast() {
+    for (unsigned i = 0; i < macSize; ++i) {
+      if (octet[i] != 0xFF) {
+        return false;
+      }
+      return true;
+    }
+  }
+
+  MacAddress(std::initializer_list<uint8_t> list) {
+    unsigned index = 0;
+    for (auto thing : list) {
+      octet[index++] = thing;
+      if(index>=macSize){
+        break; //user typed too many octets!
+      }
+    }
+  }
+
+  void operator>>(uint8_t *raw) {
+    memcpy(raw, octet, sizeof(octet));
+  }
+
+  MacAddress& operator=(const MacAddress& rhs) = default;
+
+};
+
 // Primary Receiver's MAC
 //uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
 
+//the following should be a member of the device, not a global.
 // Backup Receiver's MAC
-uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
-
+MacAddress broadcastAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
+MacAddress ownAddress{0, 0, 0, 0, 0, 0}; //will be all zeroes at startup
 
 ///////////////////////////////////////////////////////////////////////
 //minimal version of ticker service, will add full one later:
@@ -151,8 +199,10 @@ template <class Message> class NowDevice {
         receiver->onMessage(esp_now_info, incomingData, len);
       }
     }
+
     /////////////////////////////////
-    void setup() {
+  public:
+    virtual void setup() {
 
       // Set device as a Wi-Fi Station
       WiFi.mode(WIFI_STA);
@@ -170,6 +220,14 @@ template <class Message> class NowDevice {
         Serial.println("Error initializing ESP-NOW");
       }
     }
+
+    virtual void loop() {
+      //empty loop rather than =0 in case extension doesn't need a loop
+    }
+
+    virtual void onTick(MilliTick now) {
+      //empty loop rather than =0 in case extension doesn't need timer ticks
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////
@@ -182,7 +240,7 @@ struct Sequencer {
   int sequenceToPlay = -1;
   int frameDelay = 20;
   Ticker frameTimer;
- 
+
   bool atTime(int minutes, int seconds, int milliseconds) {
     seconds += minutes * 60;
     seconds *= 1000;
@@ -326,7 +384,6 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
         }
         FastLED.show();
         frameTimer.next(frameDelay);
-
       }
     }
 
@@ -576,7 +633,7 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
     }
   public:
     void setup() {
-      frameDelay=0;//feature not used, being explicit here cause it took me awhile to figure out how the atTime() worked without a controlled value for frameDelay.
+      frameDelay = 0; //feature not used, being explicit here cause it took me awhile to figure out how the atTime() worked without a controlled value for frameDelay.
 
       pinMode(PIN_TRIGGER, INPUT);
       for (unsigned pin : PIN_AC_RELAY) {
@@ -588,7 +645,8 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
       esp_now_peer_info_t peerInfo;
       // Register peer
-      memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+      broadcastAddress >> peerInfo.peer_addr;
+
       peerInfo.channel = 0;
       peerInfo.encrypt = false;
 
@@ -644,20 +702,25 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::receiver = nullptr;
 template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::sender = nullptr;
 
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:
+NowDevice<DesiredSequence> *role = nullptr;
 void setup() {
   Serial.begin(115200);
-  remote.setup();//which knows it is an esp_now device and setups eps_now.
-  primary.setup();
+  esp_wifi_get_mac(WIFI_IF_STA, ownAddress);
+  role = (ownAddress == broadcastAddress) ? reinterpret_cast<decltype(role)>( &remote) : reinterpret_cast<decltype(role)>(&primary);
+
+  role->setup();//which knows it is an esp_now device and sets up eps_now.
+  //  primary.setup();
 }
 
 //arduino's loop:
 void loop() {
   if (Ticker::check()) { //read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    remote.onTick(Ticker::now);
-    primary.onTick(Ticker::now);
+    role->onTick(Ticker::now);
+    //    primary.onTick(Ticker::now);
   }
-  remote.loop();
-  primary.loop();
+  role->loop();
+  //  primary.loop();
 }
