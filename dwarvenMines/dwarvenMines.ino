@@ -4,7 +4,7 @@
 //you should never need to include this in an .ino file: #include <Arduino.h>
 //wifi includes ordered by layer
 #include <WiFi.h>
-#include <esp_wifi.h>
+
 #include <esp_now.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
@@ -19,7 +19,7 @@ const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay tri
 //todo: pick a pin to determine what this device's role is (primary or remote) or compare MAC id's and then declare the MAC ids of each end.
 
 struct MacAddress {
-  static const unsigned macSize=6;
+  static const unsigned macSize = 6;
   uint8_t octet[macSize];
 
   operator uint8_t*() {
@@ -48,7 +48,7 @@ struct MacAddress {
     unsigned index = 0;
     for (auto thing : list) {
       octet[index++] = thing;
-      if(index>=macSize){
+      if (index >= macSize) {
         break; //user typed too many octets!
       }
     }
@@ -60,6 +60,14 @@ struct MacAddress {
 
   MacAddress& operator=(const MacAddress& rhs) = default;
 
+  void PrintOn(Print &output) {
+    for (unsigned index = macSize; index-- > 0;) {
+      Serial.print(octet[index], HEX);
+      if (index) {
+        Serial.print(":");
+      }
+    }
+  }
 };
 
 // Primary Receiver's MAC
@@ -68,7 +76,6 @@ struct MacAddress {
 //the following should be a member of the device, not a global.
 // Backup Receiver's MAC
 MacAddress broadcastAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
-MacAddress ownAddress{0, 0, 0, 0, 0, 0}; //will be all zeroes at startup
 
 ///////////////////////////////////////////////////////////////////////
 //minimal version of ticker service, will add full one later:
@@ -184,7 +191,7 @@ template <class Message> class NowDevice {
 
     // callback function that will be executed when data is received
     void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
-      memcpy(&message, incomingData, sizeof(Message)); //todo: check len agaisnt sizeof(Message), they really must be equal or we have a serious violation of communcations.
+      memcpy(&message, incomingData, sizeof(Message)); //todo: check len against sizeof(Message), they really must be equal or we have a serious violation of communcations.
       Serial.print("Bytes received: ");
       Serial.println(len);
       message.printOn(Serial);
@@ -202,13 +209,15 @@ template <class Message> class NowDevice {
 
     /////////////////////////////////
   public:
+    MacAddress ownAddress{0, 0, 0, 0, 0, 0}; //will be all zeroes at startup
+
     virtual void setup() {
 
       // Set device as a Wi-Fi Station
       WiFi.mode(WIFI_STA);
-
+      WiFi.macAddress(ownAddress);
       Serial.print("I am: ");
-      Serial.println(WiFi.macAddress());
+      ownAddress.PrintOn(Serial);
       //todo: other examples spin here waiting for WiFi to be ready.
       // Init ESP-NOW
       if (esp_now_init() == ESP_OK) {
@@ -228,6 +237,13 @@ template <class Message> class NowDevice {
     virtual void onTick(MilliTick now) {
       //empty loop rather than =0 in case extension doesn't need timer ticks
     }
+
+    //for when one chip does both roles: (and for standalone testing where we add in the trigger code to this guy)
+    void fakeReception(const Message &faker) {
+      message = faker;
+      dataReceived = true;
+    }
+
 };
 
 ///////////////////////////////////////////////////////////////////////
@@ -277,6 +293,10 @@ struct DesiredSequence {
   }
 };
 
+//there is only one message sent!
+const DesiredSequence StartSequence {
+  0, 0
+};
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lighting sequence should be active.
@@ -562,7 +582,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
 class Boss: public NowDevice<DesiredSequence>, Sequencer {
-
+    bool haveRemote = false; //if no remote  then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     DebouncedInput trigger;
 
     bool sequenceRunning = false;
@@ -586,7 +606,11 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
       if (atTime(0, 5, 0)) {
         // Send message to start ring light sequence (it has internal 3 second delay at beginning)
-        sendMessage({0, 0});
+        if (haveRemote) {
+          sendMessage(StartSequence);
+        } else {
+          remote.fakeReception(StartSequence);//we could poke into its message and set 'received'
+        }
       }
 
       if (atTime(0, 5, 500)) {
@@ -643,17 +667,20 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
       NowDevice::setup();//must do this before we do any other esp_now calls.
 
-      esp_now_peer_info_t peerInfo;
-      // Register peer
-      broadcastAddress >> peerInfo.peer_addr;
+      haveRemote  = ownAddress != broadcastAddress;
+      if (haveRemote ) {//if not dual role then will actually talk to peer
+        esp_now_peer_info_t peerInfo;
+        // Register peer
+        broadcastAddress >> peerInfo.peer_addr;
 
-      peerInfo.channel = 0;
-      peerInfo.encrypt = false;
+        peerInfo.channel = 0;
+        peerInfo.encrypt = false;
 
-      // Add peer
-      if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-        Serial.println("Failed to add peer");
-        //need to finish local init even if remote connection fails.
+        // Add peer
+        if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+          Serial.println("Failed to add peer");
+          //need to finish local init even if remote connection fails.
+        }
       }
 
       // Turn off lights which are on by default
@@ -666,15 +693,17 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
     void loop() {
       //todo: replace retry with the other end sending its sequence state to this end. If they don't compare then send again.
       // Retry any failed messages
-      if (sendFailed) {
-        if (sendRetryCount < 5) {
-          sendRetryCount++;
-          Serial.println("Retrying");
-          sendMessage(lastMessage);
-        } else {
-          sendRetryCount = 0;
-          sendFailed = false;
-          Serial.println("Giving Up");
+      if (haveRemote ) {//don't strictly need to check as we will never have a sendFailed if we never send ;)
+        if (sendFailed) {
+          if (sendRetryCount < 5) {
+            sendRetryCount++;
+            Serial.println("Retrying");
+            sendMessage(lastMessage);
+          } else {
+            sendRetryCount = 0;
+            sendFailed = false;
+            Serial.println("Giving Up");
+          }
         }
       }
     }
@@ -708,19 +737,16 @@ template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::sender = nul
 NowDevice<DesiredSequence> *role = nullptr;
 void setup() {
   Serial.begin(115200);
-  esp_wifi_get_mac(WIFI_IF_STA, ownAddress);
-  role = (ownAddress == broadcastAddress) ? reinterpret_cast<decltype(role)>( &remote) : reinterpret_cast<decltype(role)>(&primary);
-
-  role->setup();//which knows it is an esp_now device and sets up eps_now.
-  //  primary.setup();
+  remote.setup();
+  primary.setup();
 }
 
 //arduino's loop:
 void loop() {
   if (Ticker::check()) { //read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    role->onTick(Ticker::now);
-    //    primary.onTick(Ticker::now);
+    remote.onTick(Ticker::now);
+    primary.onTick(Ticker::now);
   }
-  role->loop();
-  //  primary.loop();
+  remote.loop();
+  primary.loop();
 }
