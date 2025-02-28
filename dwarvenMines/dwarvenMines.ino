@@ -1,7 +1,4 @@
 
-// MAC: D0:EF:76:58:DB:98
-// New: D0:EF:76:5C:7A:10
-
 #define FASTLED_INTERNAL
 #include <FastLED.h>
 //you should never need to include this in an .ino file: #include <Arduino.h>
@@ -9,8 +6,20 @@
 #include <WiFi.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
-const unsigned LED_PIN           = 13;
+const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
 const int ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
+
+const unsigned PIN_TRIGGER = 4;     // Pin 4: Trigger input
+const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
+//the following is the only conflict between primary and remote:
+const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
+
+// Primary Receiver's MAC
+//uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
+
+// Backup Receiver's MAC
+uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
+
 
 ///////////////////////////////////////////////////////////////////////
 //minimal version of ticker service, will add full one later:
@@ -44,41 +53,66 @@ struct Ticker {
 MilliTick Ticker::now = 0;
 ///////////////////////////////////////////////////////////////////////
 
-// Structure to convey data
-struct Message {
-  int action;
-  int number;
-  void printOn(Print &stream) {
-    stream.print("Action: ");
-    stream.println(action);
-    stream.print("Number: ");
-    stream.println(number);
-    stream.println();
-  }
-};
-
-
-class NowDevice {
+///////////////////////////////////////////////
+//communications manager:
+template <class Message> class NowDevice {
   protected:
-    Message message;
+
+    /////////////////////////////////
+    Message lastMessage;
+    bool messageOnWire = false; //true from send attempt if successful until 'OnDataSent' is called.
+    bool sendFailed = false; //false when send attempted, set by OnDataSent according to its 'status' param
+    bool sendRequested = false;
+
+    int sendRetryCount = 0;//todo: use status exchange to get rid of retry logic.
+  public: //wtfversion of C++ is in use by esp32? I could not init these inside the class but could not declare them outside either!
+    static NowDevice *sender; //only one sender is allowed at this protocol level.
+  protected:
+    static void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+      //todo: check that  mac_addr makes sense.
+      Serial.print("\r\nLast Packet Send Status:\tDelivery ");
+      bool failed = status != ESP_NOW_SEND_SUCCESS;
+
+      Serial.println(failed ? "Failed" : "Succeeded");
+      if (sender) {
+        sender->messageOnWire = false;
+        sender->sendFailed = failed;
+        //if there is a requested one then send that now.
+      }
+    }
+
+    void sendMessage(const Message &newMessage) {
+      // Set values to send
+      lastMessage = newMessage;
+      sendRequested = true;
+      // Send message via ESP-NOW
+      esp_err_t result = esp_now_send(broadcastAddress, reinterpret_cast < uint8_t *>(&lastMessage), sizeof(Message));
+      messageOnWire = result == OK;
+      sendFailed = !messageOnWire;
+    }
+
+    /////////////////////////////////
+    Message message;//incoming
     bool dataReceived = false;
 
     // callback function that will be executed when data is received
     void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
-      memcpy(&message, incomingData, sizeof(message));
+      memcpy(&message, incomingData, sizeof(Message)); //todo: check len agaisnt sizeof(Message), they really must be equal or we have a serious violation of communcations.
       Serial.print("Bytes received: ");
       Serial.println(len);
       message.printOn(Serial);
       dataReceived = true;
     }
 
-    static NowDevice *receiver; //only one receiver is allowed at this protocol level.
+  public:
+    static NowDevice<Message> *receiver; //only one receiver is allowed at this protocol level.
+  protected:
     static void OnDataRecv(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {//esp32 is not c++ friendly in its callbacks.
       if (receiver) {
         receiver->onMessage(esp_now_info, incomingData, len);
       }
     }
-
+    /////////////////////////////////
     void setup() {
 
       // Set device as a Wi-Fi Station
@@ -91,20 +125,65 @@ class NowDevice {
       if (esp_now_init() == ESP_OK) {
         receiver = this;
         esp_now_register_recv_cb(&OnDataRecv);
+        sender = this;
+        esp_now_register_send_cb(&OnDataSent);
       } else {
         Serial.println("Error initializing ESP-NOW");
       }
-
     }
 };
 
-NowDevice *NowDevice ::receiver; //only one receiver is allowed at this protocol level.
 ///////////////////////////////////////////////////////////////////////
+
+//common logic of both ends
+struct Sequencer {
+
+  int frame = 0;
+  int currentSequence = -1;
+  int sequenceToPlay = -1;
+  int frameDelay = 20;
+  Ticker frameTimer;
+  bool atTime(int minutes, int seconds, int milliseconds) {
+    seconds += minutes * 60;
+    seconds *= 1000;
+    seconds += milliseconds;
+
+    MilliTick currentTimeMin = frameDelay * frame; //time since start of sequence
+    MilliTick currentTimeMax = currentTimeMin + frameDelay;
+
+    return seconds > currentTimeMin && seconds <= currentTimeMax;
+  }
+
+
+  unsigned framesIn(unsigned  minutes, unsigned seconds, unsigned milliseconds) {
+    MilliTick interval = milliseconds;
+    interval += seconds * 1000;
+    interval += minutes * 60000;
+    //here is where we decide on ceil() floor() or round() via adding frameDelay-1, nothing, or frameDelay/2 respectively
+    return interval / frameDelay;
+  }
+
+};
+
+
+// Structure to convey data
+struct DesiredSequence {
+  unsigned action;
+  int number;
+  void printOn(Print &stream) {
+    stream.print("Action: ");
+    stream.println(action);
+    stream.print("Number: ");
+    stream.println(number);
+    stream.println();
+  }
+};
 
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lighting sequence should be active.
-class Worker: public NowDevice {
+//we should contain rather than inherit the Sequencer, but we are mutating C code and will do that later
+class Worker: public NowDevice<DesiredSequence>, Sequencer {
 #define NUM_LEDS          89
     const unsigned NUM_SHOW_LIGHTS   = 33;
     const unsigned RUN_LIGHT_SPACING = 15;
@@ -142,13 +221,6 @@ class Worker: public NowDevice {
     CRGB showLightColor;
     CRGB exitLightColor;
     CRGB ledOff;
-
-    int sequenceToPlay = -1;
-    int currentSequence = -1;
-    int frame = 0;
-
-    int frameDelay = 20;
-    Ticker frameTimer;
 
     int speed = 0;
     int ringLightPosition = 0;
@@ -188,7 +260,7 @@ class Worker: public NowDevice {
     }
 
     //this is called once per millisecond, from the arduino loop(). It can skip millisecond values if there are function calls which take longer than a milli.
-    void onTick() {
+    void onTick(MilliTick now) {
       if (frameTimer.done()) {
         ++frame;
         switch (currentSequence) {
@@ -231,25 +303,6 @@ class Worker: public NowDevice {
       frame = 0;
     }
 
-    bool atTime(int minutes, int seconds, int milliseconds) {
-      seconds += minutes * 60;
-      seconds *= 1000;
-      seconds += milliseconds;
-
-      MilliTick currentTimeMin = frameDelay * frame; //time since start of sequence
-      MilliTick currentTimeMax = currentTimeMin + frameDelay;
-
-      return seconds > currentTimeMin && seconds <= currentTimeMax;
-    }
-
-
-    unsigned framesIn(unsigned  minutes, unsigned seconds, unsigned milliseconds) {
-      MilliTick interval = milliseconds;
-      interval += seconds * 1000;
-      interval += minutes * 60000;
-      //here is where we decide on ceil() floor() or round() via adding frameDelay-1, nothing, or frameDelay/2 respectively
-      return interval / frameDelay;
-    }
 
     // Nothing is happening
     void sequence0() {
@@ -267,7 +320,6 @@ class Worker: public NowDevice {
 
     // Initialize show lights
     void sequence1() {
-
       if (atTime(0, 0, 500)) {
         leds[showLightIndex[0]] = showLightColor;
       }
@@ -408,246 +460,223 @@ class Worker: public NowDevice {
         startSequence(-1);
       }
     }
-} worker;
+} remote;
 
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
-class Boss: public NowDevice {
-#define PIN_TRIGGER 4      // Pin 4: Trigger input
-#define PIN_AC_RELAY_1 26  // Pin 26: AC Relay 1
-#define PIN_AC_RELAY_2 25  // Pin 25: AC Relay 2
-#define PIN_AC_RELAY_3 33  // Pin 33: AC Relay 3
-#define PIN_AC_RELAY_4 32  // Pin 32: AC Relay 4
-#define PIN_AUDIO_RELAY 21 // Pin 22: I2C (temporarily Audio Relay trigger)
-// Pin 22: I2C (temporarily nothing)
+class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
-// Primary Receiver's MAC
-//uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
+    struct DebouncedInput {
+      unsigned pin;
+      bool activeHigh;
+      bool readPin() {
+        return digitalRead(pin) == activeHigh;
+      }
+      //official state
+      bool StateCurrent = HIGH;
+      bool StatePrevious = HIGH;
+      MilliTick StateChangedTime = 0; //todo: replace with Ticker
+      MilliTick DebounceDelay = 50;
 
-// Backup Receiver's MAC
-uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
+      /** @returns whether the input has officially changed to a new state */
+      bool onTick(MilliTick now) {
+        auto presently = readPin();
+        if (presently != StatePrevious) {
+          StateChangedTime = now;//restart timer
+          StatePrevious = presently;
+        }
 
-// Data packet format (note there is a matching struct in the receiver's code)
-typedef struct Message {
-  int action;
-  int number;
-} Message;
-
-Message message;
-
-int triggerStateCurrent = HIGH;
-int triggerStatePrevious = HIGH;
-unsigned long triggerStateChangedTime = 0;
-unsigned long triggerDebounceDelay = 50;
-
-bool messageSent = false;
-bool sequenceRunning = false;
-int frame = 0;
-int frameDelay = 20;
-
-int sendRetryCount = 0;
-int lastMessageAction = 0;
-int lastMessageNumber = 0;
-bool lastMessageFailed = false;
-
-esp_now_peer_info_t peerInfo;
-
-// callback when data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  if(status == ESP_NOW_SEND_SUCCESS){
-    Serial.println("Delivery Succeeded");
-    lastMessageFailed = false;
-  }else{
-    Serial.println("Delivery Failed");
-    lastMessageFailed = true;
-  }
-}
- 
-void setup() {
-  Serial.begin(115200);
-
-  pinMode(PIN_TRIGGER, INPUT);
-  pinMode(PIN_AC_RELAY_1, OUTPUT);
-  pinMode(PIN_AC_RELAY_2, OUTPUT);
-  pinMode(PIN_AC_RELAY_3, OUTPUT);
-  pinMode(PIN_AC_RELAY_4, OUTPUT);
-  pinMode(PIN_AUDIO_RELAY, OUTPUT);
- 
-  // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
-
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-
-  // Once ESPNow is successfully Init, we will register for Send CB to
-  // get the status of Trasnmitted packet
-  esp_now_register_send_cb(OnDataSent);
-  
-  // Register peer
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-  peerInfo.channel = 0;  
-  peerInfo.encrypt = false;
-  
-  // Add peer        
-  if (esp_now_add_peer(&peerInfo) != ESP_OK){
-    Serial.println("Failed to add peer");
-    return;
-  }
-
-  // Turn off lights which are on by default
-  //digitalWrite(PIN_AC_RELAY_1, HIGH);
-  //digitalWrite(PIN_AC_RELAY_2, HIGH);
-  
-  Serial.println("Setup Complete");
-}
-
-void sendMessage(int action, int number){
-  // Set values to send
-  message.action = action;
-  message.number = number;
-
-  lastMessageAction = action;
-  lastMessageNumber = number;
-  
-  // Send message via ESP-NOW
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(message));
-}
-
-bool atTime(int minutes, int seconds, int milliseconds){
-  if(minutes == 0 && seconds == 0 && milliseconds == 0 && frame == 0){
-    return true;
-  }
-
-  seconds += minutes*60;
-  seconds *= 1000;
-  seconds += milliseconds;
-
-  int currentTimeMin = frame * frameDelay;
-  int currentTimeMax = currentTimeMin + frameDelay;
-
-  return seconds > currentTimeMin && seconds <= currentTimeMax;
-}
-
-void startSequence(){
-  Serial.println("Start Sequence");
-  frame = 0;
-  sequenceRunning = true;
-}
-
-void runSequence(){
-
-  if(atTime(0, 0, 0)){
-    // Start Audio
-    digitalWrite(PIN_AUDIO_RELAY, HIGH);
-    delay(100);
-    digitalWrite(PIN_AUDIO_RELAY, LOW);
-  }
-
-  if(atTime(0, 5, 0)){
-    // Send message to start ring light sequence (it has internal 3 second delay at beginning)
-    sendMessage(0, 0);
-  }
-
-  if(atTime(0, 5, 500)){
-    // Lights 1
-    digitalWrite(PIN_AC_RELAY_2, HIGH);
-  }
-
-  if(atTime(0, 6, 700)){
-    // Lights 2
-    digitalWrite(PIN_AC_RELAY_3, HIGH);
-  }
-
-  if(atTime(0, 7, 800)){
-    // Lights 3
-    digitalWrite(PIN_AC_RELAY_4, HIGH);
-  }
-
-  if(atTime(0, 18, 500)){
-    // Vortex Motor Start
-    digitalWrite(PIN_AC_RELAY_1, HIGH);
-  }
-
-  if(atTime(0, 47, 0)){
-    // Vortex Motor Stop
-    digitalWrite(PIN_AC_RELAY_1, LOW);
-  }
-
-  if(atTime(0, 50, 0)){
-    // Done
-    stopSequence();
-  }
-
-}
-
-void stopSequence(){
-  Serial.println("Stop Sequence");
-  digitalWrite(PIN_AC_RELAY_1, LOW);
-  digitalWrite(PIN_AC_RELAY_2, LOW);
-  digitalWrite(PIN_AC_RELAY_3, LOW);
-  digitalWrite(PIN_AC_RELAY_4, LOW);
-  frame = 0;
-  sequenceRunning = false;
-}
- 
-void loop() {
-
-  // Retry any failed messages
-  if(lastMessageFailed){
-    if(sendRetryCount < 5){
-      sendRetryCount++;
-      Serial.println("Retrying");
-      sendMessage(lastMessageAction, lastMessageNumber);
-    }else{
-      sendRetryCount = 0;
-      lastMessageFailed = false;
-      Serial.println("Giving Up");
-    }
-  }
-
-  int triggerState = digitalRead(PIN_TRIGGER);
-
-  if(triggerState != triggerStatePrevious){
-    triggerStateChangedTime = millis();
-  }
-
-  if((millis() - triggerStateChangedTime) > triggerDebounceDelay){
-    if(triggerState != triggerStateCurrent){
-      triggerStateCurrent = triggerState;
-      if(triggerState == HIGH){
-          if(sequenceRunning == false){
-            startSequence();
-          }else{
-            stopSequence();
+        if (StateChangedTime > now + DebounceDelay) {
+          if (presently != StateCurrent) {
+            StateCurrent = presently;
+            return true;
           }
+        }
+        return false;
+      }
+
+      void setup(unsigned thePin) {
+        this->pin = thePin;
+        StateCurrent = StatePrevious = readPin();
+      }
+
+      operator bool() const {
+        return StateCurrent;
+      }
+    } trigger;
+
+
+
+    bool sequenceRunning = false;
+    //    int frame = 0;
+    //    int frameDelay = 20;
+    //
+    //    int sendRetryCount = 0;
+
+
+    //    bool lastMessageFailed = false;
+
+    esp_now_peer_info_t peerInfo;
+
+    //    // callback when data is sent
+    //    void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    //      Serial.print("\r\nLast Packet Send Status:\t");
+    //      if (status == ESP_NOW_SEND_SUCCESS) {
+    //        Serial.println("Delivery Succeeded");
+    //        lastMessageFailed = false;
+    //      } else {
+    //        Serial.println("Delivery Failed");
+    //        lastMessageFailed = true;
+    //      }
+    //    }
+
+
+
+
+    void startSequence() {
+      Serial.println("Start Sequence");
+      frame = 0;
+      sequenceRunning = true;
+    }
+
+    void runSequence() {
+
+      if (atTime(0, 0, 0)) {
+        // Start Audio
+        digitalWrite(PIN_AUDIO_RELAY, HIGH);
+        delay(100);//todo: fix this with a ticker!
+        digitalWrite(PIN_AUDIO_RELAY, LOW);
+      }
+
+      if (atTime(0, 5, 0)) {
+        // Send message to start ring light sequence (it has internal 3 second delay at beginning)
+        sendMessage({0, 0});
+      }
+
+      if (atTime(0, 5, 500)) {
+        // Lights 1
+        digitalWrite(PIN_AC_RELAY[2 - 1], HIGH);
+      }
+
+      if (atTime(0, 6, 700)) {
+        // Lights 2
+        digitalWrite(PIN_AC_RELAY[3 - 1], HIGH);
+      }
+
+      if (atTime(0, 7, 800)) {
+        // Lights 3
+        digitalWrite(PIN_AC_RELAY[4 - 1], HIGH);
+      }
+
+      if (atTime(0, 18, 500)) {
+        // Vortex Motor Start
+        digitalWrite(PIN_AC_RELAY[1 - 1], HIGH);
+      }
+
+      if (atTime(0, 47, 0)) {
+        // Vortex Motor Stop
+        digitalWrite(PIN_AC_RELAY[1 - 1], LOW);
+      }
+
+      if (atTime(0, 50, 0)) {
+        // Done
+        stopSequence();
+      }
+
+    }
+
+    void stopSequence() {
+      Serial.println("Stop Sequence");
+      for (unsigned pin : PIN_AC_RELAY) {
+        digitalWrite(pin, LOW);
+      }
+      frame = 0;
+      sequenceRunning = false;
+      //todo: (maybe) signal remote that it also should be finished.
+    }
+  public:
+    void setup() {
+
+      pinMode(PIN_TRIGGER, INPUT);
+      for (unsigned pin : PIN_AC_RELAY) {
+        pinMode(pin, OUTPUT);
+      }
+      pinMode(PIN_AUDIO_RELAY, OUTPUT);
+
+      NowDevice::setup();//must do this before we do any other esp_now calls.
+
+      // Register peer
+      memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+      peerInfo.channel = 0;
+      peerInfo.encrypt = false;
+
+      // Add peer
+      if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+        Serial.println("Failed to add peer");
+        //need to finish local init even if remote connection fails.
+      }
+
+      // Turn off lights which are on by default
+      //digitalWrite(PIN_AC_RELAY_1, HIGH);
+      //digitalWrite(PIN_AC_RELAY_2, HIGH);
+
+      Serial.println("Setup Complete");
+    }
+
+    void loop() {
+      //todo: replace retry with the other end sending its sequence state to this end. If they don't compare then send again.
+      // Retry any failed messages
+      if (sendFailed) {
+        if (sendRetryCount < 5) {
+          sendRetryCount++;
+          Serial.println("Retrying");
+          sendMessage(lastMessage);
+        } else {
+          sendRetryCount = 0;
+          sendFailed = false;
+          Serial.println("Giving Up");
+        }
       }
     }
-  }
 
-  triggerStatePrevious = triggerState;
+    void onTick(MilliTick now) {
+      if (trigger.onTick(now)) {
+        if (trigger) {// a toggle, although a run state is nicer.
+          if (sequenceRunning) {
+            stopSequence();
+          } else {
+            startSequence();
+          }
+        }
+      }
+      if (sequenceRunning) {
+        runSequence();
+        //todo: framedelay
+        frame++;
+      }
+    }
 
-  if(sequenceRunning){
-    runSequence();
-    frame++;
-  }
+} primary;
 
-  delay(frameDelay);
-}
-};
+//at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID.
+//these are set in the related setup() calls.
+template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::receiver = nullptr;
+template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::sender = nullptr;
+
+//////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:
 void setup() {
   Serial.begin(115200);
-  worker.setup();//which knows it is an esp_now device and setups eps_now.
+  remote.setup();//which knows it is an esp_now device and setups eps_now.
+  primary.setup();
 }
 
 //arduino's loop:
 void loop() {
   if (Ticker::check()) { //read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    worker.onTick();
+    remote.onTick(Ticker::now);
+    primary.onTick(Ticker::now);
   }
-  worker.loop();
+  remote.loop();
+  primary.loop();
 }
