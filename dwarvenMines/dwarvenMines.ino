@@ -14,6 +14,7 @@ const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
 //the following is the only conflict between primary and remote:
 const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
 
+//todo: pick a pin to determine what this device's role is (primarey or remote) or compare MAC id's and then declare the MAC ids of each end.
 // Primary Receiver's MAC
 //uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
 
@@ -53,6 +54,44 @@ struct Ticker {
 MilliTick Ticker::now = 0;
 ///////////////////////////////////////////////////////////////////////
 
+struct DebouncedInput {
+  unsigned pin;
+  bool activeHigh;
+  bool readPin() {
+    return digitalRead(pin) == activeHigh;
+  }
+  //official state
+  bool StateCurrent = HIGH;
+  bool StatePrevious = HIGH;
+  MilliTick StateChangedTime = 0; //todo: replace with Ticker
+  MilliTick DebounceDelay = 50;
+
+  /** @returns whether the input has officially changed to a new state */
+  bool onTick(MilliTick now) {
+    auto presently = readPin();
+    if (presently != StatePrevious) {
+      StateChangedTime = now;//restart timer
+      StatePrevious = presently;
+    }
+
+    if (StateChangedTime > now + DebounceDelay) {
+      if (presently != StateCurrent) {
+        StateCurrent = presently;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void setup(unsigned thePin) {
+    this->pin = thePin;
+    StateCurrent = StatePrevious = readPin();
+  }
+
+  operator bool() const {
+    return StateCurrent;
+  }
+};
 ///////////////////////////////////////////////
 //communications manager:
 template <class Message> class NowDevice {
@@ -143,6 +182,7 @@ struct Sequencer {
   int sequenceToPlay = -1;
   int frameDelay = 20;
   Ticker frameTimer;
+ 
   bool atTime(int minutes, int seconds, int milliseconds) {
     seconds += minutes * 60;
     seconds *= 1000;
@@ -466,72 +506,9 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 /// maincontroller.ino:
 class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
-    struct DebouncedInput {
-      unsigned pin;
-      bool activeHigh;
-      bool readPin() {
-        return digitalRead(pin) == activeHigh;
-      }
-      //official state
-      bool StateCurrent = HIGH;
-      bool StatePrevious = HIGH;
-      MilliTick StateChangedTime = 0; //todo: replace with Ticker
-      MilliTick DebounceDelay = 50;
-
-      /** @returns whether the input has officially changed to a new state */
-      bool onTick(MilliTick now) {
-        auto presently = readPin();
-        if (presently != StatePrevious) {
-          StateChangedTime = now;//restart timer
-          StatePrevious = presently;
-        }
-
-        if (StateChangedTime > now + DebounceDelay) {
-          if (presently != StateCurrent) {
-            StateCurrent = presently;
-            return true;
-          }
-        }
-        return false;
-      }
-
-      void setup(unsigned thePin) {
-        this->pin = thePin;
-        StateCurrent = StatePrevious = readPin();
-      }
-
-      operator bool() const {
-        return StateCurrent;
-      }
-    } trigger;
-
-
+    DebouncedInput trigger;
 
     bool sequenceRunning = false;
-    //    int frame = 0;
-    //    int frameDelay = 20;
-    //
-    //    int sendRetryCount = 0;
-
-
-    //    bool lastMessageFailed = false;
-
-    esp_now_peer_info_t peerInfo;
-
-    //    // callback when data is sent
-    //    void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-    //      Serial.print("\r\nLast Packet Send Status:\t");
-    //      if (status == ESP_NOW_SEND_SUCCESS) {
-    //        Serial.println("Delivery Succeeded");
-    //        lastMessageFailed = false;
-    //      } else {
-    //        Serial.println("Delivery Failed");
-    //        lastMessageFailed = true;
-    //      }
-    //    }
-
-
-
 
     void startSequence() {
       Serial.println("Start Sequence");
@@ -544,7 +521,9 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
       if (atTime(0, 0, 0)) {
         // Start Audio
         digitalWrite(PIN_AUDIO_RELAY, HIGH);
-        delay(100);//todo: fix this with a ticker!
+      }
+
+      if (atTime(0, 0, 100)) {
         digitalWrite(PIN_AUDIO_RELAY, LOW);
       }
 
@@ -590,12 +569,14 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
       for (unsigned pin : PIN_AC_RELAY) {
         digitalWrite(pin, LOW);
       }
+      digitalWrite(PIN_AUDIO_RELAY, LOW);//added to ensure complete stopping of everything.
       frame = 0;
       sequenceRunning = false;
       //todo: (maybe) signal remote that it also should be finished.
     }
   public:
     void setup() {
+      frameDelay=0;//feature not used, being explicit here cause it took me awhile to figure out how the atTime() worked without a controlled value for frameDelay.
 
       pinMode(PIN_TRIGGER, INPUT);
       for (unsigned pin : PIN_AC_RELAY) {
@@ -605,6 +586,7 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
       NowDevice::setup();//must do this before we do any other esp_now calls.
 
+      esp_now_peer_info_t peerInfo;
       // Register peer
       memcpy(peerInfo.peer_addr, broadcastAddress, 6);
       peerInfo.channel = 0;
@@ -651,8 +633,7 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
       }
       if (sequenceRunning) {
         runSequence();
-        //todo: framedelay
-        frame++;
+        //the value formerly changed here was ignored, the whole framing thing seems abandoned on this end of the link.
       }
     }
 
