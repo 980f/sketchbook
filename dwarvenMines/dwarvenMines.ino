@@ -1,18 +1,19 @@
 
 #define FASTLED_INTERNAL
 #include <FastLED.h>
-//you should never need to include this in an .ino file: #include <Arduino.h>
-//wifi includes ordered by layer
 #include <WiFi.h>
-
 #include <esp_now.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
 //worker/remote pin allocations:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
-const int ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
+const unsigned  ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
+const unsigned NUM_LEDS = 89;
+
 //Boss/main pin allocations:
 const unsigned PIN_TRIGGER = 4;     // Pin 4: Trigger input
+const unsigned TRIGGER_DEBOUNCE = 50; //formerly buried in code.
+
 const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
 //the following is the only conflict between primary and remote:
 const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
@@ -78,6 +79,15 @@ struct MacAddress {
 //the following should be a member of the device, not a global.
 // Backup Receiver's MAC
 MacAddress broadcastAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
+///////////////////////////////////////////////////////////////////////
+//copied in from 980f's library
+template <typename Scalar, typename ScalarArg = Scalar> bool changed(Scalar &target, const ScalarArg &source) {
+  if (target != source) { //implied conversion from ScalarArg to Scalar must exist or compiler will barf on this line.
+    target = source;
+    return true;
+  }
+  return false;
+}
 
 ///////////////////////////////////////////////////////////////////////
 //minimal version of ticker service, will add full one later:
@@ -102,6 +112,7 @@ struct Ticker {
     return isDone;
   }
 
+  /** @returns whether the 'future' expiration time is in the past due to wrapping the ticker counter. The program has to run for 49 days for that to occur.*/
   bool next(MilliTick later) {
     due = later + now;
     return due < now; //timer service wrapped.
@@ -113,40 +124,49 @@ MilliTick Ticker::now = 0;
 // yet another input debouncer, will use library one after code factoring is complete
 struct DebouncedInput {
   unsigned pin;
+  //use this to invert logical sense of the input, such as when you add in an inverting amplifier late in development.
   bool activeHigh;
   bool readPin() {
     return digitalRead(pin) == activeHigh;
   }
+  ///////// above this is actually a class in its own right.
   //official state
-  bool StateCurrent = HIGH;
-  bool StatePrevious = HIGH;
-  MilliTick StateChangedTime = 0; //todo: replace with Ticker
-  MilliTick DebounceDelay = 50;
+  bool stable;
+  bool bouncy;
+  Ticker bouncing;
+  MilliTick DebounceDelay = ~0u;//never
 
   /** @returns whether the input has officially changed to a new state */
   bool onTick(MilliTick now) {
-    auto presently = readPin();
-    if (presently != StatePrevious) {
-      StateChangedTime = now;//restart timer
-      StatePrevious = presently;
+    if (changed(bouncy, readPin())) {
+      bouncing.next(DebounceDelay);
     }
 
-    if (StateChangedTime > now + DebounceDelay) {
-      if (presently != StateCurrent) {
-        StateCurrent = presently;
-        return true;
-      }
+    if (bouncing.done()) {
+      return changed(stable, bouncy);
     }
     return false;
   }
 
-  void setup(unsigned thePin) {
-    this->pin = thePin;
-    StateCurrent = StatePrevious = readPin();
+  //use ~pin (not -pin) to indicate low active sense
+  void setup(int thePin, MilliTick bounceTime, bool triggerOnStart = false) {
+    activeHigh = thePin >= 0;
+    pin = activeHigh ? thePin : ~thePin;
+    pinMode(pin, INPUT);
+    DebounceDelay = bounceTime;
+
+    bouncy = readPin();
+
+    if (triggerOnStart) {
+      stable = ~bouncy;
+      bouncing.next(DebounceDelay);
+    } else {
+      stable = bouncy;
+    }
   }
 
   operator bool() const {
-    return StateCurrent;
+    return stable;
   }
 };
 ///////////////////////////////////////////////
@@ -194,7 +214,7 @@ template <class Message> class NowDevice {
 
     // callback function that will be executed when data is received
     void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
-      memcpy(&message, incomingData, sizeof(Message)); //todo: check len against sizeof(Message), they really must be equal or we have a serious violation of communcations.
+      memcpy(&message, incomingData, sizeof(Message)); //todo: check len against sizeof(Message), they really must be equal or we have a serious failure to communicate.
       Serial.print("Bytes received: ");
       Serial.println(len);
       message.printOn(Serial);
@@ -281,7 +301,7 @@ struct Sequencer {
 
 };
 
-
+/////////////////////////////////////////
 // Structure to convey data
 struct DesiredSequence {
   unsigned action;
@@ -301,32 +321,71 @@ const DesiredSequence StartSequence {
 };
 
 ///////////////////////////////////////////////////////////////////////
+template <unsigned NUM_LEDS> struct LedString {
+  CRGB leds[NUM_LEDS];
+  const CRGB ledOff = {0, 0, 0};
+
+#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
+
+  void all(CRGB same) {
+    forLEDS(i) {
+      leds[i] = same;
+    }
+  }
+
+  void allOff() {
+    all( ledOff);
+  }
+
+  using BoolPredicate = std::function<bool(unsigned)>;
+  void setJust(CRGB runnerColor, BoolPredicate lit) {
+    forLEDS(i) {
+      leds[i] = lit(i) ? runnerColor : ledOff;
+    }
+  }
+
+  void setup() {
+    FastLED.addLeds<WS2811, LED_PIN, GRB>(leds, NUM_LEDS);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
+  }
+
+  void show() {
+    FastLED.show();
+  }
+
+  CRGB & operator [](unsigned i) {
+    i %= NUM_LEDS; //makes it easier to marquee
+    return leds[i];
+  }
+
+  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
+    return CRGB (
+             map(phase, 0, cycle, target.r, from.r),
+             map(phase, 0, cycle, target.g, from.g),
+             map(phase, 0, cycle, target.b, from.b)
+           );
+  }
+
+};
+
+///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lighting sequence should be active.
 //we should contain rather than inherit the Sequencer, but we are mutating C code and will do that later
 class Worker: public NowDevice<DesiredSequence>, Sequencer {
-#define NUM_LEDS          89
 
+    LedString<NUM_LEDS>leds;
     const unsigned NUM_SHOW_LIGHTS   = 33;
     const unsigned RUN_LIGHT_SPACING = 15;
     const unsigned MAX_BRIGHTNESS = 80;
 
-    const CRGB ledColor = {0, 247, 255}; //todo: figure out why the argument based constructors don't work here
+    const CRGB ledColor = {0, 247, 255}; //todo: figure out why the argument based constructors don't work here while assignement of implied constructor does.
     const CRGB showLightColor = {240, 222, 163};
     const CRGB exitLightColor = {240, 0, 0};
-    const CRGB ledOff = {0, 0, 0};
 
     //grouped for easier excision.
     class ELgroup {
+        //the ELPins are defined external to this class for development ease. It saves on adding constructor stuff and allows us to const things which is efficient.
         const int numPins = sizeof(ELPins) / sizeof(decltype(ELPins));
-
       public:
-
-        void setup() {
-          for (int i = 0; i < numPins; i++) {
-            pinMode(ELPins[i], OUTPUT);
-          }
-          allOff();
-        }
 
         void allOff() {
           for (int i = 0; i < numPins; i++) {
@@ -341,17 +400,16 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
             digitalWrite(ELPins[random8(0, 7)], HIGH);
           }
         }
+
+        void setup() {
+          for (int i = 0; i < numPins; i++) {
+            pinMode(ELPins[i], OUTPUT);
+          }
+          allOff();
+        }
+
     } EL;
 
-    CRGB leds[NUM_LEDS];
-
-    CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
-      return CRGB (
-               map(phase, 0, cycle, target.r, from.r),
-               map(phase, 0, cycle, target.g, from.g),
-               map(phase, 0, cycle, target.b, from.b)
-             );
-    }
 
     int speed = 0;
     int ringLightPosition = 0;
@@ -368,33 +426,18 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       return false;
     }
 
-#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
-
-    void LEDS_all(CRGB same) {
-      forLEDS(i) {
-        leds[i] = same;
-      }
-    }
-
-    void LEDS_allOff() {
-      LEDS_all( ledOff);
-    }
-
-
     void setJustRunners(CRGB runnerColor) {
-      forLEDS(i) {
-        auto leavon = (i - ringLightPosition) % RUN_LIGHT_SPACING == 0;
-        leds[i] = leavon ? runnerColor : ledOff;
-      }
+      auto &phasor(ringLightPosition);
+      auto &spacer(RUN_LIGHT_SPACING);
+      leds.setJust(runnerColor, [phasor, spacer](unsigned i) -> bool {
+        return (i - phasor) % spacer == 0;
+      });
     }
-
-  public:
+    
+  public: 
     void setup() {
-      FastLED.addLeds<WS2811, LED_PIN, GRB>(leds, NUM_LEDS);
+      leds.setup();
       EL.setup();
-
-      //color inits now done in declarations
-      
       NowDevice::setup();//call after local variables setup to ensure we are immediately ready to receive.
     }
 
@@ -407,7 +450,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
     }
 
     //this is called once per millisecond, from the arduino loop(). It can skip millisecond values if there are function calls which take longer than a milli.
-    void onTick(MilliTick now) {
+    void onTick(MilliTick ignored) {
       if (frameTimer.done()) {
         ++frame;
         switch (currentSequence) {
@@ -431,18 +474,17 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
             sequence4();
             break;
         }
-        FastLED.show();
-        frameTimer.next(frameDelay);
+        leds.show();
+        frameTimer.next(frameDelay);//defer this to after the sequencex() calls as they are allowed to modify frameDelay, although most don't.
       }
     }
 
   private:
     void startSequence(int sequenceToPlay) {
-      if (sequenceToPlay == currentSequence) {
+      if ( !changed(currentSequence, sequenceToPlay) ) {
         // If another request for the same sequence is received, then consider it a stop request
+        //980f: this really should be 'send a different command', so that we aren't hoisted by repeating a failed communication which failed on the acknowledge rather than the send. "idempotent" is desirable.
         currentSequence = -1;
-      } else {
-        currentSequence = sequenceToPlay;
       }
 
       EL.allOff();
@@ -455,7 +497,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       speed = 1;
       ringLightPosition = 0;
 
-      LEDS_allOff();
+      leds.allOff();
       //todo: replace with a Ticker set for 500:
       if (atTime(0, 0, 500)) {
         startSequence(1);
@@ -473,21 +515,18 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       if (atTime(0, 2, 500)) {
         leds[showLightIndex[2]] = showLightColor;
       }
-
       if (atTime(0, 4, 0)) {
         startSequence(2);
       }
-
     }
 
     // Transition to running lights
     void sequence2() {
       const unsigned numberOfSteps = 80;
 
-      if (frame < numberOfSteps) {//invariant code motion
-
-        CRGB showy = blend(frame, numberOfSteps, showLightColor, ledColor);
-        CRGB plain = blend(frame, numberOfSteps, ledOff, ledColor);
+      if (frame < numberOfSteps) {
+        CRGB showy = leds.blend(frame, numberOfSteps, showLightColor, ledColor);
+        CRGB plain = leds.blend(frame, numberOfSteps, leds.ledOff, ledColor);
 
         forLEDS(i) {
           if (i % RUN_LIGHT_SPACING == 0) {
@@ -548,7 +587,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       if (speed != 0) {
         setJustRunners(ledColor);
       } else {
-        // LEDS_allOff()
+        // leds.allOff()
       }
 
       if (speed >= 9 && speed < 25 && frame % (30 - speed) == 0) {
@@ -565,7 +604,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
       if (frame > 1000 && speed == 0) {
         // End of sequence
-        // LEDS_allOff()
+        // leds.allOff()
         startSequence(4);
       }
 
@@ -577,7 +616,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       setJustRunners(exitLightColor);
       if (frame > 500) {
         // End of sequence
-        LEDS_allOff();
+        leds.allOff();
         startSequence(-1);
       }
     }
@@ -662,8 +701,7 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
   public:
     void setup() {
       frameDelay = 0; //feature not used, being explicit here cause it took me awhile to figure out how the atTime() worked without a controlled value for frameDelay.
-
-      pinMode(PIN_TRIGGER, INPUT);
+      trigger.setup(PIN_TRIGGER, TRIGGER_DEBOUNCE);
       for (unsigned pin : PIN_AC_RELAY) {
         pinMode(pin, OUTPUT);
       }
