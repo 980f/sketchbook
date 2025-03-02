@@ -1,12 +1,12 @@
 
-#define FASTLED_INTERNAL
-#include <FastLED.h>
 #include <WiFi.h>
 #include <esp_now.h>
 
 //pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
 //worker/remote pin allocations:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
+#define LEDStringType WS2811, LED_PIN, GRB
+
 const unsigned  ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
 const unsigned NUM_LEDS = 89;
 
@@ -20,58 +20,7 @@ const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay tri
 
 //todo: pick a pin to determine what this device's role is (primary or remote) instead of comparing MAC id's and declare the MAC ids of each end.
 
-//miniature MacAddress class, more functional ones are available:
-struct MacAddress {
-  static const unsigned macSize = 6;
-  uint8_t octet[macSize];
-
-  operator uint8_t*() {
-    return octet;
-  }
-
-  bool operator ==(const MacAddress &other) {
-    for (unsigned i = 0; i < macSize; ++i) {
-      if (octet[i] != other.octet[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool isBroadcast() {
-    for (unsigned i = 0; i < macSize; ++i) {
-      if (octet[i] != 0xFF) {
-        return false;
-      }
-      return true;
-    }
-  }
-
-  MacAddress(std::initializer_list<uint8_t> list) {
-    unsigned index = 0;
-    for (auto thing : list) {
-      octet[index++] = thing;
-      if (index >= macSize) {
-        break; //user typed too many octets!
-      }
-    }
-  }
-
-  void operator>>(uint8_t *raw) {
-    memcpy(raw, octet, sizeof(octet));
-  }
-
-  MacAddress& operator=(const MacAddress& rhs) = default;
-
-  void PrintOn(Print &output) {
-    for (unsigned index = macSize; index-- > 0;) {
-      Serial.print(octet[index], HEX);
-      if (index) {
-        Serial.print(":");
-      }
-    }
-  }
-};
+#include "macAddress.h"
 
 // Primary Receiver's MAC
 //uint8_t broadcastAddress[] = {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
@@ -80,13 +29,70 @@ struct MacAddress {
 // Backup Receiver's MAC
 MacAddress broadcastAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
 ///////////////////////////////////////////////////////////////////////
+// this next group will become a sharable module
+#define FASTLED_INTERNAL
+#include <FastLED.h>
+///////////////////////////////////////////////////////////////////////
+template <unsigned NUM_LEDS> struct LedString {
+  CRGB leds[NUM_LEDS];
+  const CRGB ledOff = {0, 0, 0};
+
+#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
+
+  void all(CRGB same) {
+    forLEDS(i) {
+      leds[i] = same;
+    }
+  }
+
+  void allOff() {
+    all( ledOff);
+  }
+
+  using BoolPredicate = std::function<bool(unsigned)>;
+  void setJust(CRGB runnerColor, BoolPredicate lit) {
+    forLEDS(i) {
+      leds[i] = lit(i) ? runnerColor : ledOff;
+    }
+  }
+
+  void setup() {
+    FastLED.addLeds<LEDStringType>(leds, NUM_LEDS);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
+  }
+
+  void show() {
+    FastLED.show();
+  }
+
+  CRGB & operator [](unsigned i) {
+    i %= NUM_LEDS; //makes it easier to marquee
+    return leds[i];
+  }
+
+  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
+    return CRGB (
+             map(phase, 0, cycle, target.r, from.r),
+             map(phase, 0, cycle, target.g, from.g),
+             map(phase, 0, cycle, target.b, from.b)
+           );
+  }
+
+};
+//////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
 //copied in from 980f's library
-template <typename Scalar, typename ScalarArg = Scalar> bool changed(Scalar &target, const ScalarArg &source) {
+template <typename Scalar, typename ScalarArg> bool changed(Scalar &target, const ScalarArg &source) {
   if (target != source) { //implied conversion from ScalarArg to Scalar must exist or compiler will barf on this line.
     target = source;
     return true;
   }
   return false;
+}
+
+bool flagged(bool &flag) {
+  auto was = flag;
+  flag = false;
+  return was;
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -320,52 +326,6 @@ const DesiredSequence StartSequence {
   0, 0
 };
 
-///////////////////////////////////////////////////////////////////////
-template <unsigned NUM_LEDS> struct LedString {
-  CRGB leds[NUM_LEDS];
-  const CRGB ledOff = {0, 0, 0};
-
-#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
-
-  void all(CRGB same) {
-    forLEDS(i) {
-      leds[i] = same;
-    }
-  }
-
-  void allOff() {
-    all( ledOff);
-  }
-
-  using BoolPredicate = std::function<bool(unsigned)>;
-  void setJust(CRGB runnerColor, BoolPredicate lit) {
-    forLEDS(i) {
-      leds[i] = lit(i) ? runnerColor : ledOff;
-    }
-  }
-
-  void setup() {
-    FastLED.addLeds<WS2811, LED_PIN, GRB>(leds, NUM_LEDS);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
-  }
-
-  void show() {
-    FastLED.show();
-  }
-
-  CRGB & operator [](unsigned i) {
-    i %= NUM_LEDS; //makes it easier to marquee
-    return leds[i];
-  }
-
-  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
-    return CRGB (
-             map(phase, 0, cycle, target.r, from.r),
-             map(phase, 0, cycle, target.g, from.g),
-             map(phase, 0, cycle, target.b, from.b)
-           );
-  }
-
-};
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lighting sequence should be active.
@@ -433,8 +393,8 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
         return (i - phasor) % spacer == 0;
       });
     }
-    
-  public: 
+
+  public:
     void setup() {
       leds.setup();
       EL.setup();
@@ -442,9 +402,8 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
     }
 
     void loop() {
-      if (dataReceived) {
+      if (flagged(dataReceived)) {
         sequenceToPlay = message.number;
-        dataReceived = false;
         startSequence(sequenceToPlay); //the code formerly here was duplicated inside startSequeuce which was ...called here.
       }
     }
@@ -481,14 +440,22 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
   private:
     void startSequence(int sequenceToPlay) {
+#if originalWay
       if ( !changed(currentSequence, sequenceToPlay) ) {
         // If another request for the same sequence is received, then consider it a stop request
         //980f: this really should be 'send a different command', so that we aren't hoisted by repeating a failed communication which failed on the acknowledge rather than the send. "idempotent" is desirable.
-        currentSequence = -1;
+        currentSequence = -1;//todo: remove this, just return presuming a false resending of command.
       }
 
       EL.allOff();
       frame = 0;
+#else
+      if ( changed(currentSequence, sequenceToPlay) ) {
+        EL.allOff();
+        frame = 0;
+      }
+#endif
+
     }
 
 
@@ -776,7 +743,6 @@ template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::sender = nul
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:
-NowDevice<DesiredSequence> *role = nullptr;
 void setup() {
   Serial.begin(115200);
   remote.setup();
