@@ -1,0 +1,5 @@
+## recreate links to library sources
+ln -sf ../shared lib
+ln -sf ../shared/arduous
+ln -sf ../shared/lardls
+ln -sf lib/macAddress.h
