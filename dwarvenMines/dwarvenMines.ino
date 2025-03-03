@@ -2,21 +2,31 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
-//pin assignments being globalized is convenient syntactically, versus keeping them local to the using classes, for constant init reasons:
+//pin assignments being globalized is convenient administratively, while mediocre form programming-wise.
+
 //worker/remote pin allocations:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
-
-const unsigned  ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
 const unsigned NUM_LEDS = 89;
+#include "ledString.h"  //FastLED stuff
+
+#include "simplePin.h"
+const unsigned  ELPins[] = {4, 16, 17, 18, 19, 21, 22, 23};
 
 //Boss/main pin allocations:
-const unsigned PIN_TRIGGER = 4;     // Pin 4: Trigger input
-const unsigned TRIGGER_DEBOUNCE = 50; //formerly buried in code.
+#include "simpleDebouncedPin.h"
+DebouncedInput trigger(SimplePin(4), 50);
 
-const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
-//the following is the only conflict between primary and remote:
-const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
+const SimpleOutputPin relay[] = {21, 26, 25, 33, 32};
+
+enum RelayChannel {
+  AUDIO = 0,
+  VortexMotor, Lights_1, Lights_2, Lights_3, //to be replace with text that is in comments at this time
+  LAST
+};
+////the following is the only conflict between primary and remote:
+//const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay trigger)
+//const unsigned PIN_AC_RELAY[4] = {26, 25, 33, 32};
 
 //todo: pick a pin to determine what this device's role is (primary or remote) instead of comparing MAC id's and declare the MAC ids of each end.
 
@@ -28,153 +38,9 @@ const unsigned PIN_AUDIO_RELAY = 21; // Pin 22: I2C (temporarily Audio Relay tri
 //the following should be a member of the device, not a global.
 // Backup Receiver's MAC
 MacAddress broadcastAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
-///////////////////////////////////////////////////////////////////////
-// this next group will become a sharable module
-#define FASTLED_INTERNAL
-#include <FastLED.h>
-///////////////////////////////////////////////////////////////////////
-template <unsigned NUM_LEDS> struct LedString {
-  CRGB leds[NUM_LEDS];
-  const CRGB ledOff = {0, 0, 0};
 
-#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
+#include "simpleUtil.h"
 
-  void all(CRGB same) {
-    forLEDS(i) {
-      leds[i] = same;
-    }
-  }
-
-  void allOff() {
-    all( ledOff);
-  }
-
-  using BoolPredicate = std::function<bool(unsigned)>;
-  void setJust(CRGB runnerColor, BoolPredicate lit) {
-    forLEDS(i) {
-      leds[i] = lit(i) ? runnerColor : ledOff;
-    }
-  }
-
-  void setup() {
-    FastLED.addLeds<LEDStringType>(leds, NUM_LEDS);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
-  }
-
-  void show() {
-    FastLED.show();
-  }
-
-  CRGB & operator [](unsigned i) {
-    i %= NUM_LEDS; //makes it easier to marquee
-    return leds[i];
-  }
-
-  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
-    return CRGB (
-             map(phase, 0, cycle, target.r, from.r),
-             map(phase, 0, cycle, target.g, from.g),
-             map(phase, 0, cycle, target.b, from.b)
-           );
-  }
-
-};
-//////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////
-//copied in from 980f's library
-template <typename Scalar, typename ScalarArg> bool changed(Scalar &target, const ScalarArg &source) {
-  if (target != source) { //implied conversion from ScalarArg to Scalar must exist or compiler will barf on this line.
-    target = source;
-    return true;
-  }
-  return false;
-}
-
-bool flagged(bool &flag) {
-  auto was = flag;
-  flag = false;
-  return was;
-}
-
-///////////////////////////////////////////////////////////////////////
-//minimal version of ticker service, will add full one later:
-using MilliTick = decltype(millis());
-struct Ticker {
-  static MilliTick now; //cached/shared sampling of millis()
-  MilliTick due = ~0U; //'forever'
-
-  static bool check() {
-    auto sample = millis();
-    if (now != sample) {
-      now = sample;
-      return true;
-    }
-    return false;
-  }
-
-  bool done() {
-    bool isDone = due <= now;
-    due = ~0U; //run only once per 'next' call.
-    //this is inlined version so I am leaving out refinements such as check for a valid  'due' value.
-    return isDone;
-  }
-
-  /** @returns whether the 'future' expiration time is in the past due to wrapping the ticker counter. The program has to run for 49 days for that to occur.*/
-  bool next(MilliTick later) {
-    due = later + now;
-    return due < now; //timer service wrapped.
-  }
-};
-
-MilliTick Ticker::now = 0;
-///////////////////////////////////////////////////////////////////////
-// yet another input debouncer, will use library one after code factoring is complete
-struct DebouncedInput {
-  unsigned pin;
-  //use this to invert logical sense of the input, such as when you add in an inverting amplifier late in development.
-  bool activeHigh;
-  bool readPin() {
-    return digitalRead(pin) == activeHigh;
-  }
-  ///////// above this is actually a class in its own right.
-  //official state
-  bool stable;
-  bool bouncy;
-  Ticker bouncing;
-  MilliTick DebounceDelay = ~0u;//never
-
-  /** @returns whether the input has officially changed to a new state */
-  bool onTick(MilliTick now) {
-    if (changed(bouncy, readPin())) {
-      bouncing.next(DebounceDelay);
-    }
-
-    if (bouncing.done()) {
-      return changed(stable, bouncy);
-    }
-    return false;
-  }
-
-  //use ~pin (not -pin) to indicate low active sense
-  void setup(int thePin, MilliTick bounceTime, bool triggerOnStart = false) {
-    activeHigh = thePin >= 0;
-    pin = activeHigh ? thePin : ~thePin;
-    pinMode(pin, INPUT);
-    DebounceDelay = bounceTime;
-
-    bouncy = readPin();
-
-    if (triggerOnStart) {
-      stable = ~bouncy;
-      bouncing.next(DebounceDelay);
-    } else {
-      stable = bouncy;
-    }
-  }
-
-  operator bool() const {
-    return stable;
-  }
-};
 ///////////////////////////////////////////////
 //communications manager:
 //todo: replace template with helper class or a base class for Messages.
@@ -188,7 +54,7 @@ template <class Message> class NowDevice {
     bool sendRequested = false;
 
     int sendRetryCount = 0;//todo: use status exchange to get rid of retry logic.
-  public: //wtfversion of C++ is in use by esp32? I could not init these inside the class but could not declare them outside either!
+  public:
     static NowDevice *sender; //only one sender is allowed at this protocol level.
   protected:
     static void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -237,11 +103,15 @@ template <class Message> class NowDevice {
     }
 
     /////////////////////////////////
+
   public:
     MacAddress ownAddress{0, 0, 0, 0, 0, 0}; //will be all zeroes at startup
-
+    static unsigned setupCount;//=0;
     virtual void setup() {
-
+      //todo: better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
+      if (setupCount++) {
+        return;
+      }
       // Set device as a Wi-Fi Station
       WiFi.mode(WIFI_STA);
       WiFi.macAddress(ownAddress);
@@ -261,6 +131,7 @@ template <class Message> class NowDevice {
 
     virtual void loop() {
       //empty loop rather than =0 in case extension doesn't need a loop
+      //if we lazy init this is where that executes.
     }
 
     virtual void onTick(MilliTick now) {
@@ -274,6 +145,7 @@ template <class Message> class NowDevice {
     }
 
 };
+
 
 ///////////////////////////////////////////////////////////////////////
 //other common logic of both ends
@@ -326,10 +198,13 @@ const DesiredSequence StartSequence {
   0, 0
 };
 
+//NowDevice as template is being very annoying:
+template<> unsigned NowDevice<DesiredSequence>::setupCount = 0;
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lighting sequence should be active.
 //we should contain rather than inherit the Sequencer, but we are mutating C code and will do that later
+//failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
 class Worker: public NowDevice<DesiredSequence>, Sequencer {
 
     LedString<NUM_LEDS>leds;
@@ -413,6 +288,8 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
       if (frameTimer.done()) {
         ++frame;
         switch (currentSequence) {
+          case -1: //do nothing at all
+            return;
           case 0:
             sequence0();
             break;
@@ -593,7 +470,7 @@ class Worker: public NowDevice<DesiredSequence>, Sequencer {
 /// maincontroller.ino:
 class Boss: public NowDevice<DesiredSequence>, Sequencer {
     bool haveRemote = false; //if no remote  then is controlling LED string instead of talking to another ESP32 which is actually doing that.
-    DebouncedInput trigger;
+    //trigger declared externally to keep all arbitrary constants at top of file.
 
     bool sequenceRunning = false;
 
@@ -607,15 +484,15 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
       if (atTime(0, 0, 0)) {
         // Start Audio
-        digitalWrite(PIN_AUDIO_RELAY, HIGH);
+        relay[AUDIO] << true;
       }
-
+      //while the following is cheap given what else we are doing, a pulsed output struct is a good idea.
       if (atTime(0, 0, 100)) {
-        digitalWrite(PIN_AUDIO_RELAY, LOW);
+        relay[AUDIO] << false;
       }
 
       if (atTime(0, 5, 0)) {
-        // Send message to start ring light sequence (it has internal 3 second delay at beginning)
+        // Send message to start ring light sequence (it has internal 3 second delay at beginning (980f: not that I can tell!))
         if (haveRemote) {
           sendMessage(StartSequence);
         } else {
@@ -624,28 +501,25 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
       }
 
       if (atTime(0, 5, 500)) {
-        // Lights 1
-        digitalWrite(PIN_AC_RELAY[2 - 1], HIGH);
+        relay[Lights_1] << 1;
       }
 
       if (atTime(0, 6, 700)) {
-        // Lights 2
-        digitalWrite(PIN_AC_RELAY[3 - 1], HIGH);
+        relay[Lights_2] << 1;
       }
 
       if (atTime(0, 7, 800)) {
-        // Lights 3
-        digitalWrite(PIN_AC_RELAY[4 - 1], HIGH);
+        relay[Lights_3] << 1;
       }
 
       if (atTime(0, 18, 500)) {
         // Vortex Motor Start
-        digitalWrite(PIN_AC_RELAY[1 - 1], HIGH);
+        relay[VortexMotor] << 1;
       }
 
       if (atTime(0, 47, 0)) {
         // Vortex Motor Stop
-        digitalWrite(PIN_AC_RELAY[1 - 1], LOW);
+        relay[VortexMotor] << 0;
       }
 
       if (atTime(0, 50, 0)) {
@@ -657,10 +531,9 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
 
     void stopSequence() {
       Serial.println("Stop Sequence");
-      for (unsigned pin : PIN_AC_RELAY) {
-        digitalWrite(pin, LOW);
+      for (unsigned index = RelayChannel::LAST; index-- > 0;) {
+        relay[index] << 0;
       }
-      digitalWrite(PIN_AUDIO_RELAY, LOW);//added to ensure complete stopping of everything.
       frame = 0;
       sequenceRunning = false;
       //todo: (maybe) signal remote that it also should be finished.
@@ -668,11 +541,12 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
   public:
     void setup() {
       frameDelay = 0; //feature not used, being explicit here cause it took me awhile to figure out how the atTime() worked without a controlled value for frameDelay.
-      trigger.setup(PIN_TRIGGER, TRIGGER_DEBOUNCE);
-      for (unsigned pin : PIN_AC_RELAY) {
-        pinMode(pin, OUTPUT);
-      }
-      pinMode(PIN_AUDIO_RELAY, OUTPUT);
+      trigger.setup();
+      // now in constructor
+      //      for (unsigned pin : PIN_AC_RELAY) {
+      //        pinMode(pin, OUTPUT);
+      //      }
+      //      pinMode(PIN_AUDIO_RELAY, OUTPUT);
 
       NowDevice::setup();//must do this before we do any other esp_now calls.
 
@@ -691,10 +565,6 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
           //need to finish local init even if remote connection fails.
         }
       }
-
-      // Turn off lights which are on by default
-      //digitalWrite(PIN_AC_RELAY_1, HIGH);
-      //digitalWrite(PIN_AC_RELAY_2, HIGH);
 
       Serial.println("Setup Complete");
     }
