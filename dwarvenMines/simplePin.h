@@ -9,9 +9,10 @@ struct SimplePin {
     return digitalRead(pin) == activeHigh;
   }
 
-  void operator = (bool setto) const {
-    digitalWrite(pin, setto == activeHigh);
-  }
+//this confuses the compiler, so we will use shift operators to set values
+//  void operator = (bool setto) const {
+//    digitalWrite(pin, setto == activeHigh);
+//  }
 
   void operator <<(bool setto) const {
     digitalWrite(pin, setto == activeHigh);
