@@ -10,9 +10,12 @@ template <class Message> class NowDevice {
     Message lastMessage;
     bool messageOnWire = false; //true from send attempt if successful until 'OnDataSent' is called.
 
-    unsigned sendAttempts = 0;
-    unsigned sendFailures = 0;
-    unsigned sendSuccesses = 0;
+  struct SendStatistics {
+    unsigned Attempts = 0;
+    unsigned Failures = 0;
+    unsigned Successes = 0;
+  };
+  static SendStatistics stats;
   public:
     static NowDevice *sender; //only one sender is allowed at this protocol level.
   protected:
@@ -22,9 +25,9 @@ template <class Message> class NowDevice {
       bool failed = status != ESP_NOW_SEND_SUCCESS;
       Serial.println(failed ? "Failed" : "Succeeded");
       if (failed) {
-        ++sendFailures;
+        ++stats.Failures;
       } else {
-        ++sendSuccesses;
+        ++stats.Successes;
       }
       if (sender) {
         sender->messageOnWire = false;
@@ -35,12 +38,12 @@ template <class Message> class NowDevice {
     void sendMessage(const Message &newMessage) {
       // Set values to send
       lastMessage = newMessage;
-      ++sendAttempts;
+      ++stats.Attempts;
       // Send message via ESP-NOW
-      esp_err_t result = esp_now_send(broadcastAddress, reinterpret_cast < uint8_t *>(&lastMessage), sizeof(Message));
+      esp_err_t result = esp_now_send(workerAddress, reinterpret_cast < uint8_t *>(&lastMessage), sizeof(Message));
       messageOnWire = result == OK;
       if (!messageOnWire) {
-        ++sendFailures;
+        ++stats.Failures;
       }
     }
 

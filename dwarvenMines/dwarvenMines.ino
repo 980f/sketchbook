@@ -5,6 +5,8 @@
 #include "simpleUtil.h"
 
 const unsigned numStations = 6;
+//time from first pull to restart 
+unsigned fuseSeconds = 3*60;//3 minutes
 
 //pin assignments being globalized is convenient administratively, while mediocre form programming-wise.
 
@@ -30,7 +32,7 @@ class LeverSet {
       DebouncedInput presently;
 
       //check up on bouncing.
-      bool onTick(MilliTick ignored = 0) { //implements latched edge detection
+      void onTick(MilliTick ignored = 0) { //implements latched edge detection
         if (presently.onTick(ignored)) { //if just became stable
           solved |= presently;
         }
@@ -41,10 +43,14 @@ class LeverSet {
         solved = presently;
       }
 
-      void setup(const Pin&simplepin, MilliTick bouncer) {
+      void setup(const SimplePin&simplepin, MilliTick bouncer) {
         //how do we get pin to a debounced input post construction?
         //write a new method:
-        presently.attach(simplepin, bouncer); //todo: find a source for this delay.
+        presently.attach(simplepin, bouncer);
+      }
+
+      Lever():presently{0}{
+          
       }
 
     } lever[numStations];
@@ -60,20 +66,20 @@ class LeverSet {
 
     Event onTick() {
       //update, and note major events
-      unsigned prior = numPulled();
+      unsigned prior = numSolved();
       //todo:00 loop over ontick
-      unsigned someNow = numPulled();
-      if (someNow == prior) {
-        return someNow ? SomePulled : NonePulled;
+      unsigned someNow = numSolved();
+      if (someNow == prior) {//no substantial change
+        return someNow ? Event::SomePulled : Event::NonePulled;
       }
-      //something changed
+      //something significant changed
       if (someNow == numStations) {
-        return LastPulled;//takes priority over FirstPulled when simultaneous
+        return Event::LastPulled;//takes priority over FirstPulled when simultaneous
       }
       if (prior == 0) {
-        return FirstPulled;
+        return Event::FirstPulled;
       }
-      return SomePulled;// a different number but nothing special.
+      return Event::SomePulled;// a different number but nothing special.
     }
 
     bool operator[](unsigned index) {
@@ -100,7 +106,7 @@ class LeverSet {
       }
     }
 
-    LeverSet()
+//    LeverSet(){}
 };
 
 //boss side:
@@ -132,7 +138,7 @@ struct DesiredState {
   void printOn(Print &stream) {
     stream.printf("Angle:%d\n", vortexAngle);
     stream.print("station:lighted\t");
-    for (unsigned index = 0; i < numStations; ++i) {
+    for (unsigned index = 0; index < numStations; ++index) {
       stream.printf("%u:%06x\t", index, color[index].as_uint32_t());
     }
     stream.println();
@@ -154,13 +160,11 @@ constexpr CRGB color(unsigned index) {
 
 DesiredState startup;//zero init: vortex angle 0, all stations black.
 
-//NowDevice as template is being very annoying:
-template<> unsigned NowDevice<DesiredSequence>::setupCount = 0;
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
 //failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
-class Worker: public NowDevice<DesiredSequence> {
+class Worker: public NowDevice<DesiredState> {
     LedString<NUM_LEDS>leds;
 
   public:
@@ -194,21 +198,22 @@ class Worker: public NowDevice<DesiredSequence> {
 
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
-class Boss: public NowDevice<DesiredSequence>, Sequencer {
+//neede ++20 using enum LeverSet::Event ;
+class Boss: public NowDevice<DesiredState> {
     bool haveRemote = false; //if no remote  then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     LeverSet lever;
-    SimpleTicker timebomb;//if they haven't solved the puzzle by this amount they have to partially start over.
+    Ticker timebomb;//if they haven't solved the puzzle by this amount they have to partially start over.
 
   public:
     void setup() {
       lever.setup(50);//todo: proper source for debounce time
       NowDevice::setup();//must do this before we do any other esp_now calls.
 
-      haveRemote  = ownAddress != remoteAddress;
+      haveRemote  = ownAddress != workerAddress;
       if (haveRemote ) {//if not dual role then will actually talk to peer
         esp_now_peer_info_t peerInfo;
         // Register peer
-        remoteAddress >> peerInfo.peer_addr;
+        workerAddress >> peerInfo.peer_addr;
 
         peerInfo.channel = 0;
         peerInfo.encrypt = false;
@@ -233,30 +238,33 @@ class Boss: public NowDevice<DesiredSequence>, Sequencer {
       }
 
       switch (lever.onTick()) {
-        case  NonePulled:  //none on
+        case LeverSet::Event::NonePulled:  //none on
           break;
-        case FirstPulled: //some pulled when none were pulled
+        case LeverSet::Event::FirstPulled: //some pulled when none were pulled
 
           timebomb.next(fuseSeconds * 1000);
           break;
-        case SomePulled:  //nothing special, but not all off
+        case LeverSet::Event::SomePulled:  //nothing special, but not all off
           break;
-        case LastPulled:
-          timebomb.next(Never);
-          relay[doorRelease] << 1;
-          relay[vortexMotor] << 1;
+        case LeverSet::Event::LastPulled:
+          timebomb.next(Ticker::Never);
+          relay[DoorRelease] << true;
+          relay[VortexMotor] << true;
           //any other bells and whistles
           //todo: vortex auto off?
           break;
       }
     }
 } primary;
-
+//////////////////////////////////////////////////////////////////////////////////////////////
+using ThisApp=NowDevice<DesiredState>;
 //at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID.
 //these are set in the related setup() calls.
-template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::receiver = nullptr;
-template<> NowDevice<DesiredSequence> *NowDevice<DesiredSequence> ::sender = nullptr;
-
+template<> ThisApp *ThisApp::receiver = nullptr;
+template<> ThisApp *ThisApp ::sender = nullptr;
+//NowDevice as template is being very annoying:
+template<> unsigned ThisApp::setupCount = 0;
+template<> ThisApp::SendStatistics ThisApp::stats {0,0,0};
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:
