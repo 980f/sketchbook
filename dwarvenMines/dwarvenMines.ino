@@ -5,8 +5,8 @@
 #include "simpleUtil.h"
 
 const unsigned numStations = 6;
-//time from first pull to restart 
-unsigned fuseSeconds = 3*60;//3 minutes
+//time from first pull to restart
+unsigned fuseSeconds = 3 * 60; //3 minutes
 
 //pin assignments being globalized is convenient administratively, while mediocre form programming-wise.
 
@@ -49,8 +49,8 @@ class LeverSet {
         presently.attach(simplepin, bouncer);
       }
 
-      Lever():presently{0}{
-          
+      Lever(): presently{0} {
+
       }
 
     } lever[numStations];
@@ -106,7 +106,7 @@ class LeverSet {
       }
     }
 
-//    LeverSet(){}
+    //    LeverSet(){}
 };
 
 //boss side:
@@ -130,10 +130,15 @@ MacAddress bossAddress {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
 #include "nowDevice.h"
 /////////////////////////////////////////
 // Structure to convey data
-struct DesiredState {
+struct DesiredState: public NowDevice::Message {
   /** this is added to the offset of each light */
   unsigned vortexAngle; //0 to 89 for 0 to 359 degrees of rotation.
   CRGB color[numStations];
+
+  unsigned size() const override {
+    return sizeof(*this)
+  }
+
 
   void printOn(Print &stream) {
     stream.printf("Angle:%d\n", vortexAngle);
@@ -164,18 +169,18 @@ DesiredState startup;//zero init: vortex angle 0, all stations black.
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
 //failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
-class Worker: public NowDevice<DesiredState> {
+class Worker: public NowDevice {
     LedString<NUM_LEDS>leds;
 
   public:
     void setup() {
       leds.setup();
       //don't trust zero init as we may implement a remote restart command to aid in debug.
-      message.vortexAngle = 0;
+      startup.vortexAngle = 0;
       for (unsigned index = numStations; index-- > 0;) {
-        message.color[index] = color(index); //unique set so that we can start debug.
+        startup.color[index] = color(index); //unique set so that we can start debug.
       }
-      NowDevice::setup();//call after local variables setup to ensure we are immediately ready to receive.
+      NowDevice::setup(&message);//call after local variables setup to ensure we are immediately ready to receive.
     }
 
     void loop() {
@@ -199,7 +204,7 @@ class Worker: public NowDevice<DesiredState> {
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
 //neede ++20 using enum LeverSet::Event ;
-class Boss: public NowDevice<DesiredState> {
+class Boss: public NowDevice {
     bool haveRemote = false; //if no remote  then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     LeverSet lever;
     Ticker timebomb;//if they haven't solved the puzzle by this amount they have to partially start over.
@@ -257,14 +262,14 @@ class Boss: public NowDevice<DesiredState> {
     }
 } primary;
 //////////////////////////////////////////////////////////////////////////////////////////////
-using ThisApp=NowDevice<DesiredState>;
+using ThisApp = NowDevice; //<DesiredState>;
 //at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID.
 //these are set in the related setup() calls.
 template<> ThisApp *ThisApp::receiver = nullptr;
 template<> ThisApp *ThisApp ::sender = nullptr;
 //NowDevice as template is being very annoying:
 template<> unsigned ThisApp::setupCount = 0;
-template<> ThisApp::SendStatistics ThisApp::stats {0,0,0};
+template<> ThisApp::SendStatistics ThisApp::stats {0, 0, 0};
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:

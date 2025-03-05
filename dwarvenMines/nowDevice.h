@@ -3,19 +3,38 @@
 ///////////////////////////////////////////////
 //communications manager:
 //todo: replace template with helper class or a base class for Messages.
-template <class Message> class NowDevice {
+class NowDevice {
+  public:
+    //a base class that you must derive your messages from
+    class Message {
+      protected:
+        virtual unsigned size() const = 0; //you must report the size of your payload
+
+        /** format for delivery, content is copied but not immediately so using stack is risky. */
+        virtual uint8_t* payload() {
+          return reinterpret_cast < uint8_t *>(this);
+        }
+
+        /** copy in content, can't trust that the data will stay allocated, it could be on stack.
+            NB: using unsigned as len converts a negative length to an enormous one, and that makes min() work.
+           default is binary copy, can implement a text parser if that floats your boat.
+        */
+        virtual void receive(const uint8_t *incomingData, unsigned len) {
+          memcpy(message, incomingData, min(len, sizeof(Message)));
+        }
+    };
   protected:
 
     /////////////////////////////////
-    Message lastMessage;
+    const Message* lastMessage = nullptr;
     bool messageOnWire = false; //true from send attempt if successful until 'OnDataSent' is called.
 
-  struct SendStatistics {
-    unsigned Attempts = 0;
-    unsigned Failures = 0;
-    unsigned Successes = 0;
-  };
-  static SendStatistics stats;
+    struct SendStatistics {
+      unsigned Attempts = 0;
+      unsigned Failures = 0;
+      unsigned Successes = 0;
+    };
+    static SendStatistics stats;
   public:
     static NowDevice *sender; //only one sender is allowed at this protocol level.
   protected:
@@ -37,23 +56,27 @@ template <class Message> class NowDevice {
 
     void sendMessage(const Message &newMessage) {
       // Set values to send
-      lastMessage = newMessage;
-      ++stats.Attempts;
-      // Send message via ESP-NOW
-      esp_err_t result = esp_now_send(workerAddress, reinterpret_cast < uint8_t *>(&lastMessage), sizeof(Message));
-      messageOnWire = result == OK;
-      if (!messageOnWire) {
+      lastMessage = &newMessage;
+      if (lastMessage) {
+        ++stats.Attempts;
+        // Send message via ESP-NOW
+        esp_err_t result = esp_now_send(workerAddress, lastMessage->payload()), lastMessage->size());
+        messageOnWire = result == OK;
+        if (!messageOnWire) {
         ++stats.Failures;
       }
     }
+  }
 
-    /////////////////////////////////
-    Message message;//incoming
-    bool dataReceived = false;//todo: replace with pair of counters.
+  /////////////////////////////////
+  Message *message = nullptr; //incoming
+  bool dataReceived = false;//todo: replace with pair of counters.
 
-    // callback function that will be executed when data is received
-    void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
-      memcpy(&message, incomingData, sizeof(Message)); //todo: check len against sizeof(Message), they really must be equal or we have a serious failure to communicate.
+  // callback function that will be executed when data is received
+  void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
+      if (message) {
+        message->receive(incomingData, len);
+      }
       Serial.print("Bytes received: ");
       Serial.println(len);
       message.printOn(Serial);
@@ -61,7 +84,7 @@ template <class Message> class NowDevice {
     }
 
   public:
-    static NowDevice<Message> *receiver; //only one receiver is allowed at this protocol level.
+    static NowDevice *receiver; //only one receiver is allowed at this protocol level.
   protected:
     static void OnDataRecv(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {//esp32 is not c++ friendly in its callbacks.
       if (receiver) {
@@ -74,7 +97,8 @@ template <class Message> class NowDevice {
     static unsigned setupCount;//=0;
   public:
     MacAddress ownAddress{0}; //will be all zeroes at startup
-    virtual void setup() {
+    virtual void setup(Message &receiveBuffer) {
+      message = &receiveBuffer;
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
       if (setupCount++) {
         return;
