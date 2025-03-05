@@ -16,7 +16,7 @@ struct DebouncedInput {
   DebouncedInput(const SimplePin &pin, MilliTick DebounceDelay = ~0u): pin(pin), DebounceDelay(DebounceDelay) {}
 
   /** @returns whether the input has officially changed to a new state */
-  bool onTick(MilliTick now) {
+  bool onTick(MilliTick ignored=0) {
     if (changed(bouncy, pin)) {
       bouncing.next(DebounceDelay);
     }
@@ -38,6 +38,12 @@ struct DebouncedInput {
     } else {
       stable = bouncy;
     }
+  }
+
+  //mostly for when you can't manage to provide these arguments on construction:
+  void attach(const SimplePin &simplepin, MilliTick filter) {
+    pin=simplepin;
+    DebounceDelay=filter;
   }
 
   operator bool() const {
