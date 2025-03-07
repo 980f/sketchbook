@@ -15,4 +15,3 @@ bool flagged(bool &flag) {
   flag = false;
   return was;
 }
-

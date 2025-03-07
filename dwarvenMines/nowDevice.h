@@ -2,17 +2,20 @@
 
 ///////////////////////////////////////////////
 //communications manager:
-//todo: replace template with helper class or a base class for Messages.
 class NowDevice {
   public:
-    //a base class that you must derive your messages from
+    /** a base class that you must derive your messages from.
+        The default payload function is likely to trash the program as a class with a virtual dispatch table cannot be treated like a POD.
+    */
     class Message {
+        friend class NowDevice;
       protected:
+
         virtual unsigned size() const = 0; //you must report the size of your payload
 
         /** format for delivery, content is copied but not immediately so using stack is risky. */
-        virtual uint8_t* payload() {
-          return reinterpret_cast < uint8_t *>(this);
+        virtual const uint8_t* payload() const {
+          return reinterpret_cast < const uint8_t *>(this + 1);
         }
 
         /** copy in content, can't trust that the data will stay allocated, it could be on stack.
@@ -20,7 +23,11 @@ class NowDevice {
            default is binary copy, can implement a text parser if that floats your boat.
         */
         virtual void receive(const uint8_t *incomingData, unsigned len) {
-          memcpy(message, incomingData, min(len, sizeof(Message)));
+          memcpy(this + 1, incomingData, min(len, sizeof(Message)));
+        }
+
+        virtual void printOn(Print &debugger){
+          //you don't have to output diagnostic info if you don't want to.
         }
     };
   protected:
@@ -54,15 +61,16 @@ class NowDevice {
       }
     }
 
+    MacAddress *remote = nullptr;
     void sendMessage(const Message &newMessage) {
       // Set values to send
       lastMessage = &newMessage;
       if (lastMessage) {
         ++stats.Attempts;
         // Send message via ESP-NOW
-        esp_err_t result = esp_now_send(workerAddress, lastMessage->payload()), lastMessage->size());
+        esp_err_t result = esp_now_send(*remote, lastMessage->payload()), lastMessage->size());
         messageOnWire = result == OK;
-        if (!messageOnWire) {
+        if (! messageOnWire) {//why does indenter fail on this line?
         ++stats.Failures;
       }
     }
@@ -79,7 +87,7 @@ class NowDevice {
       }
       Serial.print("Bytes received: ");
       Serial.println(len);
-      message.printOn(Serial);
+      message->printOn(Serial);
       dataReceived = true;
     }
 
@@ -97,6 +105,7 @@ class NowDevice {
     static unsigned setupCount;//=0;
   public:
     MacAddress ownAddress{0}; //will be all zeroes at startup
+
     virtual void setup(Message &receiveBuffer) {
       message = &receiveBuffer;
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
@@ -132,7 +141,7 @@ class NowDevice {
 
     //talking to yourself, useful when the remote is an option and one device might be doing both boss and worker roles.
     void fakeReception(const Message &faker) {
-      message = faker;
+      message = const_cast<Message *>( &faker);//# ok to const cast as we only modify it when actually receiving a message and only call fakeReception when nothing is being sent.
       dataReceived = true;
     }
 

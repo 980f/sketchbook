@@ -1,4 +1,10 @@
+/*
+  punch list:
+  vortex off: wait for run/reset change of state?
+  mac diagnostic printout byte order
+  check whether a "wait for init" is actually needed in esp_now init
 
+*/
 #include <WiFi.h>
 #include <esp_now.h>
 
@@ -13,9 +19,13 @@ unsigned fuseSeconds = 3 * 60; //3 minutes
 //worker/remote pin allocations:
 const unsigned LED_PIN = 13;//drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
-const unsigned LEDSperRevolution = 89;
-const unsigned numStrips = 3;
-const unsigned NUM_LEDS = LEDSperRevolution * numStrips; //267
+
+struct StripConfiguration {
+  unsigned perRevolution = 89;
+  unsigned perStation = perRevolution / 2;
+  unsigned numStrips = 4;
+  unsigned total = perRevolution * numStrips; //356
+} VortexFX;//not const until wiring is confirmed, so that we can play with config to confirm wiring.
 
 #include "ledString.h"  //FastLED stuff, uses NUM_LEDS and LEDStringType
 
@@ -23,7 +33,7 @@ const unsigned NUM_LEDS = LEDSperRevolution * numStrips; //267
 //Boss/main pin allocations:
 #include "simpleDebouncedPin.h"
 
-const SimplePin leverpin[] = {1, 2, 3, 4, 5, 6}; //todo: check wiring in box and assign proper values.
+const unsigned leverpin[] = {4, 16, 17, 18, 19, 21}; //formerly trigger in and audio out on boss, EL pins on worker
 class LeverSet {
     struct Lever {
       //latched version of "presently"
@@ -49,11 +59,10 @@ class LeverSet {
         presently.attach(simplepin, bouncer);
       }
 
-      Lever(): presently{0} {
+      Lever(unsigned pinNumber): presently{pinNumber} {}
 
-      }
-
-    } lever[numStations];
+    };
+    std::array <Lever, numStations> lever; //using std::array over traditional array to get initializer syntax that we can type
 
   public:
 
@@ -67,7 +76,7 @@ class LeverSet {
     Event onTick() {
       //update, and note major events
       unsigned prior = numSolved();
-      //todo:00 loop over ontick
+
       unsigned someNow = numSolved();
       if (someNow == prior) {//no substantial change
         return someNow ? Event::SomePulled : Event::NonePulled;
@@ -106,7 +115,7 @@ class LeverSet {
       }
     }
 
-    //    LeverSet(){}
+    LeverSet(): lever {4, 16, 17, 18, 19, 21} {}
 };
 
 //boss side:
@@ -120,12 +129,25 @@ enum RelayChannel { //index into relay array.
 
 
 
-const SimplePin whoAmI = {0}; //pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
+const SimplePin IamBoss = {15}; //pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
+const SimplePin IamReal = {2}; //pin to determine that this is the real system, not the single processor development one.
+
 
 #include "macAddress.h"
 //known units, until we implement a broadcast based protocol.
-MacAddress workerAddress {0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10};
-MacAddress bossAddress {0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
+std::array knownDevices = {//todo: figure out why template deduction did not do our counting for us.
+  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},
+  MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}
+};
+
+unsigned whichDeviceIs(const MacAddress &perhapsMe) {
+  for (unsigned index = knownDevices.size(); index-- > 0;) {
+    if (knownDevices[index] == perhapsMe) {
+      return index;
+    }
+  }
+  return ~0;//which is -1 if looked at as an int.
+}
 
 #include "nowDevice.h"
 /////////////////////////////////////////
@@ -136,10 +158,11 @@ struct DesiredState: public NowDevice::Message {
   CRGB color[numStations];
 
   unsigned size() const override {
-    return sizeof(*this)
+    return sizeof(*this);
   }
 
-
+  //default binary copies in and out work for us
+  ///////////////////////////////////////////////////
   void printOn(Print &stream) {
     stream.printf("Angle:%d\n", vortexAngle);
     stream.print("station:lighted\t");
@@ -150,10 +173,9 @@ struct DesiredState: public NowDevice::Message {
   }
 };
 
+uint8_t MAX_BRIGHTNESS = 80;//todo: debate whether worker limits received values or trusts the boss.
 
-unsigned MAX_BRIGHTNESS = 80;//todo: debate whether worker limits the boss.
-
-constexpr unsigned bitColor(unsigned bitpack, unsigned bitpick) {
+constexpr uint8_t bitColor(unsigned bitpack, unsigned bitpick) {
   return bitpack & (1 << bitpick) ? MAX_BRIGHTNESS : 0;
 }
 
@@ -163,32 +185,34 @@ constexpr CRGB color(unsigned index) {
   return {bitColor(index, 0), bitColor(index, 1), bitColor(index, 2)};
 }
 
-DesiredState startup;//zero init: vortex angle 0, all stations black.
-
+//command to remote
+DesiredState stringState;//zero init: vortex angle 0, all stations black.
+//what remote is doing
+DesiredState echoState;
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
 //failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
 class Worker: public NowDevice {
-    LedString<NUM_LEDS>leds;
+    LedStringer leds;
 
   public:
     void setup() {
-      leds.setup();
+      leds.setup(VortexFX.total);
       //don't trust zero init as we may implement a remote restart command to aid in debug.
-      startup.vortexAngle = 0;
+      stringState.vortexAngle = 0;
       for (unsigned index = numStations; index-- > 0;) {
-        startup.color[index] = color(index); //unique set so that we can start debug.
+        stringState.color[index] = color(index); //unique set so that we can start debug.
       }
-      NowDevice::setup(&message);//call after local variables setup to ensure we are immediately ready to receive.
+      NowDevice::setup(stringState);//call after local variables setup to ensure we are immediately ready to receive.
     }
 
     void loop() {
       if (flagged(dataReceived)) {//message received
         for (unsigned index = numStations ; index-- > 0;) {
           for (unsigned grouplength = 44 + (index & 1); grouplength-- > 0;) {
-            unsigned offset = (grouplength + message.vortexAngle ) % LEDSperRevolution;//rotate around the strip by group amount
-            leds[offset + (index * LEDSperRevolution) / 2] = message.color[index]; //half of a strip per station
+            unsigned offset = (grouplength + stringState.vortexAngle ) % VortexFX.perRevolution;//rotate around the strip by group amount
+            leds[offset + (index * VortexFX.perRevolution) / 2] = stringState.color[index]; //half of a strip per station
           }
         }
         leds.show();
@@ -198,42 +222,43 @@ class Worker: public NowDevice {
     //this is called once per millisecond, from the arduino loop(). It can skip millisecond values if there are function calls which take longer than a milli.
     void onTick(MilliTick ignored) {
       //not yet animating anything, so nothing to do here.
+      //someday: fireworks on 4th ring
     }
 } remote;
 
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
-//neede ++20 using enum LeverSet::Event ;
+//needed c++20 using enum LeverSet::Event ;
 class Boss: public NowDevice {
-    bool haveRemote = false; //if no remote  then is controlling LED string instead of talking to another ESP32 which is actually doing that.
+    bool haveRemote = true; //if no remote then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     LeverSet lever;
     Ticker timebomb;//if they haven't solved the puzzle by this amount they have to partially start over.
 
   public:
     void setup() {
       lever.setup(50);//todo: proper source for debounce time
-      NowDevice::setup();//must do this before we do any other esp_now calls.
-
-      haveRemote  = ownAddress != workerAddress;
-      if (haveRemote ) {//if not dual role then will actually talk to peer
+      NowDevice::setup(echoState);//must do this before we do any other esp_now calls.
+      //BTW:ownAddress is all zeroes until after NowDevice::setup.
+      haveRemote  = IamReal;//read a pin
+      if (haveRemote) {//if not dual role then will actually talk to peer
         esp_now_peer_info_t peerInfo;
         // Register peer
-        workerAddress >> peerInfo.peer_addr;
-
-        peerInfo.channel = 0;
+        unsigned myOrdinal = whichDeviceIs(ownAddress);
+        //todo: generically there could be more than one peer, here we trust that there is just one:
+        knownDevices[myOrdinal ^ 1] >> peerInfo.peer_addr;
+        peerInfo.channel = 0;//defering to some unscruptable default selection. Should probably canonize a "show channel" and a different one for luma and hollis.
         peerInfo.encrypt = false;
-
-        // Add peer
         if (esp_now_add_peer(&peerInfo) != ESP_OK) {
           Serial.println("Failed to add peer");
-          //ro return here as we need to finish local init even if remote connection fails.
+          //no return here as we need to finish local init even if remote connection fails.
         }
       }
       Serial.println("Setup Complete");
     }
 
     void loop() {
-      //lever are tested on timer tick, since they are debounced by it.
+      //levers are tested on timer tick, since they are debounced by it.
+      //someday we will get echoState here and test it against desired and resend on mismatch.
     }
 
     void onTick(MilliTick now) {
@@ -246,7 +271,6 @@ class Boss: public NowDevice {
         case LeverSet::Event::NonePulled:  //none on
           break;
         case LeverSet::Event::FirstPulled: //some pulled when none were pulled
-
           timebomb.next(fuseSeconds * 1000);
           break;
         case LeverSet::Event::SomePulled:  //nothing special, but not all off
@@ -256,7 +280,7 @@ class Boss: public NowDevice {
           relay[DoorRelease] << true;
           relay[VortexMotor] << true;
           //any other bells and whistles
-          //todo: vortex auto off?
+          //todo: timer for vortex auto off?
           break;
       }
     }
@@ -265,26 +289,38 @@ class Boss: public NowDevice {
 using ThisApp = NowDevice; //<DesiredState>;
 //at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID.
 //these are set in the related setup() calls.
-template<> ThisApp *ThisApp::receiver = nullptr;
-template<> ThisApp *ThisApp ::sender = nullptr;
-//NowDevice as template is being very annoying:
-template<> unsigned ThisApp::setupCount = 0;
-template<> ThisApp::SendStatistics ThisApp::stats {0, 0, 0};
+ThisApp *ThisApp::receiver = nullptr;
+ThisApp *ThisApp ::sender = nullptr;
+
+unsigned ThisApp::setupCount = 0;
+ThisApp::SendStatistics ThisApp::stats {0, 0, 0};
+
+/////////////////////////
+// debug cli
+
+#include "clirp.h"
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //arduino's setup:
 void setup() {
   Serial.begin(115200);
+  if (IamBoss) {
+    primary.setup();
+  }
   remote.setup();
-  primary.setup();
 }
 
 //arduino's loop:
 void loop() {
   if (Ticker::check()) { //read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
+    if(IamBoss) {
+      primary.onTick(Ticker::now);
+    }
     remote.onTick(Ticker::now);
-    primary.onTick(Ticker::now);
+  }
+  if(IamBoss) {
+    primary.loop();
   }
   remote.loop();
-  primary.loop();
 }

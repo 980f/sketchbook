@@ -17,12 +17,32 @@
 
 //using FastLed_ns::CRGB;
 ///////////////////////////////////////////////////////////////////////
-template <unsigned NUM_LEDS> struct LedString {
-  CRGB leds[NUM_LEDS];
+//
+struct LedStringer {
+  unsigned quantity;
+  CRGB *leds;
+
+  LedStringer (unsigned quantity, CRGB *leds): quantity(quantity), leds(leds) {}
+
+  LedStringer (unsigned quantity): leds(quantity(quantity), new CRGB(quantity)) {}
+
+  LedStringer (): LedStringer(0, nullptr) {}
+
   const CRGB ledOff = {0, 0, 0};
 
-#define forLEDS(indexname) for (int indexname = NUM_LEDS; i-->0;)
+#define forLEDS(indexname) for (int indexname = quantity; i-->0;)
 
+  using BoolPredicate = std::function<bool(unsigned)>;
+  /** this is poorly named as it sets all leds to something, either the @param runnerColor or black */
+  void all(CRGB runnerColor, BoolPredicate lit) {
+    forLEDS(i) {
+      leds[i] = lit(i) ? runnerColor : ledOff;
+    }
+  }
+
+  /** sets all pixels to @param same color.
+      This could be implemented by passing an "always true" predicate to all(two args), but this way is faster and simpler.
+  */
   void all(CRGB same) {
     forLEDS(i) {
       leds[i] = same;
@@ -30,18 +50,103 @@ template <unsigned NUM_LEDS> struct LedString {
   }
 
   void allOff() {
-    all( ledOff);
+    all( ledOff );
   }
 
-  using BoolPredicate = std::function<bool(unsigned)>;
-  void setJust(CRGB runnerColor, BoolPredicate lit) {
-    forLEDS(i) {
-      leds[i] = lit(i) ? runnerColor : ledOff;
+  struct Pattern {
+    //first one to set, note that modulus does get applied to this.
+    unsigned offset;
+    //set this many in a row,must be at least 1
+    unsigned run;
+    //every this many, must be greater than or the same as run
+    unsigned period;
+    //this number of times, must be at least 1
+    unsigned sets;
+    //Runner will apply this modulus to its generated numbers
+    unsigned modulus;
+
+    /** we want to wrap the value used as an array index, without altering our logical counter */
+    unsigned operator()(unsigned rawcomputation) {
+      return modulus ? rawcomputation % modulus : rawcomputation;
+    }
+
+    /** @returns whether this pattern is usable*/
+    operator bool() const {
+      return sets > 0 && run > 0 && period >= run
+    }
+
+    struct Runner {
+      const Pattern &pattern;
+      //set this many in a row
+      unsigned run;
+      //this number of times
+      unsigned set;
+      unsigned latest;
+
+      void restart() {
+        latest = pattern.offset;
+        set = pattern.sets;
+        run = pattern.run;
+      }
+
+      //computes next and @returns whether there actually is a valid one
+      bool next() {
+        if (run == ~0) { //we are done
+          return false; //have been done
+        }
+        if (run-- > 0) {
+          ++latest;
+          return true;
+        }
+        if (set-- > 0) {
+          run = pattern.run;
+          latest += pattern.period - pattern.run; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
+          return true;
+        }
+        //latest stays at final valid value.
+        return false;//just became done.
+      }
+
+      //@returns the value computed by next,
+      unsigned operator() const {
+        return pattern(latest);
+      }
+
+      Runner(const &pattern): pattern(pattern) {
+        restart();
+      }
+    };
+
+    Runner makeRunner() const {
+      return Runner(*this);
+    }
+
+    //some factories
+    /** example: period 5, range 50 will set 10 pixels spaced 5 apart starting with start */
+    static Pattern EveryNth(unsigned period, unsigned range, unsigned start, unsigned wrap = 0) {
+      return Pattern {start, 1, period, range / period, wrap ? wrap : range};
+    }
+
+  };
+
+
+  /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
+  unsigned setPattern(CRGB color, const Pattern &pattern) {
+    if (pattern) {
+      auto runner = pattern.makeRunner();
+      do {//precheck of pattern lets us know that at least one pixel gets set
+        leds[runner] = color;
+      } while (runner.next());
     }
   }
 
   void setup() {
-    FastLED.addLeds<LEDStringType>(leds, NUM_LEDS);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
+    FastLED.addLeds<LEDStringType>(leds, quantity);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
+  }
+
+  void setup(unsigned quantity, CRGB *leds = nullptr) {
+    this->quantity = quantity;
+    this->leds = (!leds && quantity) ? new CRGB(quantity) : leds;
   }
 
   void show() {
@@ -49,7 +154,7 @@ template <unsigned NUM_LEDS> struct LedString {
   }
 
   CRGB & operator [](unsigned i) {
-    i %= NUM_LEDS; //makes it easier to marquee
+    i %= quantity; //makes it easier to marquee
     return leds[i];
   }
 
@@ -62,3 +167,9 @@ template <unsigned NUM_LEDS> struct LedString {
   }
 
 };
+
+//statically allocate the array
+template <unsigned NUM_LEDS> struct LedString: public LedStringer {
+  CRGB leds[NUM_LEDS];
+  LedStringer {leds, NUM_LEDS};
+}

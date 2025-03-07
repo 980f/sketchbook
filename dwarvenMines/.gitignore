@@ -1,4 +1,15 @@
 arduous
+char.cpp
+char.h
+cheaptricks.h
+clirp.h
+cstr.h
+eztypes.h
+index.h
 lardls
-macAddress.h
 lib
+macAddress.h
+minimath.h
+textkey.cpp
+textkey.h
+unsignedrecognizer.h
