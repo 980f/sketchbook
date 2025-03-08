@@ -1,4 +1,10 @@
 #pragma once
+#include <cstdint>
+#include <string.h>
+#include "macAddress.h"
+#include "simpleTicker.h"
+
+const unsigned FX_channel=6;//todo: discuss with crew, do we want to share with Hollis and Luma or avoid them, and what else is beaming around the facility?
 
 ///////////////////////////////////////////////
 //communications manager:
@@ -26,11 +32,11 @@ class NowDevice {
           memcpy(this + 1, incomingData, min(len, sizeof(Message)));
         }
 
-        virtual void printOn(Print &debugger){
+        virtual void printOn(Print &debugger) {
           //you don't have to output diagnostic info if you don't want to.
         }
     };
-  protected:
+    //  protected:
 
     /////////////////////////////////
     const Message* lastMessage = nullptr;
@@ -44,7 +50,8 @@ class NowDevice {
     static SendStatistics stats;
   public:
     static NowDevice *sender; //only one sender is allowed at this protocol level.
-  protected:
+    //  protected:
+    bool autoEcho = true;// until the worker replies to the boss we pretend we got an echo back from them
     static void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
       //todo: check that  mac_addr makes sense.
       Serial.print("\r\nLast Packet Send Status:\tDelivery ");
@@ -57,7 +64,12 @@ class NowDevice {
       }
       if (sender) {
         sender->messageOnWire = false;
-        //if there is a requested one then send that now.
+        //todo: if there is a requested one then send that now, at the moment the extended class will have to track that.
+        if (sender->autoEcho && sender->lastMessage) {
+          if (!failed) {
+            sender->fakeReception(*sender->lastMessage);//yes, sendmessage to self, bypassing radio.
+          }
+        }
       }
     }
 
@@ -68,20 +80,20 @@ class NowDevice {
       if (lastMessage) {
         ++stats.Attempts;
         // Send message via ESP-NOW
-        esp_err_t result = esp_now_send(*remote, lastMessage->payload()), lastMessage->size());
+        esp_err_t result = esp_now_send(*remote, lastMessage->payload(), lastMessage->size());
         messageOnWire = result == OK;
         if (! messageOnWire) {//why does indenter fail on this line?
-        ++stats.Failures;
+          ++stats.Failures;
+        }
       }
     }
-  }
 
-  /////////////////////////////////
-  Message *message = nullptr; //incoming
-  bool dataReceived = false;//todo: replace with pair of counters.
+    /////////////////////////////////
+    Message *message = nullptr; //incoming
+    bool dataReceived = false;//todo: replace with pair of counters.
 
-  // callback function that will be executed when data is received
-  void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
+    // callback function that will be executed when data is received
+    void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
       if (message) {
         message->receive(incomingData, len);
       }
@@ -93,7 +105,7 @@ class NowDevice {
 
   public:
     static NowDevice *receiver; //only one receiver is allowed at this protocol level.
-  protected:
+    //  protected:
     static void OnDataRecv(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {//esp32 is not c++ friendly in its callbacks.
       if (receiver) {
         receiver->onMessage(esp_now_info, incomingData, len);
@@ -114,9 +126,16 @@ class NowDevice {
       }
       // Set device as a Wi-Fi Station
       WiFi.mode(WIFI_STA);
+      WiFi.setChannel(FX_channel);
+      //todo: state machine for the following in case it can take a long time:
+      while (!WiFi.STA.started()) {
+        delay(100);//this was needed!
+      }
+      
       WiFi.macAddress(ownAddress);
       Serial.print("I am: ");
       ownAddress.PrintOn(Serial);
+      Serial.println();
       //todo: other examples spin here waiting for WiFi to be ready.
       // Init ESP-NOW
       if (esp_now_init() == ESP_OK) {

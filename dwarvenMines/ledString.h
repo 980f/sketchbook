@@ -24,7 +24,7 @@ struct LedStringer {
 
   LedStringer (unsigned quantity, CRGB *leds): quantity(quantity), leds(leds) {}
 
-  LedStringer (unsigned quantity): leds(quantity(quantity), new CRGB(quantity)) {}
+  LedStringer (unsigned quantity): quantity(quantity), leds(new CRGB(quantity)) {}
 
   LedStringer (): LedStringer(0, nullptr) {}
 
@@ -65,14 +65,19 @@ struct LedStringer {
     //Runner will apply this modulus to its generated numbers
     unsigned modulus;
 
+    /** @returns number of LEDS in the pattern, an idiot checker for setPattern() */
+    unsigned expected() const {
+      return run*sets;
+    }
+
     /** we want to wrap the value used as an array index, without altering our logical counter */
-    unsigned operator()(unsigned rawcomputation) {
+    unsigned operator()(unsigned rawcomputation) const {
       return modulus ? rawcomputation % modulus : rawcomputation;
     }
 
     /** @returns whether this pattern is usable*/
     operator bool() const {
-      return sets > 0 && run > 0 && period >= run
+      return sets > 0 && run > 0 && period >= run;
     }
 
     struct Runner {
@@ -108,11 +113,11 @@ struct LedStringer {
       }
 
       //@returns the value computed by next,
-      unsigned operator() const {
+      operator unsigned () const {
         return pattern(latest);
       }
 
-      Runner(const &pattern): pattern(pattern) {
+      Runner(const Pattern &pattern): pattern(pattern) {
         restart();
       }
     };
@@ -132,12 +137,15 @@ struct LedStringer {
 
   /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
   unsigned setPattern(CRGB color, const Pattern &pattern) {
+    unsigned numberSet=0;//diagnostic
     if (pattern) {
       auto runner = pattern.makeRunner();
       do {//precheck of pattern lets us know that at least one pixel gets set
         leds[runner] = color;
+        ++numberSet;
       } while (runner.next());
     }
+    return numberSet;//should == pattern.expected();
   }
 
   void setup() {
@@ -171,5 +179,5 @@ struct LedStringer {
 //statically allocate the array
 template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   CRGB leds[NUM_LEDS];
-  LedStringer {leds, NUM_LEDS};
-}
+  LedString(): LedStringer {NUM_LEDS,leds}{}
+};
