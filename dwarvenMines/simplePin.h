@@ -18,6 +18,11 @@ struct SimplePin {
     digitalWrite(pin, setto == activeHigh);
   }
 
+  bool toggle() const {
+    operator<<(!operator bool());
+    return operator bool();
+  }
+
   constexpr SimplePin(const SimplePin &other) = default;
 
 

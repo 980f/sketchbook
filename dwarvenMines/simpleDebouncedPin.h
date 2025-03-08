@@ -1,7 +1,7 @@
 #pragma once
 #include "simplePin.h"
 #include "simpleTicker.h"
-#include "simpleUtil.h"
+#include "cheaptricks.h"
 struct DebouncedInput {
   SimplePin pin;
   //official state
