@@ -77,17 +77,19 @@ DebugConsole cli(Serial);
 struct CliState {
   unsigned colorIndex = 0; // might use ~0 to diddle "black"
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
-  bool spewOnTick = false;
+  bool spewOnTick = true;
   SimpleOutputPin onBoard{2};//Wroom LED
+  unsigned spewWrapper=0;
   Ticker pulser;
   bool onTick() {
-    if (!pulser.isRunning()) {
-      onBoard << true;
+
+    if (pulser.due==Ticker::Never) {
+      onBoard << true;      
       pulser.next(250);
       return true;
     } else if (pulser.done()) {
       pulser.next(onBoard.toggle() ? 2500 : 1500);
-      return true;
+      return true;   
     }
     return false;
   }
@@ -473,8 +475,12 @@ void loop() {
   cli(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
+//    Serial.printf("%u\n",Ticker::now);
     if (clistate.onTick() && clistate.spewOnTick) {
-      Serial.print("_");
+//      Serial.print("_");
+      if((clistate.spewWrapper++%64)==0){
+        Serial.println("-----");
+      }
     }
     if (IamBoss) {
       primary.onTick(Ticker::now);
