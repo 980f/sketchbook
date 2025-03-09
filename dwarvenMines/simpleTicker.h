@@ -26,7 +26,7 @@ struct Ticker {
   /** @returns whether the timer was actually running and has stopped, but clears the timer memory so you must act upon this being true when you read it. */
   bool done() {
     bool isDone = due <= now;
-    if(isDone){
+    if (isDone) {
       due = Never; //run only once per 'next' call.
     }
     //this is inlined version so I am leaving out refinements such as check for a valid  'due' value.
@@ -43,6 +43,13 @@ struct Ticker {
     due = later + now;
     return due < now; //timer service wrapped.
   }
+
+  unsigned remaining() const {
+    if (due != Never) {
+      return due - now;
+    }
+    return ~0;
+  }
 };
 
-MilliTick Ticker::now = 0;//snapshot, so that multile timer dependent things stay in synch better
+MilliTick Ticker::now = 0;//until first actual read.
