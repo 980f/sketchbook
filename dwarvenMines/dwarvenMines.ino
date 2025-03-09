@@ -51,15 +51,18 @@ CRGB stationColor[numStations] = {
 
 //this should be somewhere in the 980f libraries, but couldn't be found:
 struct DebugConsole : public CLIRP<unsigned> {
-  Stream &cin;
+  Stream *cin;
   bool echo = true;
-  DebugConsole(Stream &cin) : cin(cin) {}
+  void setup(Stream &cin) {
+    this->cin=&cin;
+    Serial.printf("DebugConsole init:%p\n",this->cin);    
+  }
 
   using CommandHandler = std::function<void(unsigned char /*key*/, bool /*wasUpper*/)>;
   void operator()(CommandHandler clido) {
-    for (unsigned ki = cin.available(); ki-- > 0;) { // read 'available' just once as a means of not spinning forever when we are getting input faster than we handle it.
-      auto key = cin.read();
-      Serial.print(char(key));//echo as indication that we reeived.
+    for (unsigned ki = cin->available(); ki-- > 0;) { // read 'available' just once as a means of not spinning forever when we are getting input faster than we handle it.
+      auto key = cin->read();
+      //todo: "if echo" : Serial.print(char(key));//echo as indication that we received.
       if (doKey(key)) {
         Char caser(key);
         bool wasUpper = caser.toLower();//#don't inline- no guarantee on whether caser would be passed before of after it was lowered.
@@ -69,7 +72,7 @@ struct DebugConsole : public CLIRP<unsigned> {
   }
 };
 
-DebugConsole cli(Serial);
+DebugConsole cli;
 
 #include "simplePin.h"
 #include "simpleTicker.h"
@@ -189,6 +192,14 @@ struct LeverSet {
     }
 
     LeverSet() : lever{4, 16, 17, 18, 19, 21} {}//redundant listing, it is a work in progress to get configurable init for debug
+
+    void printOn(Print &stream) {
+      stream.printf("Levers: \t");
+      for (unsigned index = numStations; index-- > 0;) {
+        stream.printf("[%u]:%u/%u(%u) \t",index,lever[index].solved,lever[index].presently,lever[index].bouncy);
+      }
+      stream.write('\n');        
+    }
 };
 
 // boss side:
@@ -242,32 +253,13 @@ struct DesiredState : public NowDevice::Message {
   ///////////////////////////////////////////////////
   void printOn(Print &stream) {
     stream.printf("Angle:%d\n", vortexAngle);
-    stream.print("station:lighted\t");
+    stream.print("station:colors\t");
     for (unsigned index = 0; index < numStations; ++index) {
       stream.printf("%u:%06x\t", index, color[index].as_uint32_t());
     }
     stream.println();
   }
 
-  ////////////////////////////////////////////
-
-  // static constexpr uint8_t bitColor(unsigned bitpack, unsigned bitpick) {
-  //   return bitpack & (1 << bitpick) ? MAX_BRIGHTNESS : 0;
-  // }
-
-  // static constexpr CRGB uniqueColor(unsigned index) {
-  //   ++index; // skipping black as not useful!
-  //   return {bitColor(index, 0), bitColor(index, 1), bitColor(index, 2)};
-  // }
-
-  // void makeUnique() {
-  //   // don't trust zero init as we may implement a remote restart command to aid in debug.
-  //   vortexAngle = 0;
-  //   for (unsigned index = numStations; index-- > 0;) {
-  //     color[index] =
-  //         uniqueColor(index); // unique set so that we can start debug.
-  //   }
-  // }
 };
 
 // command to remote
@@ -404,6 +396,7 @@ void setup() {
   Serial.println("Setting up remote");
   remote.setup();
   Serial.println("All setup and raring to go");
+  cli.setup(Serial);
 }
 
 
@@ -433,7 +426,7 @@ void clido(unsigned char key, bool wasUpper) {
     case 's'://simulate a lever solution
       clistate.leverIndex = cli.arg;
       primary.lever[clistate.leverIndex] = true;
-      Serial.printf("Lever[%d] latch cleared,reports: %d\n", primary.lever[clistate.leverIndex]);
+      Serial.printf("Lever[%d] latch triggered, reports: %d\n", primary.lever[clistate.leverIndex]);
       break;
     case 'u': //unsolve
       if (cli.arg == ~0u) {
@@ -458,7 +451,8 @@ void clido(unsigned char key, bool wasUpper) {
       primary.sendMessage(stringState);
       break;
     case ' ':
-      stringState.printOn(Serial);//todo:1 see if cli can be used here instead of explicit Serial.
+      stringState.printOn(Serial);
+      lever.printOn(Serial);
       break;
     case '?':
       Serial.printf("usage:\n\tc:\tselect color/station to tweak color\n\tr,g,b:\talter pigment,%u(0x%2X) is bright\n\ts,u:\tlever set/unset\n ", MAX_BRIGHTNESS , MAX_BRIGHTNESS );
