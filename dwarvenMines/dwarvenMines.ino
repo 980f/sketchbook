@@ -473,7 +473,7 @@ void clido(const unsigned char key, bool wasUpper) {
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
-        Serial.printf("Lever[%d] latch triggered, reports: %x\n", primary.lever[clistate.leverIndex]);
+        Serial.printf("Lever[%d] latch triggered, reports: %x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
       }
       break;
     case 't':
