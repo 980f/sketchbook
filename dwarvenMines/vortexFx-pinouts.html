@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>vortexFx-pinouts</title>
+  </head>
+  <body>
+    <h2> Vortex Led FX controller </h2>
+    <hr>
+    <h3>2025 Quest</h3>
+    <table border="1">
+      <caption>Dwarven Mines Usage </caption>
+      <tbody>
+        <tr>
+          <td>boss</td>
+          <td>worker</td>
+          <td rowspan="1" colspan="3" style="text-align: center; background-color: white;">antenna end</td>
+          <td>worker</td>
+          <td>boss</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>EN/reset-</td>
+          <td>1</td>
+          <td>23</td>
+          <td><br>
+          </td>
+          <td>(Real) </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>36</td>
+          <td>2</td>
+          <td>22</td>
+          <td><br>
+          </td>
+          <td>run/reset bistable switch<br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>39</td>
+          <td>3</td>
+          <td>1</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>34</td>
+          <td>4</td>
+          <td>3</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>35</td>
+          <td>5</td>
+          <td>21</td>
+          <td><br>
+          </td>
+          <td>lever input, contact</td>
+        </tr>
+        <tr>
+          <td>relay 4/4</td>
+          <td><br>
+          </td>
+          <td>32</td>
+          <td>6</td>
+          <td>19</td>
+          <td><br>
+          </td>
+          <td>lever input, contact </td>
+        </tr>
+        <tr>
+          <td>relay 3/4</td>
+          <td><br>
+          </td>
+          <td>33</td>
+          <td>7</td>
+          <td>18</td>
+          <td><br>
+          </td>
+          <td>lever input, contact </td>
+        </tr>
+        <tr>
+          <td>relay 2/4</td>
+          <td><br>
+          </td>
+          <td>25</td>
+          <td>8</td>
+          <td>5</td>
+          <td><br>
+          </td>
+          <td>lever input, contact </td>
+        </tr>
+        <tr>
+          <td>relay 1/4</td>
+          <td><br>
+          </td>
+          <td>26</td>
+          <td>9</td>
+          <td>17</td>
+          <td><br>
+          </td>
+          <td>lever input, contact </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>27</td>
+          <td>10</td>
+          <td>16</td>
+          <td><br>
+          </td>
+          <td>lever input, contact </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>14</td>
+          <td>11</td>
+          <td>4</td>
+          <td><br>
+          </td>
+          <td>run/reset</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>(?loop back) </td>
+          <td>12</td>
+          <td>12</td>
+          <td>2/LED</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>WS2811 driver</td>
+          <td>13</td>
+          <td>13</td>
+          <td>15</td>
+          <td>gnd (Role)<br>
+          </td>
+          <td>3.3V (Role)<br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>gnd</td>
+          <td>14</td>
+          <td>gnd</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>VIN</td>
+          <td>15</td>
+          <td>3.3V</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td rowspan="1" colspan="3" style="text-align: center; background-color: white;">usb/buttons end<br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <br>
+    <ol>
+      <li> Rewired to add 5 more inputs beside the former trigger. These are pulled up at the processor.</li>
+      <li>The connector that was the trigger is now the run/reset</li>
+      <li>todo: on boss gpio15 is jumpered high, on worker it is jumpered low. We may implement "Real" which if high means to use wifi to talk, else boss does both roles (makes debug easier).</li>
+      <li>we may add a "force solved" input for testing convenience.</li>
+      <li>D13 is run to connect that feeds power during normal operation, for testing LED string during software development when power comes over USB.</li>
+    </ol>
+    <p>Debug commands:</p>
+    <table style="width: 100%" border="1">
+      <tbody>
+        <tr>
+          <td><br>
+          </td>
+          <td>?</td>
+          <td>list some of these commands</td>
+        </tr>
+        <tr>
+          <td>station number (0..5)</td>
+          <td>s</td>
+          <td>set the latch on the selected station (report broken at hash: fde0f0)</td>
+        </tr>
+        <tr>
+          <td>ditto</td>
+          <td>u</td>
+          <td>clear the latch on the selected station, but if if ~0 "restart"which is something like "clear all" </td>
+        </tr>
+        <tr>
+          <td>ditto</td>
+          <td>l</td>
+          <td>trace events on this station</td>
+        </tr>
+        <tr>
+          <td>milliseconds</td>
+          <td>t</td>
+          <td>if T then set timebomb to go off at given milliseconds, else number is ignored and state of timer is displayed</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>q</td>
+          <td>set diagnostic spew, lower case is off, upper case is on.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>e</td>
+          <td>set keytroke echo, lower case none, upper case do echo </td>
+        </tr>
+        <tr>
+          <td>(soon) 0:Led, 1..4 a relay</td>
+          <td>o</td>
+          <td>play with a known output. Doesn't disable program logic just does an immediate set or clear depending upon o vs O.<br>
+            ~number toggles rather than set to case. (only coded for LED at the moment).</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>p</td>
+          <td>Dangerous, will be removed soon! was debug for LED stuff, can turn any pin into an output which can disrupt the processor if you choose unwisely.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>*</td>
+          <td>list pin assignements</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>^Z</td>
+          <td>restart processor, after a delay in seconds.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>.</td>
+          <td>read levers and report</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>!</td>
+          <td>trigger "puzzle solved" behavior.</td>
+        </tr>
+        <tr>
+          <td>station number</td>
+          <td>c</td>
+          <td>select a color to manipulate (color==station)</td>
+        </tr>
+        <tr>
+          <td>0..255 or #00 to #ff</td>
+          <td>r,g,b</td>
+          <td>diddle a color, may or may not apply nominal max_brightness, which was set to save battery life.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p><br>
+    </p>
+    <ol>
+    </ol>
+    <br>
+    <hr>
+    <h3>2024 Haunt</h3>
+    The WS2811 driver output was wired to 4 strands in parallel, with a physical offset to aid in the spiraling.<br>
+    The worker EL outputs were never connected to anything. <br>
+    <br>
+    <table border="1">
+      <caption>Time Tunnel Usage </caption>
+      <tbody>
+        <tr>
+          <td>boss</td>
+          <td>worker</td>
+          <td rowspan="1" colspan="3" style="text-align: center; background-color: white;">&nbsp;antenna end </td>
+          <td>worker</td>
+          <td>boss</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>EN/reset-</td>
+          <td>1</td>
+          <td>23</td>
+          <td>EL-7</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>36</td>
+          <td>2</td>
+          <td>22</td>
+          <td>EL-6</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>39</td>
+          <td>3</td>
+          <td>1</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>34</td>
+          <td>4</td>
+          <td>3</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>35</td>
+          <td>5</td>
+          <td>21</td>
+          <td>EL-5</td>
+          <td><em>audio trigger out (100 ms pulse)</em></td>
+        </tr>
+        <tr>
+          <td>relay 4/4</td>
+          <td><br>
+          </td>
+          <td>32</td>
+          <td>6</td>
+          <td>19</td>
+          <td>EL-4</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>relay 3/4</td>
+          <td><br>
+          </td>
+          <td>33</td>
+          <td>7</td>
+          <td>18</td>
+          <td>EL-3</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>relay 2/4</td>
+          <td><br>
+          </td>
+          <td>25</td>
+          <td>8</td>
+          <td>5</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>relay 1/4</td>
+          <td><br>
+          </td>
+          <td>26</td>
+          <td>9</td>
+          <td>17</td>
+          <td>EL-2</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>27</td>
+          <td>10</td>
+          <td>16</td>
+          <td>EL-1</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>14</td>
+          <td>11</td>
+          <td>4</td>
+          <td>EL-0</td>
+          <td>trigger input</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>12</td>
+          <td>12</td>
+          <td>2/LED</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>WS2811 driver</td>
+          <td>13</td>
+          <td>13</td>
+          <td>15</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>gnd</td>
+          <td>14</td>
+          <td>gnd</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>VIN</td>
+          <td>15</td>
+          <td>3.3V</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td style="height: 23px; text-align: center; background-color: white;"
+            rowspan="1" colspan="3">usb/buttons end<br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    No wire was found for audio trigger<br>
+    <hr>The official git repo for this file is at the moment Andy's 980f/sketchbook/dwarvenMines, it really needs to be in Scare's repos somewhere.
+  </body>
+</html>
