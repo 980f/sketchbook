@@ -1,4 +1,4 @@
-/*
+  /*
   punch list:
   vortex off: wait for run/reset change of state?
   mac diagnostic printout byte order
@@ -241,16 +241,9 @@ std::array knownDevices = { // todo: figure out why template deduction did not d
   MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}
 };
 
+MacAddress exists{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
 //todo: compiler knows quite well that there is a class MacAddress, but the next function fails to compile. WTF?
-
-unsigned whichDeviceIs(const MacAddress &perhapsMe) {
-  for (unsigned index = knownDevices.size(); index-- > 0;) {
-    if (knownDevices[index] == perhapsMe) {
-      return index;
-    }
-  }
-  return ~0; // which is -1 if looked at as an int.
-}
+unsigned whichDeviceIs(const MacAddress &perhapsMe);
 
 #include "nowDevice.h"
 /////////////////////////////////////////
@@ -536,4 +529,13 @@ void loop() {
     primary.loop();
   }
   remote.loop();
+}
+
+unsigned whichDeviceIs(const MacAddress &perhapsMe){
+  for (unsigned index = knownDevices.size(); index-- > 0;) {
+    if (knownDevices[index] == perhapsMe) {
+      return index;
+    }
+  }
+  return ~0; // which is -1 if looked at as an int.
 }
