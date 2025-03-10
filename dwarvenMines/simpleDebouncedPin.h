@@ -13,11 +13,11 @@ struct DebouncedInput {
   //usually the value is not changed, it is a program constant, we aren't forcing that as we might make it eeprom configurable.
   MilliTick DebounceDelay;
 
-  DebouncedInput(const SimplePin &pin, MilliTick DebounceDelay = ~0u): pin(pin), DebounceDelay(DebounceDelay) {}
+  DebouncedInput(unsigned pinNumber, bool activeHigh, MilliTick DebounceDelay = ~0u): pin(pinNumber, activeHigh), DebounceDelay(DebounceDelay) {}
 
   /** @returns whether the input has officially changed to a new state */
-  bool onTick(MilliTick ignored=0) {
-    if (changed(bouncy, pin)) {
+  bool onTick(MilliTick ignored = 0) {
+    if (changed(bouncy, bool(pin))) {//explicit cast need to get around a "const" issue with changed.
       bouncing.next(DebounceDelay);
     }
 
@@ -40,17 +40,21 @@ struct DebouncedInput {
     }
   }
 
-  //mostly for when you can't manage to provide these arguments on construction:
-  void attach(const SimplePin &simplepin, MilliTick filter) {
-    pin=simplepin;
-    DebounceDelay=filter;
+  //  //mostly for when you can't manage to provide these arguments on construction:
+  //  void attach(SimplePin &simplepin, MilliTick filter) {
+  //    pin = simplepin;
+  //    DebounceDelay = filter;
+  //  }
+
+  void filter(MilliTick filter) {
+    DebounceDelay = filter;
   }
 
-  operator bool() const {
+  operator bool() {
     return stable;
   }
 
-  bool isStable() const {
+  bool isStable() {
     return !bouncing.isRunning();
   }
 };

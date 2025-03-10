@@ -1,4 +1,4 @@
-  /*
+/*
   punch list:
   vortex off: wait for run/reset change of state?
   mac diagnostic printout byte order
@@ -72,7 +72,7 @@ struct DebugConsole : public CLIRP<unsigned> {
   bool echo = true;
   void setup(Stream &cin) {
     this->cin = &cin;
-    Serial.printf("DebugConsole init:%p\n", this->cin);
+    Serial.printf("DebugConsole init:%p, Serial is:%p\n", this->cin, &Serial);
   }
 
   using CommandHandler = std::function<void(unsigned char /*key*/, bool /*wasUpper*/)>;
@@ -97,7 +97,7 @@ DebugConsole cli;
 struct CliState {
   unsigned colorIndex = 0; // might use ~0 to diddle "black"
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
-  bool spewOnTick = true;
+  bool spewOnTick = false;
   SimpleOutputPin onBoard{2};//Wroom LED
   unsigned spewWrapper = 0;
   Ticker pulser;
@@ -108,6 +108,9 @@ struct CliState {
       return true;
     } else if (pulser.done()) {
       pulser.next(onBoard.toggle() ? 2500 : 1500);
+      if (spewOnTick) {
+        Serial.println(onBoard ? "\theart\t" : "\tBEAT\t");
+      }
       return true;
     }
     return false;
@@ -118,14 +121,16 @@ struct CliState {
 // Boss/main pin allocations:
 #include "simpleDebouncedPin.h"
 
-const unsigned leverpin[] = { 4,  16, 17, 18, 19, 21}; // formerly trigger in and audio out on boss, EL pins on worker
 struct LeverSet {
     struct Lever {
       // latched version of "presently"
-      bool solved;
+      bool solved = 0;
       // debounced input
       DebouncedInput presently;
 
+      unsigned pinNumber() const {
+        return presently.pin.number;
+      }
       // check up on bouncing.
       bool onTick() { // implements latched edge detection
         if (presently.onTick()) {   // if just became stable
@@ -140,13 +145,11 @@ struct LeverSet {
         solved = presently;
       }
 
-      void setup(const SimplePin &simplepin, MilliTick bouncer) {
-        // how do we get pin to a debounced input post construction?
-        // write a new method:
-        presently.attach(simplepin, bouncer);
+      void setup(MilliTick bouncer) {
+        presently.filter(bouncer);
       }
 
-      Lever(unsigned pinNumber) : presently{pinNumber} {}
+      Lever(unsigned pinNumber) : presently{pinNumber, false} {}
     };
     std::array<Lever, numStations> lever; // using std::array over traditional array to get initializer syntax that we can type
 
@@ -201,13 +204,21 @@ struct LeverSet {
       return sum;
     }
 
+    void listPins(Print &stream) const {
+      stream.print("Lever logical pin assignments");
+      ForStations(index) {
+        stream.printf("\t%u:D%u", index, lever[index].pinNumber());
+      }
+      stream.println();
+    }
+
     void setup(MilliTick bouncer) {
       ForStations(index) {
-        lever[index].setup(leverpin[index], bouncer);
+        lever[index].presently.filter(bouncer);
       }
     }
 
-    LeverSet() : lever{4, 16, 17, 18, 19, 21} {}//redundant listing, it is a work in progress to get configurable init for debug
+    LeverSet() : lever{16, 17, 5, 18, 19, 21} {}
 
     void printOn(Print &stream) {
       stream.printf("Levers: \t");
@@ -219,20 +230,20 @@ struct LeverSet {
 };
 
 // boss side:
-const SimpleOutputPin relay[] = {21, 26, 25, 33, 32}; // all relays in a group to expedite "all off"
+SimpleOutputPin relay[] = {26, 25, 33, 32, 22, 23}; // all relays in a group to expedite "all off"
 
 enum RelayChannel { // index into relay array.
-  AUDIO = 0,
+  //  AUDIO = 0,
   VortexMotor,
   Lights_1,
   Lights_2,
   DoorRelease, // to be replace with text that is in comments at this time
-  LAST
+  numRelays    // marker, leave in last position.
 };
 
-const SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
-const SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
-const SimplePin Run     = {22};  //pin to enable else reset the puzzle.
+SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
+SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
+SimplePin Run     = {4};  //pin to enable else reset the puzzle.
 
 #include "macAddress.h"
 // known units, until we implement a broadcast based protocol.
@@ -241,8 +252,8 @@ std::array knownDevices = { // todo: figure out why template deduction did not d
   MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}
 };
 
-MacAddress exists{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98};
-//todo: compiler knows quite well that there is a class MacAddress, but the next function fails to compile. WTF?
+
+//todo: compiler knows quite well that there is a class MacAddress, but the next function fails to compile with "unknown class MacAddress" unless I relocate the implementation to later in the file.
 unsigned whichDeviceIs(const MacAddress &perhapsMe);
 
 #include "nowDevice.h"
@@ -272,7 +283,7 @@ struct DesiredState : public NowDevice::Message {
 
 // command to remote
 DesiredState stringState; // zero init: vortex angle 0, all stations black.
-// what remote is doing
+// what remote is doing,or locally copied over when command would have been sent.
 DesiredState echoState;
 
 ///////////////////////////////////////////////////////////////////////
@@ -359,12 +370,13 @@ struct Boss : public NowDevice {
       timebomb.next(Ticker::Never);
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
-      // any other bells and whistles
-      // todo: timer for vortex auto off?
+      // any other bells and whistles?
+      //todo: timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
     }
 
     void onTick(MilliTick now) {
       if (timebomb.done()) {
+        Serial.println("Timed out solving puzzle, resetting lever state");
         lever.restart();
         return;
       }
@@ -419,15 +431,16 @@ void setup() {
   stringState[clistate.colorIndex ] = stationColor[clistate.colorIndex];\
   Serial.printf("color[%u] = 0x%06X\n",clistate.colorIndex,stationColor[clistate.colorIndex]);
 
-bool cliValidStation(const unsigned char key) {
-  if (key < numStations) {
+bool cliValidStation(unsigned arg, const unsigned char key) {
+  if (arg < numStations) {
     return true;
   }
-  Serial.printf("Invalid station: %u, valid values are [0..5u] for command %c\n", cli.arg, key);
+  Serial.printf("Invalid station: %u, valid values are [0..%u] for command %c\n", arg, numStations, key);
   return false;
 }
 
 void clido(const unsigned char key, bool wasUpper) {
+  unsigned param = cli.arg; //clears on read, can only access once!
   switch (key) {
     case '.':
       Serial.printf("Refresh colors returned:%x\n", primary.refreshColors());
@@ -436,14 +449,14 @@ void clido(const unsigned char key, bool wasUpper) {
       primary.onSolution();
       break;
     case 'c': // select a color to diddle
-      if (cliValidStation(key)) {
-        clistate.colorIndex = cli.arg;
+      if (cliValidStation(param, key)) {
+        clistate.colorIndex = param;
         Serial.printf("Selecting station %u, present value is 0x%06X\n", clistate.colorIndex, stationColor[clistate.colorIndex]);
       }
       break;
     case 'l': // select a lever to monitor
-      if (cliValidStation(key)) {
-        clistate.leverIndex = cli.arg;
+      if (cliValidStation(param, key)) {
+        clistate.leverIndex = param;
         Serial.printf("Selecting station %u lever for diagnostic tracing\n", clistate.leverIndex);
       }
       break;
@@ -457,24 +470,24 @@ void clido(const unsigned char key, bool wasUpper) {
       tweakColor(b);
       break;
     case 's'://simulate a lever solution
-      if (cliValidStation(key)) {
-        clistate.leverIndex = cli.arg;
+      if (cliValidStation(param, key)) {
+        clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
         Serial.printf("Lever[%d] latch triggered, reports: %x\n", primary.lever[clistate.leverIndex]);
       }
       break;
     case 't':
       if (wasUpper) {
-        primary.timebomb.next(cli.arg);
+        primary.timebomb.next(param);
       }
-      Serial.printf("Timebomb due:%u, in: %d\n", primary.timebomb.due, primary.timebomb.remaining());
+      Serial.printf("Timebomb due:%u, in: %d, Now:%u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
       break;
     case 'u': //unsolve
-      if (cli.arg == ~0u) {
+      if (param == ~0u) {
         primary.lever.restart();
         Serial.printf("After simulated bombing out there are %d levers active\n", primary.lever.numSolved());
-      } else if (cliValidStation(key)) {
-        clistate.leverIndex = cli.arg;
+      } else if (cliValidStation(param, key)) {
+        clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
         Serial.printf("Lever[%d] latch cleared, reports: %x\n", primary.lever[clistate.leverIndex]);
       }
@@ -487,21 +500,49 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
-      for (unsigned countdown = 4; countdown-- > 0;) {
+      for (unsigned countdown = min(param, 4u ); countdown-- > 0;) {
         delay(666);
         Serial.printf("%u,\t", countdown);
       }
       ESP.restart();
       break;
     case 'o':
-      clistate.onBoard = wasUpper;
+      switch (param) {
+        case 0:
+          clistate.onBoard << wasUpper;
+          Serial.printf("LED:%x\n", bool(clistate.onBoard));
+          break;
+        case ~0u:
+          clistate.onBoard.toggle();
+          Serial.printf("LED:%x\n", bool(clistate.onBoard));
+          break;
+        default:
+          Serial.printf("output %u not yet debuggable\n", param);
+          break;
+      }
+      break;
+    case 'p':
+      pinMode(param, OUTPUT);
+      digitalWrite(param, wasUpper);
       break;
     case '\r':
       primary.sendMessage(stringState);
       break;
     case ' ':
-      stringState.printOn(Serial);
       primary.lever.printOn(Serial);
+      Serial.print("Desired state:\t");
+      stringState.printOn(Serial);
+      Serial.print("Apparent state:\t");
+      echoState.printOn(Serial);
+      break;
+    case '*':
+      primary.lever.listPins(Serial);
+      Serial.print("Relay assignments:");
+      for (unsigned channel = numRelays; channel-- > 0;) {
+        Serial.printf("\t%u:D%u", channel, relay[channel].number);
+      }
+      Serial.println();
+      //add all other pins in use ...
       break;
     case '?':
       Serial.printf("usage:\n\tc:\tselect color/station to tweak color\n\tr,g,b:\talter pigment,%u(0x%2X) is bright\n\tl,s,u:\tlever trace/set/unset\n ", MAX_BRIGHTNESS , MAX_BRIGHTNESS );
@@ -523,6 +564,7 @@ void loop() {
       primary.onTick(Ticker::now);
     }
     remote.onTick(Ticker::now);
+    clistate.onTick();
   }
   // check event flags
   if (IamBoss) {
@@ -531,7 +573,7 @@ void loop() {
   remote.loop();
 }
 
-unsigned whichDeviceIs(const MacAddress &perhapsMe){
+unsigned whichDeviceIs(const MacAddress &perhapsMe) {
   for (unsigned index = knownDevices.size(); index-- > 0;) {
     if (knownDevices[index] == perhapsMe) {
       return index;
