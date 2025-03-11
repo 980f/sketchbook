@@ -2,7 +2,7 @@
 #include "simplePin.h"
 #include "simpleTicker.h"
 #include "cheaptricks.h"
-struct DebouncedInput {
+struct DebouncedInput :public Printable {
   SimplePin pin;
   //official state
   bool stable;
@@ -40,11 +40,7 @@ struct DebouncedInput {
     }
   }
 
-  //  //mostly for when you can't manage to provide these arguments on construction:
-  //  void attach(SimplePin &simplepin, MilliTick filter) {
-  //    pin = simplepin;
-  //    DebounceDelay = filter;
-  //  }
+
 
   void filter(MilliTick filter) {
     DebounceDelay = filter;
@@ -57,4 +53,8 @@ struct DebouncedInput {
   bool isStable() {
     return !bouncing.isRunning();
   }
+
+   size_t printTo(Print& p) const override {
+      return p.print(stable?"ON":"off");
+   }
 };

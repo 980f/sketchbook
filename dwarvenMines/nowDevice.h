@@ -1,4 +1,6 @@
 #pragma once
+#include <esp_now.h>
+
 #include <cstdint>
 #include <string.h>
 #include "macAddress.h"

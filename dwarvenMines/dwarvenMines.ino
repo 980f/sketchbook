@@ -8,8 +8,8 @@
   done: and it was! [check whether a "wait for init" is actually needed in esp_now init]
 
 */
-#include <WiFi.h>
-#include <esp_now.h>
+#include "ezOTA.h" //setup wifi and allow for firmware updates over wifi
+EzOTA flasher;
 //esp stuff pollutes the global namespace with macros for some asm language operations.
 #undef cli
 
@@ -54,7 +54,7 @@ void printColorSet(const char *prefix, CRGB *color, Print &stream) {
     stream.print(": \t");
   }
   ForStations(si) {
-    stream.printf("[%u]=%06X \t", color[si].as_uint32_t());
+    stream.printf("[%u]=%06X \t", si, color[si].as_uint32_t());
   }
   stream.println();
 }
@@ -64,32 +64,8 @@ void printColorsOn(Print &stream) {
 }
 /////////////////////////
 // debug cli
-#include "clirp.h" //Command Line Interpreter, Reverse Polish expressions.
-
-//this should be somewhere in the 980f libraries, but couldn't be found:
-struct DebugConsole : public CLIRP<unsigned> {
-  Stream *cin;
-  bool echo = true;
-  void setup(Stream &cin) {
-    this->cin = &cin;
-    Serial.printf("DebugConsole init:%p, Serial is:%p\n", this->cin, &Serial);
-  }
-
-  using CommandHandler = std::function<void(unsigned char /*key*/, bool /*wasUpper*/)>;
-  void operator()(CommandHandler clido) {
-    for (unsigned ki = cin->available(); ki-- > 0;) { // read 'available' just once as a means of not spinning forever when we are getting input faster than we handle it.
-      auto key = cin->read();
-      //todo: "if echo" : Serial.print(char(key));//echo as indication that we received.
-      if (doKey(key)) {
-        Char caser(key);
-        bool wasUpper = caser.toLower();//#don't inline- no guarantee on whether caser would be passed before of after it was lowered.
-        clido(caser, wasUpper);
-      }
-    }
-  }
-};
-
-DebugConsole cli;
+#include "sui.h" //Command Line Interpreter, Reverse Polish expressions.
+SUI dbg(Serial, Serial);
 
 #include "simplePin.h"
 #include "simpleTicker.h"
@@ -109,7 +85,7 @@ struct CliState {
     } else if (pulser.done()) {
       pulser.next(onBoard.toggle() ? 2500 : 1500);
       if (spewOnTick) {
-        Serial.println(onBoard ? "\theart\t" : "\tBEAT\t");
+        dbg.cout(onBoard ? "\theart\t" : "\tBEAT\t");
       }
       return true;
     }
@@ -168,7 +144,7 @@ struct LeverSet {
       for (unsigned index = numStations; index-- > 0;) {
         bool changed = lever[index].onTick();
         if (changed && clistate.leverIndex == index) {
-          Serial.printf("lever %u just became: %x,latched: %x\n", index, lever[index].presently, lever[index].solved);
+          dbg.cout("lever", index, " just became: ", lever[index].presently, " latched: ", lever[index].solved);
         }
       }
 
@@ -416,34 +392,37 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 // arduino's setup:
 void setup() {
   Serial.begin(115200);
+  flasher.setup();
+  dbg.cout("OTA emabled for download but not yet for monitoring." );
   if (IamBoss) {
     Serial.println("Setting up as boss");
     primary.setup();
   }
   Serial.println("Setting up remote");
   remote.setup();
-  Serial.println("All setup and raring to go");
-  cli.setup(Serial);
+  
+  Serial.println("Entering forever loop.");
+  //dbg.setup(Serial,Serial);
 }
 
 
-#define tweakColor(which) stationColor[clistate.colorIndex ].which = cli.arg; \
-  stringState[clistate.colorIndex ] = stationColor[clistate.colorIndex];\
-  Serial.printf("color[%u] = 0x%06X\n",clistate.colorIndex,stationColor[clistate.colorIndex]);
+#define tweakColor(which) stationColor[clistate.colorIndex ].which = param; \
+  stringState[clistate.colorIndex] = stationColor[clistate.colorIndex];\
+  dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(stationColor[clistate.colorIndex].as_uint32_t()));
 
-bool cliValidStation(unsigned arg, const unsigned char key) {
-  if (arg < numStations) {
+bool cliValidStation(unsigned param, const unsigned char key) {
+  if (param < numStations) {
     return true;
   }
-  Serial.printf("Invalid station: %u, valid values are [0..%u] for command %c\n", arg, numStations, key);
+  dbg.cout("Invalid station: ", param, ", valid values are [0..", numStations, "] for command ", key);
   return false;
 }
 
 void clido(const unsigned char key, bool wasUpper) {
-  unsigned param = cli.arg; //clears on read, can only access once!
+  unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case '.':
-      Serial.printf("Refresh colors returned:%x\n", primary.refreshColors());
+      dbg.cout("Refresh colors returned:", primary.refreshColors());
       break;
     case '!':
       primary.onSolution();
@@ -451,13 +430,13 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'c': // select a color to diddle
       if (cliValidStation(param, key)) {
         clistate.colorIndex = param;
-        Serial.printf("Selecting station %u, present value is 0x%06X\n", clistate.colorIndex, stationColor[clistate.colorIndex]);
+        dbg.cout("Selecting station ", clistate.colorIndex, ", present value is 0x", HEXLY(stationColor[clistate.colorIndex].as_uint32_t()));
       }
       break;
     case 'l': // select a lever to monitor
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        Serial.printf("Selecting station %u lever for diagnostic tracing\n", clistate.leverIndex);
+        dbg.cout("Selecting station ", clistate.leverIndex, " lever for diagnostic tracing");
       }
       break;
     case 'r':
@@ -496,7 +475,7 @@ void clido(const unsigned char key, bool wasUpper) {
       clistate.spewOnTick = wasUpper;
       break;
     case 'e'://keystroke echo, lower is on, upper is off
-      cli.echo = !wasUpper;
+      //      cli.echo = !wasUpper;
       break;
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
@@ -556,8 +535,9 @@ void clido(const unsigned char key, bool wasUpper) {
 
 // arduino's loop:
 void loop() {
+  flasher.loop();
   // debug interface
-  cli(clido);//process incoming keystrokes
+  dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
     if (IamBoss) {
