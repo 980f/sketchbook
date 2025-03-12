@@ -7,6 +7,7 @@ struct SimplePin {
   unsigned modeSet = ~0u; // an invalid value
 
   operator bool () {
+//    Serial.printf("Read D%u\t", number);
     if (modeSet == ~0u) {
       setup(INPUT);
     }
@@ -18,11 +19,12 @@ struct SimplePin {
   //    digitalWrite(pin, setto == activeHigh);
   //  }
 
-//  SimplePin(SimplePin &&other) = default;
+  //  SimplePin(SimplePin &&other) = default;
 
   SimplePin(unsigned pinNumber, bool activeHigh = true): number(pinNumber), activeHigh(activeHigh) { }
 
   void setup(unsigned the_pinMode) {
+//    Serial.printf("setup pin %u to %u\n", number, the_pinMode);
     modeSet = the_pinMode;
     pinMode(number, the_pinMode);
   }

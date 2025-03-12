@@ -97,8 +97,11 @@ struct CliState {
 // Boss/main pin allocations:
 #include "simpleDebouncedPin.h"
 
-struct LeverSet {
-    struct Lever {
+struct LeverSet: Printable {
+    /**
+       Each lever
+    */
+    struct Lever: Printable {
       // latched version of "presently"
       bool solved = 0;
       // debounced input
@@ -109,6 +112,7 @@ struct LeverSet {
       }
       // check up on bouncing.
       bool onTick() { // implements latched edge detection
+//        Serial.println("checking one lever");
         if (presently.onTick()) {   // if just became stable
           solved |= presently;
           return true;
@@ -126,9 +130,14 @@ struct LeverSet {
       }
 
       Lever(unsigned pinNumber) : presently{pinNumber, false} {}
+
+      size_t printTo(Print& p) const override {
+        return p.print(solved ? "ON" : "off");
+      }
     };
     std::array<Lever, numStations> lever; // using std::array over traditional array to get initializer syntax that we can type
 
+    /** back to the group of levers */
   public:
     enum class Event {
       NonePulled,  // none on
@@ -138,9 +147,10 @@ struct LeverSet {
     };
 
     Event onTick() {
+//      Serial.printf("Lever:ontick\n");
       // update, and note major events
       unsigned prior = numSolved();
-
+      //dbg.cout("Before checking levers ",prior," seem set");
       for (unsigned index = numStations; index-- > 0;) {
         bool changed = lever[index].onTick();
         if (changed && clistate.leverIndex == index) {
@@ -149,6 +159,7 @@ struct LeverSet {
       }
 
       unsigned someNow = numSolved();
+      //dbg.cout("After checking levers ",prior," seem set");
       if (someNow == prior) { // no substantial change
         return someNow ? Event::SomePulled : Event::NonePulled;
       }
@@ -167,6 +178,7 @@ struct LeverSet {
     }
 
     void restart() {
+      dbg.cout("Lever::Restart");
       ForStations(index) {
         lever[index].restart();
       }
@@ -175,17 +187,21 @@ struct LeverSet {
     unsigned numSolved() const {
       unsigned sum = 0;
       ForStations(index) {
-        sum += lever[index].solved;
+        if (lever[index].solved) {
+          ++sum;
+        }
+        //        sum += lever[index].solved;
       }
       return sum;
     }
 
     void listPins(Print &stream) const {
-      stream.print("Lever logical pin assignments");
+      dbg.cout("Lever logical pin assignments");
+      auto namedoesntmatter = dbg.cout.stackFeeder();
       ForStations(index) {
         stream.printf("\t%u:D%u", index, lever[index].pinNumber());
       }
-      stream.println();
+      dbg.cout.endl();
     }
 
     void setup(MilliTick bouncer) {
@@ -194,14 +210,18 @@ struct LeverSet {
       }
     }
 
-    LeverSet() : lever{16, 17, 5, 18, 19, 21} {}
+    LeverSet() : lever{16, 17, 5, 18, 19, 21} {}//SET PIN ASSIGNMENTS FOR LEVERS HERE
 
-    void printOn(Print &stream) {
-      stream.printf("Levers: \t");
+    size_t printTo(Print& stream) const override {
+      stream.print("Levers:");
       ForStations(index) {
-        stream.printf("[%u]:%x/%x (%x) \t", index, lever[index].solved, lever[index].presently, lever[index].presently.bouncy);
+        stream.print("\t");
+        stream.print(index);
+        stream.print(": ");
+        stream.print(lever[index]);
       }
-      stream.write('\n');
+      stream.println();
+      return 0;//todo: sum 'em up
     }
 };
 
@@ -269,10 +289,12 @@ class Worker : public NowDevice {
     LedStringer leds;
 
   public:
-    void setup() {
+    void setup(bool justTheString = true) {
       leds.setup(VortexFX.total);
-
-      NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
+      if (!justTheString) {
+        //if EL's come back they do so here.
+        NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
+      }
     }
 
     void loop() {
@@ -343,6 +365,7 @@ struct Boss : public NowDevice {
     }
 
     void onSolution() {
+      dbg.cout("Yippe!");
       timebomb.next(Ticker::Never);
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
@@ -351,6 +374,7 @@ struct Boss : public NowDevice {
     }
 
     void onTick(MilliTick now) {
+//      Serial.printf("Primary Ticker\t");
       if (timebomb.done()) {
         Serial.println("Timed out solving puzzle, resetting lever state");
         lever.restart();
@@ -397,12 +421,14 @@ void setup() {
   if (IamBoss) {
     Serial.println("Setting up as boss");
     primary.setup();
+  } else {
+    Serial.println("Setting up remote");
+    remote.setup();
   }
-  Serial.println("Setting up remote");
-  remote.setup();
-  
+
   Serial.println("Entering forever loop.");
   //dbg.setup(Serial,Serial);
+  dbg.cout.stifled = false;
 }
 
 
@@ -449,10 +475,14 @@ void clido(const unsigned char key, bool wasUpper) {
       tweakColor(b);
       break;
     case 's'://simulate a lever solution
-      if (cliValidStation(param, key)) {
+      if (param == ~0u) {
+        primary.onSolution();
+        Serial.printf("Activated fireworks! There are %d levers active\n", primary.lever.numSolved());
+      } else if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
         Serial.printf("Lever[%d] latch triggered, reports: %x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
+        dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
     case 't':
@@ -469,6 +499,7 @@ void clido(const unsigned char key, bool wasUpper) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
         Serial.printf("Lever[%d] latch cleared, reports: %x\n", primary.lever[clistate.leverIndex]);
+        dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
     case 'q'://periodic spew, lower is off, upper is on.
@@ -508,7 +539,7 @@ void clido(const unsigned char key, bool wasUpper) {
       primary.sendMessage(stringState);
       break;
     case ' ':
-      primary.lever.printOn(Serial);
+      primary.lever.printTo(Serial);
       Serial.print("Desired state:\t");
       stringState.printOn(Serial);
       Serial.print("Apparent state:\t");
@@ -542,15 +573,17 @@ void loop() {
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
     if (IamBoss) {
       primary.onTick(Ticker::now);
+    } else {
+      remote.onTick(Ticker::now);
     }
-    remote.onTick(Ticker::now);
     clistate.onTick();
   }
   // check event flags
   if (IamBoss) {
     primary.loop();
+  } else {
+    remote.loop();
   }
-  remote.loop();
 }
 
 unsigned whichDeviceIs(const MacAddress &perhapsMe) {

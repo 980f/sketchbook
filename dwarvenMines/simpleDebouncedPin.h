@@ -2,7 +2,7 @@
 #include "simplePin.h"
 #include "simpleTicker.h"
 #include "cheaptricks.h"
-struct DebouncedInput :public Printable {
+struct DebouncedInput : public Printable {
   SimplePin pin;
   //official state
   bool stable;
@@ -17,11 +17,15 @@ struct DebouncedInput :public Printable {
 
   /** @returns whether the input has officially changed to a new state */
   bool onTick(MilliTick ignored = 0) {
+//    Serial.printf("some input");
     if (changed(bouncy, bool(pin))) {//explicit cast need to get around a "const" issue with changed.
+      Serial.printf("Pin Changed: D%u to %x\n",pin.number,bouncy);
       bouncing.next(DebounceDelay);
+      return false;
     }
 
     if (bouncing.done()) {
+      Serial.printf("Stable D%u:%x\n", pin, bouncy);
       return changed(stable, bouncy);
     }
     return false;
@@ -30,6 +34,7 @@ struct DebouncedInput :public Printable {
   //use ~pin (not -pin) to indicate low active sense
   void setup(bool triggerOnStart = false) {
     pin.setup(INPUT);
+    pin = true;//JIC
     bouncy = pin;
 
     if (triggerOnStart) {
@@ -54,7 +59,7 @@ struct DebouncedInput :public Printable {
     return !bouncing.isRunning();
   }
 
-   size_t printTo(Print& p) const override {
-      return p.print(stable?"ON":"off");
-   }
+  size_t printTo(Print& p) const override {
+    return p.print(stable ? "ON" : "off");
+  }
 };
