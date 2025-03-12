@@ -13,8 +13,6 @@ EzOTA flasher;
 //esp stuff pollutes the global namespace with macros for some asm language operations.
 #undef cli
 
-//replace with cheaptricks now that are using 980f's stuff to get a cli. #include "simpleUtil.h"
-
 const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 
@@ -26,42 +24,52 @@ unsigned fuseSeconds = 3 * 60; // 3 minutes
 // worker/remote pin allocations:
 const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
-
 struct StripConfiguration {
-  unsigned perRevolution = 89;
-  unsigned perStation = perRevolution / 2;
+  unsigned perRevolutionActual = 200;//a guess
+  unsigned perRevolutionVisible = 89;//from 2024 haunt code
+  unsigned perStation = perRevolutionVisible / 2;
   unsigned numStrips = 4;
-  unsigned total = perRevolution * numStrips; // 356
+  unsigned total = perRevolutionActual * numStrips;
 } VortexFX; // not const until wiring is confirmed, so that we can play with config to confirm wiring.
 
 #include "ledString.h" //FastLED stuff, uses LEDStringType
 
+struct ColorSet: Printable {
+  //to limit power consumption:
+  uint8_t MAX_BRIGHTNESS = 80; // todo: debate whether worker limits received values or trusts the boss.
 
-uint8_t MAX_BRIGHTNESS = 80; // todo: debate whether worker limits received values or trusts the boss.
+  CRGB Color[numStations] = {
+    0xFF0000,
+    0x00FF00,
+    0x0000FF,
+    0xFF00FF,
+    0xFFFF00,
+    0x00FFFF,
+  };
 
-CRGB stationColor[numStations] = {
-  0xFF0000,
-  0x00FF00,
-  0x0000FF,
-  0xFF00FF,
-  0xFFFF00,
-  0x00FFFF,
-};
-
-void printColorSet(const char *prefix, CRGB *color, Print &stream) {
-  if (prefix) {
-    stream.print(prefix);
-    stream.print(": \t");
+  /** @returns reference to a color, using #0 for invalid indexes */
+  CRGB &operator[](unsigned index) {
+    return Color[index < numStations ? index : 0];
   }
-  ForStations(si) {
-    stream.printf("[%u]=%06X \t", si, color[si].as_uint32_t());
-  }
-  stream.println();
-}
 
-void printColorsOn(Print &stream) {
-  printColorSet("Station Colors", stationColor, stream);
-}
+  static size_t printColorSet(const char *prefix, const CRGB *color, Print &stream) {
+    size_t length = 0;
+    if (prefix) {
+      length += stream.print(prefix);
+      length += stream.print(":");
+    }
+    ForStations(si) {
+      length += stream.printf("\t[%u]=%06X", si, color[si].as_uint32_t());
+    }
+    length += stream.println();
+    return length;
+  }
+
+  size_t printTo(Print &stream) const override {
+    return printColorSet(" Colors", Color, stream);
+  }
+} station;
+
 /////////////////////////
 // debug cli
 #include "sui.h" //Command Line Interpreter, Reverse Polish expressions.
@@ -112,7 +120,7 @@ struct LeverSet: Printable {
       }
       // check up on bouncing.
       bool onTick() { // implements latched edge detection
-//        Serial.println("checking one lever");
+        //        Serial.println("checking one lever");
         if (presently.onTick()) {   // if just became stable
           solved |= presently;
           return true;
@@ -147,7 +155,7 @@ struct LeverSet: Printable {
     };
 
     Event onTick() {
-//      Serial.printf("Lever:ontick\n");
+      //      Serial.printf("Lever:ontick\n");
       // update, and note major events
       unsigned prior = numSolved();
       //dbg.cout("Before checking levers ",prior," seem set");
@@ -213,15 +221,16 @@ struct LeverSet: Printable {
     LeverSet() : lever{16, 17, 5, 18, 19, 21} {}//SET PIN ASSIGNMENTS FOR LEVERS HERE
 
     size_t printTo(Print& stream) const override {
-      stream.print("Levers:");
+      size_t length = 0;
+      length += stream.print("Levers:");
       ForStations(index) {
-        stream.print("\t");
-        stream.print(index);
-        stream.print(": ");
-        stream.print(lever[index]);
+        length += stream.print("\t");
+        length += stream.print(index);
+        length += stream.print(": ");
+        length += stream.print(lever[index]);
       }
-      stream.println();
-      return 0;//todo: sum 'em up
+      length += stream.println();
+      return length;
     }
 };
 
@@ -258,21 +267,35 @@ unsigned whichDeviceIs(const MacAddress &perhapsMe);
 struct DesiredState : public NowDevice::Message {
   /** this is added to the offset of each light */
   unsigned vortexAngle; // 0 to 89 for 0 to 359 degrees of rotation.
-  CRGB color[numStations];
+  unsigned whichPattern = 0;
+  ColorSet color;
 
+  /////////////////////////////
+  // transport parts
+  uint8_t endMarker;
+
+
+  /** format for delivery, content is copied but not immediately so using stack is risky. */
+  Buffer<uint8_t> incoming() override {
+    return Buffer {reinterpret_cast<uint8_t*>(&vortexAngle),(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)};
+  }
+
+  unsigned size() const override {
+    return &endMarker - payloadOut();
+  }
+
+  ///////////////////////////////////
+  // accessors
   CRGB &operator [](unsigned si) {
     return color[si];
   }
 
-  unsigned size() const override {
-    return sizeof(*this);
-  }
-
-  // default binary copies in and out work for us
-  ///////////////////////////////////////////////////
-  void printOn(Print &stream) {
-    stream.printf("Angle:%d\n", vortexAngle);
-    printColorSet("Active Colors", color, stream);
+  size_t printTo(Print &stream) {
+    size_t length = 0;
+    length += printf("Angle:%d\n", vortexAngle);
+    length += stream.printf("Pattern:%u\n", whichPattern);
+    length += stream.print(color);
+    return length;
   }
 
 };
@@ -288,11 +311,33 @@ DesiredState echoState;
 class Worker : public NowDevice {
     LedStringer leds;
 
+    LedStringer::Pattern pattern(unsigned si) { //station index
+      LedStringer::Pattern p;
+      switch (whichPattern) {
+        case 0:
+          p.offset = si / 2 * VortexFX.perRevolutionActual; //which ring
+          if (si & 1) {
+            p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
+          }
+
+          //set this many in a row,must be at least 1
+          p.run = VortexFX.perRevolutionVisible / 2 + si & 1; //halfsies, rounded
+          //every this many, must be greater than or the same as run
+          p.period = p.run;
+          //this number of times, must be at least 1
+          p.sets = 1;
+          //Runner will apply this modulus to its generated numbers
+          p.modulus = VortexFX.perRevolutionActual;
+          break;
+      }
+      return p;
+    }
+
   public:
     void setup(bool justTheString = true) {
       leds.setup(VortexFX.total);
       if (!justTheString) {
-        //if EL's come back they do so here.
+        //if EL's are restored they get setup here.
         NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
       }
     }
@@ -300,10 +345,8 @@ class Worker : public NowDevice {
     void loop() {
       if (flagged(dataReceived)) { // message received
         ForStations(index) {
-          for (unsigned grouplength = 44 + (index & 1); grouplength-- > 0;) {
-            unsigned offset = (grouplength + stringState.vortexAngle) % VortexFX.perRevolution; // rotate around the strip by group amount
-            leds[offset + (index * VortexFX.perRevolution) / 2] = stringState.color[index]; // half of a strip per station
-          }
+          auto p = pattern(index);
+          leds.setPattern(station[index], p.runner());
         }
         leds.show();
       }
@@ -356,7 +399,7 @@ struct Boss : public NowDevice {
     bool refreshColors() {
       unsigned diffs = 0;
       ForStations(si) {
-        stringState[si] = lever[si] ? stationColor[si] : 0;//todo: what is the name for the shared 'black' ledColor?
+        stringState[si] = lever[si] ? station[si] : 0;//todo: what is the name for the shared 'black' ledColor?
         if (stringState[si] != echoState[si]) { //until we implement worker status reporting we rely upon the base class faking the echo. see autoEcho.
           ++diffs;
         }
@@ -374,7 +417,7 @@ struct Boss : public NowDevice {
     }
 
     void onTick(MilliTick now) {
-//      Serial.printf("Primary Ticker\t");
+      //      Serial.printf("Primary Ticker\t");
       if (timebomb.done()) {
         Serial.println("Timed out solving puzzle, resetting lever state");
         lever.restart();
@@ -406,11 +449,10 @@ struct Boss : public NowDevice {
 using ThisApp = NowDevice; //<DesiredState>;
 // at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID. These are set in the related setup() calls.
 ThisApp *ThisApp::receiver = nullptr;
-ThisApp *ThisApp ::sender = nullptr;
+ThisApp *ThisApp::sender = nullptr;
 
 unsigned ThisApp::setupCount = 0;
 ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
-
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // arduino's setup:
@@ -421,10 +463,11 @@ void setup() {
   if (IamBoss) {
     Serial.println("Setting up as boss");
     primary.setup();
+    Serial.println("and Emulating remote");
   } else {
     Serial.println("Setting up remote");
-    remote.setup();
   }
+  remote.setup(IamBoss);
 
   Serial.println("Entering forever loop.");
   //dbg.setup(Serial,Serial);
@@ -432,9 +475,9 @@ void setup() {
 }
 
 
-#define tweakColor(which) stationColor[clistate.colorIndex ].which = param; \
-  stringState[clistate.colorIndex] = stationColor[clistate.colorIndex];\
-  dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(stationColor[clistate.colorIndex].as_uint32_t()));
+#define tweakColor(which) station[clistate.colorIndex].which = param; \
+  stringState[clistate.colorIndex] = station[clistate.colorIndex];\
+  dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(station[clistate.colorIndex].as_uint32_t()));
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -456,7 +499,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'c': // select a color to diddle
       if (cliValidStation(param, key)) {
         clistate.colorIndex = param;
-        dbg.cout("Selecting station ", clistate.colorIndex, ", present value is 0x", HEXLY(stationColor[clistate.colorIndex].as_uint32_t()));
+        dbg.cout("Selecting station ", clistate.colorIndex, ", present value is 0x", HEXLY(station[clistate.colorIndex].as_uint32_t()));
       }
       break;
     case 'l': // select a lever to monitor
@@ -539,11 +582,11 @@ void clido(const unsigned char key, bool wasUpper) {
       primary.sendMessage(stringState);
       break;
     case ' ':
-      primary.lever.printTo(Serial);
+      primary.lever.printTo(dbg.cout.raw);
       Serial.print("Desired state:\t");
-      stringState.printOn(Serial);
+      Serial.print(stringState);
       Serial.print("Apparent state:\t");
-      echoState.printOn(Serial);
+      echoState.printTo(Serial);
       break;
     case '*':
       primary.lever.listPins(Serial);
@@ -555,7 +598,7 @@ void clido(const unsigned char key, bool wasUpper) {
       //add all other pins in use ...
       break;
     case '?':
-      Serial.printf("usage:\n\tc:\tselect color/station to tweak color\n\tr,g,b:\talter pigment,%u(0x%2X) is bright\n\tl,s,u:\tlever trace/set/unset\n ", MAX_BRIGHTNESS , MAX_BRIGHTNESS );
+      Serial.printf("usage:\n\tc:\tselect color/station to tweak color\n\tr,g,b:\talter pigment,%u(0x%2X) is bright\n\tl,s,u:\tlever trace/set/unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
       Serial.printf("Undocumented: !^Z.o[Enter]qet\n");
       break;
     default:
@@ -566,24 +609,17 @@ void clido(const unsigned char key, bool wasUpper) {
 
 // arduino's loop:
 void loop() {
-  flasher.loop();
-  // debug interface
+  flasher.loop();//OTA firmware or file update
   dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    if (IamBoss) {
-      primary.onTick(Ticker::now);
-    } else {
-      remote.onTick(Ticker::now);
-    }
+    primary.onTick(Ticker::now);
+    remote.onTick(Ticker::now);
     clistate.onTick();
   }
   // check event flags
-  if (IamBoss) {
-    primary.loop();
-  } else {
-    remote.loop();
-  }
+  primary.loop();
+  remote.loop();
 }
 
 unsigned whichDeviceIs(const MacAddress &perhapsMe) {

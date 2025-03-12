@@ -122,7 +122,7 @@ struct LedStringer {
       }
     };
 
-    Runner makeRunner() const {
+    Runner runner() const {
       return Runner(*this);
     }
 
@@ -139,7 +139,7 @@ struct LedStringer {
   unsigned setPattern(CRGB color, const Pattern &pattern) {
     unsigned numberSet=0;//diagnostic
     if (pattern) {
-      auto runner = pattern.makeRunner();
+      auto runner = pattern.runner();
       do {//precheck of pattern lets us know that at least one pixel gets set
         leds[runner] = color;
         ++numberSet;

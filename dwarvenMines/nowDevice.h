@@ -5,37 +5,34 @@
 #include <string.h>
 #include "macAddress.h"
 #include "simpleTicker.h"
+#include "block.h"
 
-const unsigned FX_channel=6;//todo: discuss with crew, do we want to share with Hollis and Luma or avoid them, and what else is beaming around the facility?
+const unsigned FX_channel = 6; //todo: discuss with crew, do we want to share with Hollis and Luma or avoid them, and what else is beaming around the facility?
 
 ///////////////////////////////////////////////
 //communications manager:
 class NowDevice {
   public:
     /** a base class that you must derive your messages from.
-        The default payload function is likely to trash the program as a class with a virtual dispatch table cannot be treated like a POD.
     */
-    class Message {
+    class Message: Printable  {
         friend class NowDevice;
       protected:
-
-        virtual unsigned size() const = 0; //you must report the size of your payload
-
-        /** format for delivery, content is copied but not immediately so using stack is risky. */
-        virtual const uint8_t* payload() const {
-          return reinterpret_cast < const uint8_t *>(this + 1);
-        }
+        virtual Block<uint8_t> incoming() = 0;
+        virtual Block<const uint8_t> outgoing() const = 0;
 
         /** copy in content, can't trust that the data will stay allocated, it could be on stack.
             NB: using unsigned as len converts a negative length to an enormous one, and that makes min() work.
            default is binary copy, can implement a text parser if that floats your boat.
         */
         virtual void receive(const uint8_t *incomingData, unsigned len) {
-          memcpy(this + 1, incomingData, min(len, sizeof(Message)));
+          auto buffer=incoming();
+          memcpy(incoming.content, incomingData, min(len, incoming.size));
         }
 
-        virtual void printOn(Print &debugger) {
+        size_t printTo(Print &debugger) const override {
           //you don't have to output diagnostic info if you don't want to.
+          return 0;
         }
     };
     //  protected:
@@ -76,13 +73,13 @@ class NowDevice {
     }
 
     MacAddress *remote = nullptr;
-    void sendMessage(const Message &newMessage) {
+    void sendMessage( const Message &newMessage) {
       // Set values to send
       lastMessage = &newMessage;
       if (lastMessage) {
         ++stats.Attempts;
-        // Send message via ESP-NOW
-        esp_err_t result = esp_now_send(*remote, lastMessage->payload(), lastMessage->size());
+        auto buffer=lastMessage->outgoing();
+        esp_err_t result = esp_now_send(*remote, buffer.content, buffer.size);
         messageOnWire = result == OK;
         if (! messageOnWire) {//why does indenter fail on this line?
           ++stats.Failures;
@@ -98,11 +95,15 @@ class NowDevice {
     void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
       if (message) {
         message->receive(incomingData, len);
+        Serial.print("Bytes received: ");
+        Serial.println(len);
+        Serial.print(*message);
+        dataReceived = true;
+      } else {
+        Serial.print("Bytes ignored: ");
+        Serial.println(len);
       }
-      Serial.print("Bytes received: ");
-      Serial.println(len);
-      message->printOn(Serial);
-      dataReceived = true;
+
     }
 
   public:
@@ -133,7 +134,7 @@ class NowDevice {
       while (!WiFi.STA.started()) {
         delay(100);//this was needed!
       }
-      
+
       WiFi.macAddress(ownAddress);
       Serial.print("I am: ");
       ownAddress.PrintOn(Serial);

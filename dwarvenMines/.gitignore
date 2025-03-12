@@ -1,4 +1,5 @@
 arduous
+block.h
 build
 chainprinter.h
 char.cpp
