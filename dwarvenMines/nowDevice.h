@@ -15,7 +15,7 @@ class NowDevice {
   public:
     /** a base class that you must derive your messages from.
     */
-    class Message: Printable  {
+    class Message: public Printable  {
         friend class NowDevice;
       protected:
         virtual Block<uint8_t> incoming() = 0;
@@ -27,7 +27,7 @@ class NowDevice {
         */
         virtual void receive(const uint8_t *incomingData, unsigned len) {
           auto buffer=incoming();
-          memcpy(incoming.content, incomingData, min(len, incoming.size));
+          memcpy(&buffer.content, incomingData, min(len, buffer.size));
         }
 
         size_t printTo(Print &debugger) const override {
@@ -79,7 +79,7 @@ class NowDevice {
       if (lastMessage) {
         ++stats.Attempts;
         auto buffer=lastMessage->outgoing();
-        esp_err_t result = esp_now_send(*remote, buffer.content, buffer.size);
+        esp_err_t result = esp_now_send(*remote, &buffer.content, buffer.size);
         messageOnWire = result == OK;
         if (! messageOnWire) {//why does indenter fail on this line?
           ++stats.Failures;

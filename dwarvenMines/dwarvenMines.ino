@@ -276,13 +276,13 @@ struct DesiredState : public NowDevice::Message {
 
 
   /** format for delivery, content is copied but not immediately so using stack is risky. */
-  Buffer<uint8_t> incoming() override {
-    return Buffer {reinterpret_cast<uint8_t*>(&vortexAngle),(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)};
+  Block<uint8_t> incoming() override {
+    return Block<uint8_t> {(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)),*reinterpret_cast<uint8_t*>(&vortexAngle)};
   }
 
-  unsigned size() const override {
-    return &endMarker - payloadOut();
-  }
+   Block<const uint8_t> outgoing() const override {
+    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t*>(&vortexAngle)),*reinterpret_cast<const uint8_t*>(&vortexAngle)};
+   }
 
   ///////////////////////////////////
   // accessors
@@ -313,7 +313,7 @@ class Worker : public NowDevice {
 
     LedStringer::Pattern pattern(unsigned si) { //station index
       LedStringer::Pattern p;
-      switch (whichPattern) {
+      switch (stringState.whichPattern) {
         case 0:
           p.offset = si / 2 * VortexFX.perRevolutionActual; //which ring
           if (si & 1) {
