@@ -18,7 +18,8 @@ const unsigned numStations = 6;
 
 // time from first pull to restart
 unsigned fuseSeconds = 3 * 60; // 3 minutes
-
+//time from solution vortex halt when operator fails to turn it off.
+unsigned resetTicks = 87 * 1000; //
 // pin assignments being globalized is convenient administratively, while mediocre form programming-wise.
 
 // worker/remote pin allocations:
@@ -50,6 +51,12 @@ struct ColorSet: Printable {
   /** @returns reference to a color, using #0 for invalid indexes */
   CRGB &operator[](unsigned index) {
     return Color[index < numStations ? index : 0];
+  }
+
+  void all(CRGB same) {
+    ForStations(si) {
+      Color[si] = LedStringer::Off;
+    }
   }
 
   static size_t printColorSet(const char *prefix, const CRGB *color, Print &stream) {
@@ -277,12 +284,12 @@ struct DesiredState : public NowDevice::Message {
 
   /** format for delivery, content is copied but not immediately so using stack is risky. */
   Block<uint8_t> incoming() override {
-    return Block<uint8_t> {(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)),*reinterpret_cast<uint8_t*>(&vortexAngle)};
+    return Block<uint8_t> {(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)), *reinterpret_cast<uint8_t*>(&vortexAngle)};
   }
 
-   Block<const uint8_t> outgoing() const override {
-    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t*>(&vortexAngle)),*reinterpret_cast<const uint8_t*>(&vortexAngle)};
-   }
+  Block<const uint8_t> outgoing() const override {
+    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t*>(&vortexAngle)), *reinterpret_cast<const uint8_t*>(&vortexAngle)};
+  }
 
   ///////////////////////////////////
   // accessors
@@ -298,6 +305,9 @@ struct DesiredState : public NowDevice::Message {
     return length;
   }
 
+  void reset() {
+    color.all({0, 0, 0});
+  }
 };
 
 // command to remote
@@ -346,7 +356,7 @@ class Worker : public NowDevice {
       if (flagged(dataReceived)) { // message received
         ForStations(index) {
           auto p = pattern(index);
-          leds.setPattern(station[index], p.runner());
+          leds.setPattern(station[index], p);
         }
         leds.show();
       }
@@ -367,7 +377,7 @@ struct Boss : public NowDevice {
     bool haveRemote = true; // if no remote then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
-
+    Ticker autoReset; //ensure things shut down if the operator gets distracted
 
   public:
     void setup() {
@@ -393,7 +403,12 @@ struct Boss : public NowDevice {
 
     void loop() {
       // levers are tested on timer tick, since they are debounced by it.
-      // someday we will get echoState here and test it against desired and resend on mismatch.
+      if (flagged(dataReceived)) { // message received
+        if (refreshColors()) {
+          //todo: resend them
+          dbg.cout("Worker is ignoring me!");
+        }
+      }
     }
 
     bool refreshColors() {
@@ -413,10 +428,23 @@ struct Boss : public NowDevice {
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
       // any other bells and whistles?
+
       //todo: timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
+      autoReset.next(resetTicks);
+    }
+
+    void resetPuzzle() {
+      autoReset.next(Ticker::Never);
+      timebomb.next(Ticker::Never);
+      relay[DoorRelease] << false;
+      relay[VortexMotor] << false;
+      stringState.reset();
     }
 
     void onTick(MilliTick now) {
+      if (autoReset.done()) {
+        resetPuzzle();
+      }
       //      Serial.printf("Primary Ticker\t");
       if (timebomb.done()) {
         Serial.println("Timed out solving puzzle, resetting lever state");
@@ -463,7 +491,7 @@ void setup() {
   if (IamBoss) {
     Serial.println("Setting up as boss");
     primary.setup();
-    Serial.println("and Emulating remote");
+    Serial.println(" and Emulating remote");
   } else {
     Serial.println("Setting up remote");
   }
@@ -483,7 +511,7 @@ bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
     return true;
   }
-  dbg.cout("Invalid station: ", param, ", valid values are [0..", numStations, "] for command ", key);
+  dbg.cout("Invalid station : ", param, ", valid values are [0..", numStations, "] for command ", key);
   return false;
 }
 
@@ -491,7 +519,7 @@ void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case '.':
-      dbg.cout("Refresh colors returned:", primary.refreshColors());
+      dbg.cout("Refresh colors returned : ", primary.refreshColors());
       break;
     case '!':
       primary.onSolution();
@@ -520,11 +548,11 @@ void clido(const unsigned char key, bool wasUpper) {
     case 's'://simulate a lever solution
       if (param == ~0u) {
         primary.onSolution();
-        Serial.printf("Activated fireworks! There are %d levers active\n", primary.lever.numSolved());
+        Serial.printf("Activated fireworks! There are % d levers active\n", primary.lever.numSolved());
       } else if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
-        Serial.printf("Lever[%d] latch triggered, reports: %x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
+        Serial.printf("Lever[ % d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
@@ -532,16 +560,16 @@ void clido(const unsigned char key, bool wasUpper) {
       if (wasUpper) {
         primary.timebomb.next(param);
       }
-      Serial.printf("Timebomb due:%u, in: %d, Now:%u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
+      Serial.printf("Timebomb due : % u, in : % d, Now : % u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
       break;
     case 'u': //unsolve
       if (param == ~0u) {
         primary.lever.restart();
-        Serial.printf("After simulated bombing out there are %d levers active\n", primary.lever.numSolved());
+        Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
       } else if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
-        Serial.printf("Lever[%d] latch cleared, reports: %x\n", primary.lever[clistate.leverIndex]);
+        Serial.printf("Lever[ % d] latch cleared, reports : % x\n", primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
@@ -555,7 +583,7 @@ void clido(const unsigned char key, bool wasUpper) {
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
       for (unsigned countdown = min(param, 4u ); countdown-- > 0;) {
         delay(666);
-        Serial.printf("%u,\t", countdown);
+        Serial.printf(" % u, \t", countdown);
       }
       ESP.restart();
       break;
@@ -563,14 +591,14 @@ void clido(const unsigned char key, bool wasUpper) {
       switch (param) {
         case 0:
           clistate.onBoard << wasUpper;
-          Serial.printf("LED:%x\n", bool(clistate.onBoard));
+          Serial.printf("LED : % x\n", bool(clistate.onBoard));
           break;
         case ~0u:
           clistate.onBoard.toggle();
-          Serial.printf("LED:%x\n", bool(clistate.onBoard));
+          Serial.printf("LED : % x\n", bool(clistate.onBoard));
           break;
         default:
-          Serial.printf("output %u not yet debuggable\n", param);
+          Serial.printf("output % u not yet debuggable\n", param);
           break;
       }
       break;
@@ -583,26 +611,26 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
     case ' ':
       primary.lever.printTo(dbg.cout.raw);
-      Serial.print("Desired state:\t");
+      Serial.print("Desired state : \t");
       Serial.print(stringState);
-      Serial.print("Apparent state:\t");
+      Serial.print("Apparent state : \t");
       echoState.printTo(Serial);
       break;
     case '*':
       primary.lever.listPins(Serial);
-      Serial.print("Relay assignments:");
+      Serial.print("Relay assignments : ");
       for (unsigned channel = numRelays; channel-- > 0;) {
-        Serial.printf("\t%u:D%u", channel, relay[channel].number);
+        Serial.printf("\t % u : D % u", channel, relay[channel].number);
       }
       Serial.println();
       //add all other pins in use ...
       break;
     case '?':
-      Serial.printf("usage:\n\tc:\tselect color/station to tweak color\n\tr,g,b:\talter pigment,%u(0x%2X) is bright\n\tl,s,u:\tlever trace/set/unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
-      Serial.printf("Undocumented: !^Z.o[Enter]qet\n");
+      Serial.printf("usage : \n\tc : \tselect color / station to tweak color\n\tr, g, b : \talter pigment, % u(0x % 2X) is bright\n\tl, s, u : \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
+      Serial.printf("Undocumented : !^Z.o[Enter]qet\n");
       break;
     default:
-      Serial.printf("Unassigned command letter %c\n", key);
+      Serial.printf("Unassigned command letter % c\n", key);
       break;
   }
 }

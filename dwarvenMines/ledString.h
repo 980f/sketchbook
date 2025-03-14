@@ -28,7 +28,7 @@ struct LedStringer {
 
   LedStringer (): LedStringer(0, nullptr) {}
 
-  const CRGB ledOff = {0, 0, 0};
+  static constexpr CRGB Off = {0, 0, 0};
 
 #define forLEDS(indexname) for (int indexname = quantity; i-->0;)
 
@@ -36,7 +36,7 @@ struct LedStringer {
   /** this is poorly named as it sets all leds to something, either the @param runnerColor or black */
   void all(CRGB runnerColor, BoolPredicate lit) {
     forLEDS(i) {
-      leds[i] = lit(i) ? runnerColor : ledOff;
+      leds[i] = lit(i) ? runnerColor : Off;
     }
   }
 
@@ -50,7 +50,7 @@ struct LedStringer {
   }
 
   void allOff() {
-    all( ledOff );
+    all( Off );
   }
 
   struct Pattern {

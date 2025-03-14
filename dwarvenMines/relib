@@ -3,6 +3,7 @@ ln -sf ../shared lib
 ln -sf ../shared/arduous
 ln -sf lib/ezcpp/block.h
 ln -sf lib/chainprinter.h
+ln -sf lib/ezcpp/char.cpp
 ln -sf lib/ezcpp/char.h
 ln -sf lib/ezcpp/cheaptricks.h
 ln -sf lib/clirp.h
