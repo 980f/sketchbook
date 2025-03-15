@@ -245,7 +245,7 @@ struct LeverSet: Printable {
 SimpleOutputPin relay[] = {26, 25, 33, 32, 22, 23}; // all relays in a group to expedite "all off"
 
 enum RelayChannel { // index into relay array.
-  //  AUDIO = 0,
+  //there are spare outputs declared in relay[] but without an enum to pick them
   VortexMotor,
   Lights_1,
   Lights_2,
@@ -255,7 +255,7 @@ enum RelayChannel { // index into relay array.
 
 SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
 SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
-SimplePin Run     = {4};  //pin to enable else reset the puzzle.
+DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
 
 #include "macAddress.h"
 // known units, until we implement a broadcast based protocol.
@@ -423,13 +423,12 @@ struct Boss : public NowDevice {
     }
 
     void onSolution() {
-      dbg.cout("Yippe!");
+      dbg.cout("Yippie!");
       timebomb.next(Ticker::Never);
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
-      // any other bells and whistles?
-
-      //todo: timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
+      //todo: any other bells or whistles?
+      //timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
       autoReset.next(resetTicks);
     }
 
@@ -444,6 +443,13 @@ struct Boss : public NowDevice {
     void onTick(MilliTick now) {
       if (autoReset.done()) {
         resetPuzzle();
+      }
+      if (Run.onTick()) {
+        if (Run.pin) {
+          //allow puzzle to operate
+        } else {
+          resetPuzzle();
+        }
       }
       //      Serial.printf("Primary Ticker\t");
       if (timebomb.done()) {
@@ -519,10 +525,21 @@ void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case '.':
-      dbg.cout("Refresh colors returned : ", primary.refreshColors());
-      break;
-    case '!':
-      primary.onSolution();
+      switch (param) {
+        case 0:
+          dbg.cout("Refresh colors returned : ", primary.refreshColors());
+          break;
+        case 1:
+          primary.onSolution();
+          break;
+        case ~0u:
+          primary.resetPuzzle();
+          break;
+        case 2:
+          primary.lever.restart();
+          Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
+          break;
+      }
       break;
     case 'c': // select a color to diddle
       if (cliValidStation(param, key)) {
@@ -546,10 +563,7 @@ void clido(const unsigned char key, bool wasUpper) {
       tweakColor(b);
       break;
     case 's'://simulate a lever solution
-      if (param == ~0u) {
-        primary.onSolution();
-        Serial.printf("Activated fireworks! There are % d levers active\n", primary.lever.numSolved());
-      } else if (cliValidStation(param, key)) {
+      if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
         Serial.printf("Lever[ % d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
@@ -563,10 +577,7 @@ void clido(const unsigned char key, bool wasUpper) {
       Serial.printf("Timebomb due : % u, in : % d, Now : % u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
       break;
     case 'u': //unsolve
-      if (param == ~0u) {
-        primary.lever.restart();
-        Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
-      } else if (cliValidStation(param, key)) {
+      if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
         Serial.printf("Lever[ % d] latch cleared, reports : % x\n", primary.lever[clistate.leverIndex]);
@@ -650,7 +661,7 @@ void loop() {
   remote.loop();
 }
 
-unsigned whichDeviceIs(const MacAddress &perhapsMe) {
+unsigned whichDeviceIs(const MacAddress & perhapsMe) {
   for (unsigned index = knownDevices.size(); index-- > 0;) {
     if (knownDevices[index] == perhapsMe) {
       return index;
