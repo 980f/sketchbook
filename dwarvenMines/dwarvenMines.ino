@@ -351,11 +351,12 @@ class Worker : public NowDevice {
         //if EL's are restored they get setup here.
         NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
       }
+      Serial.println("Worker Setup Complete");
     }
 
     void loop() {
       if (flagged(dataReceived)) { // message received
-        Serial.printf("Seq#:%u\n",stringState.sequenceNumber);
+        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
         ForStations(index) {
           auto p = pattern(index);
           leds.setPattern(stringState[index], p);
@@ -399,8 +400,10 @@ struct Boss : public NowDevice {
           Serial.println("Failed to add peer");
           // no return here as we need to finish local init even if remote connection fails.
         }
+      } else {
+        Serial.println("Faking reception!");
       }
-      Serial.println("Setup Complete");
+      Serial.println("Boss Setup Complete");
     }
 
     void loop() {
@@ -547,7 +550,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case '=':
       stringState.sequenceNumber = param ? param : 1 + stringState.sequenceNumber;
       primary.sendMessage(stringState);
-      dbg.cout("Sending sequenceNumber",stringState.sequenceNumber);
+      dbg.cout("Sending sequenceNumber", stringState.sequenceNumber);
       break;
     case 'a':
       if (dbg.numParams() > 1) {
@@ -656,6 +659,9 @@ void clido(const unsigned char key, bool wasUpper) {
     case '?':
       Serial.printf("usage : \n\tc : \tselect color / station to tweak color\n\tr, g, b : \talter pigment, % u(0x % 2X) is bright\n\tl, s, u : \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
       Serial.printf("Undocumented : !^Z.o[Enter]qet\n");
+      break;
+    case '!':
+      flasher.setup();
       break;
     default:
       Serial.printf("Unassigned command letter % c\n", key);
