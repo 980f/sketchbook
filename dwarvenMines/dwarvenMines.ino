@@ -18,13 +18,13 @@ const unsigned numStations = 6;
 
 // time from first pull to restart
 unsigned fuseSeconds = 3 * 60; // 3 minutes
-//time from solution vortex halt when operator fails to turn it off.
-unsigned resetTicks = 87 * 1000; //
-// pin assignments being globalized is convenient administratively, while mediocre form programming-wise.
+//time from solution to vortex halt, for when the operator fails to turn it off.
+unsigned resetTicks = 87 * 1000;
 
 // worker/remote pin allocations:
 const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
+
 struct StripConfiguration {
   unsigned perRevolutionActual = 200;//a guess
   unsigned perRevolutionVisible = 89;//from 2024 haunt code
@@ -540,6 +540,15 @@ void clido(const unsigned char key, bool wasUpper) {
           Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
           break;
       }
+      break;
+    case 'a':
+      if (dbg.numParams() > 1) {
+        VortexFX.perRevolutionActual = param;
+      }
+      if (dbg.numParams() > 1) {
+        VortexFX.perRevolutionVisible = dbg[1];
+      }
+      dbg.cout("Ring config: Visible:", VortexFX.perRevolutionVisible , "\t Actual:", VortexFX.perRevolutionActual);
       break;
     case 'c': // select a color to diddle
       if (cliValidStation(param, key)) {
