@@ -275,6 +275,7 @@ struct DesiredState : public NowDevice::Message {
   /** this is added to the offset of each light */
   unsigned vortexAngle; // 0 to 89 for 0 to 359 degrees of rotation.
   unsigned whichPattern = 0;
+  unsigned sequenceNumber = 0;
   ColorSet color;
 
   /////////////////////////////
@@ -354,9 +355,10 @@ class Worker : public NowDevice {
 
     void loop() {
       if (flagged(dataReceived)) { // message received
+        Serial.printf("Seq#:%u\n",stringState.sequenceNumber);
         ForStations(index) {
           auto p = pattern(index);
-          leds.setPattern(station[index], p);
+          leds.setPattern(stringState[index], p);
         }
         leds.show();
       }
@@ -381,7 +383,7 @@ struct Boss : public NowDevice {
 
   public:
     void setup() {
-      lever.setup(50); // todo: proper source for debounce time
+      lever.setup(50); // todo: proper source for  debounce time
       NowDevice::setup(echoState); // must do this before we do any other esp_now calls.
       // BTW:ownAddress is all zeroes until after NowDevice::setup.
       haveRemote = IamReal; // read a pin
@@ -473,6 +475,7 @@ struct Boss : public NowDevice {
       //now setup desiredState and if not the same as echoState then send it
       if (refreshColors()) {
         if (!messageOnWire) { //can't send another until prior is handled, this needs work.
+          ++stringState.sequenceNumber;//mostly to see if connection is working
           sendMessage(stringState);
         }
         //else we will eventually get here and think to try again.
@@ -540,6 +543,11 @@ void clido(const unsigned char key, bool wasUpper) {
           Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
           break;
       }
+      break;
+    case '=':
+      stringState.sequenceNumber = param ? param : 1 + stringState.sequenceNumber;
+      primary.sendMessage(stringState);
+      dbg.cout("Sending sequenceNumber",stringState.sequenceNumber);
       break;
     case 'a':
       if (dbg.numParams() > 1) {

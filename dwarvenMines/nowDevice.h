@@ -127,18 +127,6 @@ class NowDevice {
       if (setupCount++) {
         return;
       }
-      // Set device as a Wi-Fi Station
-      WiFi.mode(WIFI_STA);
-      WiFi.setChannel(FX_channel);
-      //todo: state machine for the following in case it can take a long time:
-      while (!WiFi.STA.started()) {
-        delay(100);//this was needed!
-      }
-
-      WiFi.macAddress(ownAddress);
-      Serial.print("I am: ");
-      ownAddress.PrintOn(Serial);
-      Serial.println();
       //todo: other examples spin here waiting for WiFi to be ready.
       // Init ESP-NOW
       if (esp_now_init() == ESP_OK) {
