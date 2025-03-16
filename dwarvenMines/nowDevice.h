@@ -68,9 +68,11 @@ class NowDevice {
         //todo: if there is a requested one then send that now, at the moment the extended class will have to track that.
         if (sender->autoEcho && sender->lastMessage) {
           if (!failed) {
-            sender->fakeReception(*sender->lastMessage);//yes, sendmessage to self, bypassing radio.
+            sender->fakeReception(*sender->lastMessage);//yes, send message to self, bypassing radio.
           }
         }
+      } else {
+        Serial.println("no sender configured");
       }
     }
 
@@ -83,6 +85,9 @@ class NowDevice {
         ++stats.Attempts;
         auto buffer = lastMessage->outgoing();
         esp_err_t result = esp_now_send(*remote, &buffer.content, buffer.size);
+        if (stats.Failures<10) {
+          Serial.printf("esp_now_send returned %d %s on send of %u bytes\n", result, esp_err_to_name(result), buffer.size);
+        }
         messageOnWire = result == OK;
         if (! messageOnWire) {//why does indenter fail on this line?
           ++stats.Failures;
@@ -127,20 +132,25 @@ class NowDevice {
     virtual void setup(Message &receiveBuffer) {
       message = &receiveBuffer;
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
-      if (crippled || setupCount++) {
+      if (setupCount++) {
+        Serial.printf("Attempted to setup ESP_NOW %u times.",setupCount);
         return;
       }
       // Init ESP-NOW
-      WiFi.mode(WIFI_STA);//essential!
+      WiFi.mode(WIFI_MODE_STA);//essential!
       if (esp_now_init() == ESP_OK) {
         receiver = this;
         esp_now_register_recv_cb(&OnDataRecv);
         sender = this;
         esp_now_register_send_cb(&OnDataSent);
+        Serial.println("esp_now_init OK");
       } else {
         Serial.println("Error initializing ESP-NOW");
         --setupCount;
       }
+      delay(357);
+      Serial.print(" My Mac: ");
+      Serial.println(WiFi.macAddress());
     }
 
     virtual void loop() {
@@ -155,6 +165,8 @@ class NowDevice {
     //talking to yourself, useful when the remote is an option and one device might be doing both boss and worker roles.
     void fakeReception(const Message &faker) {
       message = const_cast<Message *>( &faker);//# ok to const cast as we only modify it when actually receiving a message and only call fakeReception when nothing is being sent.
+      Serial.println("Faked reception:");
+      Serial.print(message);
       dataReceived = true;
     }
 

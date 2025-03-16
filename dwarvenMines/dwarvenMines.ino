@@ -260,8 +260,8 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 #include "macAddress.h"
 // known units, until we implement a broadcast based protocol.
 std::array knownDevices = { // todo: figure out why template deduction did not do our counting for us.
-  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},
-  MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}
+  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
+  //  MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}   //probably toasted
 };
 
 
@@ -302,13 +302,13 @@ struct DesiredState : public NowDevice::Message {
     size_t length = 0;
     length += stream.printf("Angle:%d\t", vortexAngle);
     length += stream.printf("Pattern:%u\t", whichPattern);
-    length += stream.printf("Sequence#:%u\n",sequenceNumber);
+    length += stream.printf("Sequence#:%u\n", sequenceNumber);
     length += stream.print(color);
     return length;
   }
 
   void reset() {
-    Serial.printf("Reset colors at %p\n",this);
+    Serial.printf("Reset colors at %p\n", this);
     color.all(LedStringer::Off);
   }
 };
@@ -395,10 +395,18 @@ struct Boss : public NowDevice {
       haveRemote = IamReal; // read a pin
       if (haveRemote) {     // if not dual role then will actually talk to peer
         esp_now_peer_info_t peerInfo;
+        memset(&peerInfo, 0, sizeof(peerInfo));
         // Register peer
         unsigned myOrdinal = whichDeviceIs(ownAddress);
         // todo: generically there could be more than one peer, here we trust that there is just one:
-        knownDevices[myOrdinal ^ 1] >> peerInfo.peer_addr;
+        knownDevices[0/*myOrdinal ^ 1*/] >> peerInfo.peer_addr;
+
+        Serial.println("Mac given to espnow peer");
+        for (unsigned i = 0; i < 6; ++i) {
+          Serial.printf(":%02X", peerInfo.peer_addr[i]);
+        }
+        Serial.println();
+
         peerInfo.channel = 0; // defering to some inscrutable default selection. Should probably canonize a "show channel" and a different one for luma and hollis.
         peerInfo.encrypt = false;
         if (esp_now_add_peer(&peerInfo) != ESP_OK) {
@@ -460,7 +468,7 @@ struct Boss : public NowDevice {
           //allow puzzle to operate
           Serial.println("Puzzle running.");
         } else {
-          Serial.println("Manually resetting puzzle");          
+          Serial.println("Manually resetting puzzle");
           resetPuzzle();
         }
       }
@@ -481,14 +489,14 @@ struct Boss : public NowDevice {
         case LeverSet::Event::SomePulled: // nothing special, but not all off
           break;
         case LeverSet::Event::LastPulled:
-          Serial.println("Last lever pulled");          
+          Serial.println("Last lever pulled");
           onSolution();
           break;
       }
       //now setup desiredState and if not the same as echoState then send it
-      if (refreshColors()) {        
+      if (refreshColors()) {
         if (!messageOnWire) { //can't send another until prior is handled, this needs work.
-          Serial.println("sending colors to remote worker");
+          // Serial.println("sending colors to remote worker");
           ++stringState.sequenceNumber;//mostly to see if connection is working
           sendMessage(stringState);
         }
@@ -550,8 +558,8 @@ void clido(const unsigned char key, bool wasUpper) {
           dbg.cout("Refresh colors returned : ", primary.refreshColors());
           break;
         case 1:
-          ForStations(si){
-            primary.lever[si]=true;
+          ForStations(si) {
+            primary.lever[si] = true;
           }
           primary.onSolution();
           dbg.cout("simulated solution");
@@ -617,7 +625,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'u': //unsolve
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        primary.lever[clistate.leverIndex] = false; 
+        primary.lever[clistate.leverIndex] = false;
         Serial.printf("Lever[ % d] latch cleared, reports : % x\n", primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
@@ -635,6 +643,9 @@ void clido(const unsigned char key, bool wasUpper) {
         Serial.printf(" % u, \t", countdown);
       }
       ESP.restart();
+      break;
+    case 'm':
+      Serial.println(WiFi.macAddress());
       break;
     case 'o':
       switch (param) {
