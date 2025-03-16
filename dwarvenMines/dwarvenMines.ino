@@ -328,13 +328,13 @@ class Worker : public NowDevice {
       LedStringer::Pattern p;
       switch (stringState.whichPattern) {
         case 0:
-          p.offset = si / 2 * VortexFX.perRevolutionActual; //which ring
+          p.offset = (si / 2) * VortexFX.perRevolutionActual; //which ring
           if (si & 1) {
             p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
           }
-
+          
           //set this many in a row,must be at least 1
-          p.run = VortexFX.perRevolutionVisible / 2 + si & 1; //halfsies, rounded
+          p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
           //every this many, must be greater than or the same as run
           p.period = p.run;
           //this number of times, must be at least 1
@@ -386,7 +386,7 @@ struct Boss : public NowDevice {
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
-
+    bool autoSend = false;
   public:
     void setup() {
       lever.setup(50); // todo: proper source for  debounce time
@@ -423,8 +423,9 @@ struct Boss : public NowDevice {
       // levers are tested on timer tick, since they are debounced by it.
       if (flagged(dataReceived)) { // message received
         if (refreshColors()) {
+
           //todo: resend them
-          dbg.cout("Worker is ignoring me!");
+          //          dbg.cout("Worker is ignoring me!");
         }
       }
     }
@@ -495,7 +496,7 @@ struct Boss : public NowDevice {
       }
       //now setup desiredState and if not the same as echoState then send it
       if (refreshColors()) {
-        if (!messageOnWire) { //can't send another until prior is handled, this needs work.
+        if (autoSend && !messageOnWire) { //can't send another until prior is handled, this needs work.
           // Serial.println("sending colors to remote worker");
           ++stringState.sequenceNumber;//mostly to see if connection is working
           sendMessage(stringState);
@@ -550,6 +551,9 @@ void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case 'w':
+      //      stringState[0]={255,0,0};
+      //      stringState[1]={255,255,0};
+
       remote.dataReceived = true;
       break;
     case '.':
@@ -573,7 +577,7 @@ void clido(const unsigned char key, bool wasUpper) {
           break;
       }
       break;
-    case '=':
+    case '=': 
       stringState.sequenceNumber = param ? param : 1 + stringState.sequenceNumber;
       primary.sendMessage(stringState);
       dbg.cout("Sending sequenceNumber", stringState.sequenceNumber);
@@ -705,13 +709,19 @@ void loop() {
   dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    primary.onTick(Ticker::now);
-    remote.onTick(Ticker::now);
+    if (IamBoss) {
+      primary.onTick(Ticker::now);
+    } else {
+      remote.onTick(Ticker::now);
+    }
     clistate.onTick();
   }
   // check event flags
-  primary.loop();
-  remote.loop();
+  if (IamBoss) {
+    primary.loop();
+  } else {
+    remote.loop();
+  }
 }
 
 unsigned whichDeviceIs(const MacAddress & perhapsMe) {

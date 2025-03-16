@@ -23,9 +23,15 @@ struct LedStringer {
   unsigned quantity;
   CRGB *leds;
 
-  LedStringer (unsigned quantity, CRGB *leds): quantity(quantity), leds(leds) {}
+  LedStringer (unsigned quantity, CRGB *leds): quantity(quantity), leds(leds) {
+    if (spew && leds == nullptr) {
+      spew->println("Null LEDS ARRAY!");
+      quantity = 0;
+    }
+    allOff();
+  }
 
-  LedStringer (unsigned quantity): quantity(quantity), leds(new CRGB(quantity)) {}
+  LedStringer (unsigned quantity): LedStringer(quantity, new CRGB(quantity)) { }
 
   LedStringer (): LedStringer(0, nullptr) {}
 
@@ -45,8 +51,8 @@ struct LedStringer {
       This could be implemented by passing an "always true" predicate to all(two args), but this way is faster and simpler.
   */
   void all(CRGB same) {
-    if(spew){
-      spew->printf("setting all leds to %0X\n",same);
+    if (spew) {
+      spew->printf("setting all leds to %0X\n", same);
     }
     forLEDS(i) {
       leds[i] = same;
@@ -57,7 +63,7 @@ struct LedStringer {
     all( Off );
   }
 
-  struct Pattern /*: Printable*/ {
+  struct Pattern { /*: Printable*/
     //first one to set, note that modulus does get applied to this.
     unsigned offset;
     //set this many in a row,must be at least 1
@@ -98,7 +104,7 @@ struct LedStringer {
       unsigned latest;
 
       void restart() {
-        if(spew){
+        if (spew) {
           spew->println("(Re)starting pattern");
         }
         latest = pattern.offset;
@@ -115,11 +121,11 @@ struct LedStringer {
           ++latest;
           return true;
         }
-        if(spew){
+        if (spew) {
           spew->println("One run completed.");
         }
-        if (set-- > 0) {
-          spew->println("Starting nex set.");
+        if (--set > 0) {
+          spew->printf("Remaining sets %u\n", set);
           run = pattern.run;
           latest += pattern.period - pattern.run; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
           return true;
@@ -155,10 +161,15 @@ struct LedStringer {
   /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
   unsigned setPattern(CRGB color, const Pattern &pattern) {
     unsigned numberSet = 0; //diagnostic
+    if (spew) {
+      if (color == Off) {
+        color = CRGB(10, 50, 50);
+      }
+    }
     if (pattern) {
       if (spew) {
         spew->print("Setting pattern \t");
-//        spew->print(pattern);
+        //        spew->print(pattern);
         pattern.printTo(*spew);
         spew->printf("\tcolor: %06X\n", color.as_uint32_t());
       }

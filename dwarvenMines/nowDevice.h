@@ -164,10 +164,14 @@ class NowDevice {
 
     //talking to yourself, useful when the remote is an option and one device might be doing both boss and worker roles.
     void fakeReception(const Message &faker) {
-      message = const_cast<Message *>( &faker);//# ok to const cast as we only modify it when actually receiving a message and only call fakeReception when nothing is being sent.
-      Serial.println("Faked reception:");
-      Serial.print(message);
-      dataReceived = true;
+      if (message) {
+//        auto buffer=faker.outgoing();
+//        message->receive(&buffer.content, buffer.len);
+//        Serial.print("Bytes faked: ");
+//        Serial.println(len);
+//        Serial.print(*message);
+        dataReceived = true;
+      }      
     }
 
 };
