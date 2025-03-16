@@ -498,7 +498,7 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 // arduino's setup:
 void setup() {
   Serial.begin(115200);
-  flasher.setup();
+//  flasher.setup();
   dbg.cout("OTA emabled for download but not yet for monitoring." );
   if (IamBoss) {
     Serial.println("Setting up as boss");
@@ -530,6 +530,9 @@ bool cliValidStation(unsigned param, const unsigned char key) {
 void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
+    case 'w':
+      remote.dataReceived=true;
+    break;
     case '.':
       switch (param) {
         case 0:
@@ -671,7 +674,7 @@ void clido(const unsigned char key, bool wasUpper) {
 
 // arduino's loop:
 void loop() {
-  flasher.loop();//OTA firmware or file update
+//  flasher.loop();//OTA firmware or file update
   dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.

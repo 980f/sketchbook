@@ -126,8 +126,7 @@ class NowDevice {
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
       if (setupCount++) {
         return;
-      }
-      //todo: other examples spin here waiting for WiFi to be ready.
+      }     
       // Init ESP-NOW
       if (esp_now_init() == ESP_OK) {
         receiver = this;
