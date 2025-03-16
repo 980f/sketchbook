@@ -19,6 +19,7 @@
 ///////////////////////////////////////////////////////////////////////
 //
 struct LedStringer {
+  static Print *spew;//diagnostics control
   unsigned quantity;
   CRGB *leds;
 
@@ -53,7 +54,7 @@ struct LedStringer {
     all( Off );
   }
 
-  struct Pattern {
+  struct Pattern /*: Printable*/ {
     //first one to set, note that modulus does get applied to this.
     unsigned offset;
     //set this many in a row,must be at least 1
@@ -65,9 +66,14 @@ struct LedStringer {
     //Runner will apply this modulus to its generated numbers
     unsigned modulus;
 
+    //making the class directly Printable loses us brace init, so we mimic that until we have the time to write some constructors
+    size_t printTo(Print &dbg) const {
+      return dbg.printf("Offset: %u\tRun: %u\tPeriod: %u\tSets: %u\tMod: %u\n", offset, run, period, sets, modulus);
+    }
+
     /** @returns number of LEDS in the pattern, an idiot checker for setPattern() */
     unsigned expected() const {
-      return run*sets;
+      return run * sets;
     }
 
     /** we want to wrap the value used as an array index, without altering our logical counter */
@@ -137,13 +143,27 @@ struct LedStringer {
 
   /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
   unsigned setPattern(CRGB color, const Pattern &pattern) {
-    unsigned numberSet=0;//diagnostic
+    unsigned numberSet = 0; //diagnostic
     if (pattern) {
+      if (spew) {
+        spew->print("Setting pattern \t");
+//        spew->print(pattern);
+        pattern.printTo(*spew);
+        spew->printf("\tcolor: %06X\n", color.as_uint32_t());
+      }
+
       auto runner = pattern.runner();
       do {//precheck of pattern lets us know that at least one pixel gets set
-        leds[runner] = color;
+        unsigned pi = ~0u;
+        leds[pi = runner] = color;
         ++numberSet;
+        if (spew) {
+          spew->printf(" %u\t", pi);
+        }
       } while (runner.next());
+    }
+    if (spew) {
+      spew->printf("\n\tSet %u pixels\n", numberSet);
     }
     return numberSet;//should == pattern.expected();
   }
@@ -153,6 +173,9 @@ struct LedStringer {
   }
 
   void setup(unsigned quantity, CRGB *leds = nullptr) {
+    if (spew) {
+      spew->printf("LedStringer setting up %d @ %p\n", quantity, leds);
+    }
     this->quantity = quantity;
     this->leds = (!leds && quantity) ? new CRGB(quantity) : leds;
   }
@@ -176,8 +199,10 @@ struct LedStringer {
 
 };
 
+Print *LedStringer::spew = nullptr;
+
 //statically allocate the array
 template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   CRGB leds[NUM_LEDS];
-  LedString(): LedStringer {NUM_LEDS,leds}{}
+  LedString(): LedStringer {NUM_LEDS, leds} {}
 };

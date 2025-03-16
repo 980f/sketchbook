@@ -351,6 +351,7 @@ class Worker : public NowDevice {
         //if EL's are restored they get setup here.
         NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
       }
+      LedStringer::spew = &Serial;
       Serial.println("Worker Setup Complete");
     }
 
@@ -358,7 +359,9 @@ class Worker : public NowDevice {
       if (flagged(dataReceived)) { // message received
         Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
         ForStations(index) {
+          Serial.printf("Station %u: ", index);
           auto p = pattern(index);
+          p.printTo(Serial);
           leds.setPattern(stringState[index], p);
         }
         leds.show();
@@ -498,7 +501,7 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 // arduino's setup:
 void setup() {
   Serial.begin(115200);
-//  flasher.setup();
+  //  flasher.setup();
   dbg.cout("OTA emabled for download but not yet for monitoring." );
   if (IamBoss) {
     Serial.println("Setting up as boss");
@@ -531,8 +534,8 @@ void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case 'w':
-      remote.dataReceived=true;
-    break;
+      remote.dataReceived = true;
+      break;
     case '.':
       switch (param) {
         case 0:
@@ -610,8 +613,8 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'q'://periodic spew, lower is off, upper is on.
       clistate.spewOnTick = wasUpper;
       break;
-    case 'e'://keystroke echo, lower is on, upper is off
-      //      cli.echo = !wasUpper;
+    case 'd'://keystroke echo, lower is on, upper is off
+      LedStringer::spew = wasUpper ? &Serial : nullptr;
       break;
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
@@ -646,7 +649,8 @@ void clido(const unsigned char key, bool wasUpper) {
     case ' ':
       primary.lever.printTo(dbg.cout.raw);
       Serial.print("Desired state : \t");
-      Serial.print(stringState);
+      //did nothing:      Serial.print(stringState);
+      stringState.printTo(dbg.cout.raw);
       Serial.print("Apparent state : \t");
       echoState.printTo(Serial);
       break;
@@ -674,7 +678,7 @@ void clido(const unsigned char key, bool wasUpper) {
 
 // arduino's loop:
 void loop() {
-//  flasher.loop();//OTA firmware or file update
+  //  flasher.loop();//OTA firmware or file update
   dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
