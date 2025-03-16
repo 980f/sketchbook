@@ -1,4 +1,6 @@
 #pragma once
+const bool crippled = false;
+
 #include <esp_now.h>
 
 #include <cstdint>
@@ -26,7 +28,7 @@ class NowDevice {
            default is binary copy, can implement a text parser if that floats your boat.
         */
         virtual void receive(const uint8_t *incomingData, unsigned len) {
-          auto buffer=incoming();
+          auto buffer = incoming();
           memcpy(&buffer.content, incomingData, min(len, buffer.size));
         }
 
@@ -73,12 +75,13 @@ class NowDevice {
     }
 
     MacAddress *remote = nullptr;
+
     void sendMessage( const Message &newMessage) {
       // Set values to send
       lastMessage = &newMessage;
-      if (lastMessage) {
+      if (!crippled && lastMessage) {
         ++stats.Attempts;
-        auto buffer=lastMessage->outgoing();
+        auto buffer = lastMessage->outgoing();
         esp_err_t result = esp_now_send(*remote, &buffer.content, buffer.size);
         messageOnWire = result == OK;
         if (! messageOnWire) {//why does indenter fail on this line?
@@ -124,10 +127,11 @@ class NowDevice {
     virtual void setup(Message &receiveBuffer) {
       message = &receiveBuffer;
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
-      if (setupCount++) {
+      if (crippled || setupCount++) {
         return;
-      }     
+      }
       // Init ESP-NOW
+      WiFi.mode(WIFI_STA);//essential!
       if (esp_now_init() == ESP_OK) {
         receiver = this;
         esp_now_register_recv_cb(&OnDataRecv);
