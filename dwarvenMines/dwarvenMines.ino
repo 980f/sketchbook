@@ -26,7 +26,7 @@ const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
 
 struct StripConfiguration {
-  unsigned perRevolutionActual = 200;//a guess
+  unsigned perRevolutionActual = 100;//no longer a guess
   unsigned perRevolutionVisible = 89;//from 2024 haunt code
   unsigned perStation = perRevolutionVisible / 2;
   unsigned numStrips = 4;
@@ -300,14 +300,16 @@ struct DesiredState : public NowDevice::Message {
 
   size_t printTo(Print &stream) {
     size_t length = 0;
-    length += printf("Angle:%d\n", vortexAngle);
-    length += stream.printf("Pattern:%u\n", whichPattern);
+    length += stream.printf("Angle:%d\t", vortexAngle);
+    length += stream.printf("Pattern:%u\t", whichPattern);
+    length += stream.printf("Sequence#:%u\n",sequenceNumber);
     length += stream.print(color);
     return length;
   }
 
   void reset() {
-    color.all({0, 0, 0});
+    Serial.printf("Reset colors at %p\n",this);
+    color.all(LedStringer::Off);
   }
 };
 
@@ -450,12 +452,15 @@ struct Boss : public NowDevice {
 
     void onTick(MilliTick now) {
       if (autoReset.done()) {
+        Serial.println("auto reset fired, resetting puzzle");
         resetPuzzle();
       }
       if (Run.onTick()) {
         if (Run.pin) {
           //allow puzzle to operate
+          Serial.println("Puzzle running.");
         } else {
+          Serial.println("Manually resetting puzzle");          
           resetPuzzle();
         }
       }
@@ -470,17 +475,20 @@ struct Boss : public NowDevice {
         case LeverSet::Event::NonePulled: // none on
           break;
         case LeverSet::Event::FirstPulled: // some pulled when none were pulled
+          Serial.println("First lever pulled");
           timebomb.next(fuseSeconds * 1000);
           break;
         case LeverSet::Event::SomePulled: // nothing special, but not all off
           break;
         case LeverSet::Event::LastPulled:
+          Serial.println("Last lever pulled");          
           onSolution();
           break;
       }
       //now setup desiredState and if not the same as echoState then send it
-      if (refreshColors()) {
+      if (refreshColors()) {        
         if (!messageOnWire) { //can't send another until prior is handled, this needs work.
+          Serial.println("sending colors to remote worker");
           ++stringState.sequenceNumber;//mostly to see if connection is working
           sendMessage(stringState);
         }
@@ -542,7 +550,11 @@ void clido(const unsigned char key, bool wasUpper) {
           dbg.cout("Refresh colors returned : ", primary.refreshColors());
           break;
         case 1:
+          ForStations(si){
+            primary.lever[si]=true;
+          }
           primary.onSolution();
+          dbg.cout("simulated solution");
           break;
         case ~0u:
           primary.resetPuzzle();
@@ -605,7 +617,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'u': //unsolve
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        primary.lever[clistate.leverIndex] = false;
+        primary.lever[clistate.leverIndex] = false; 
         Serial.printf("Lever[ % d] latch cleared, reports : % x\n", primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }

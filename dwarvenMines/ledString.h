@@ -45,6 +45,9 @@ struct LedStringer {
       This could be implemented by passing an "always true" predicate to all(two args), but this way is faster and simpler.
   */
   void all(CRGB same) {
+    if(spew){
+      spew->printf("setting all leds to %0X\n",same);
+    }
     forLEDS(i) {
       leds[i] = same;
     }
@@ -95,6 +98,9 @@ struct LedStringer {
       unsigned latest;
 
       void restart() {
+        if(spew){
+          spew->println("(Re)starting pattern");
+        }
         latest = pattern.offset;
         set = pattern.sets;
         run = pattern.run;
@@ -109,18 +115,23 @@ struct LedStringer {
           ++latest;
           return true;
         }
+        if(spew){
+          spew->println("One run completed.");
+        }
         if (set-- > 0) {
+          spew->println("Starting nex set.");
           run = pattern.run;
           latest += pattern.period - pattern.run; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
           return true;
         }
+        spew->println("Pattern completed.");
         //latest stays at final valid value.
         return false;//just became done.
       }
 
       //@returns the value computed by next,
       operator unsigned () const {
-        return pattern(latest);
+        return pattern(latest);//pattern just wraps the index by the  modulus
       }
 
       Runner(const Pattern &pattern): pattern(pattern) {
