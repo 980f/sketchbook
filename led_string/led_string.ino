@@ -1,9 +1,10 @@
-#include <Adafruit_ZeroDMA.h>
+
 
 /* This started as an example program from Adafruit.
   It has been modified by 980F so that instead of a canned demo you can pick from the various modes of the original.
   It also allows for other things to happen such as testing inputs to change what gets done.
 
+  And later modified to do some canned stuff on powerup, to act as a string connection tester
 
   The original file header:
   // A basic everyday NeoPixel strip test program.
@@ -23,22 +24,25 @@
 #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
 #endif
 
+
 //pin that is monitored for automatic running. When low interactive, when high (missing jumper ;) automatic.
 #define AutoRunPin 0
 
-//980F patched the pins.h in the adafruit_neopicel_zerodma_master directory under libraries in otder to add the XAIO with DMA
+//980F patched the pins.h in the adafruit_neopixel_zerodma_master directory under libraries in order to add the XAIO with DMA
 //if your board isn't in that file don't use DMA!
 #define UseDMA 0
 
 // Which pin on the Arduino is connected to the NeoPixels?
 // On a Trinket or Gemma we suggest changing this to 1:
-#define LED_PIN   10
+//EPS-01S your choice is pin 2
+#define LED_PIN 2
 
 // How many NeoPixels are attached to the Arduino?
-#define LED_COUNT ((3*30)+(4*8)+20)
+#define LED_COUNT 300
 
 
 #if UseDMA
+//formerly included for all processor types, need to limit to zeroes: #include <Adafruit_ZeroDMA.h>
 #include <Adafruit_NeoPixel_ZeroDMA.h>
 Adafruit_NeoPixel_ZeroDMA strip(LED_COUNT, LED_PIN, NEO_GRB);
 #else
@@ -55,7 +59,6 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 //   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
-
 
 
 /** each class here expects to get called every 50 ms or so. */
@@ -76,17 +79,15 @@ struct LightingEffect {
     looper = numPixels;
   }
 
-
   /** Set pixel's color (in RAM) */
   void set(uint32_t color) {
     strip.setPixelColor(reverse ? looper : (numPixels - looper), color);
   }
 
-  ////////////////
-  /** @return true when effect has just set last pixel in its cycle */
-  virtual bool tick() {
-    return true;
-  }
+  /** this is called for each pixel. Typical overrides call next() and if true set(some color computed from looper) then return inverse of what next returned;
+    @return true when effect has just set last pixel in its cycle
+    This is the animation tick */
+  virtual bool tick() = 0;
 
   virtual void start(bool inreverse) {
     reverse = inreverse;
@@ -110,6 +111,47 @@ unsigned LightingEffect ::numPixels = LED_COUNT; //got tired of calling strip.nu
 bool LightingEffect ::defaultReverse = false;
 
 
+class WiringTest: public LightingEffect {
+    uint32_t color;
+        
+  public:
+    bool tick() override {
+      if (next()) {
+        for (int i = 0; i < looper; i++) {
+          set(color);
+        }
+        if(0==(looper%10)){
+          color>>8; //red becomes green then blue
+          if(!color){
+            color=strip.Color(80,  0,   0);
+          }
+        }
+        return true;
+      } else {
+        restart();
+        for (int i = 0; i < numPixels; i++) {
+          set(0);
+        }
+        return false;
+      }
+    }
+
+    void start(bool inreverse) override {
+      color = strip.Color(80,  0,   0);
+      LightingEffect::start(inreverse);
+    }
+
+    void buggy() override {
+      LightingEffect::buggy();
+      Serial.println(" testing wiring integrity");
+    }
+
+    const char *name() {
+      return "Wire Tester";
+    }
+
+} tester;
+
 /*
   for (int i = 0; i < strip.numPixels(); i++) { // For each pixel in strip...
     strip.setPixelColor(i, color);         //  Set pixel's color (in RAM)
@@ -120,7 +162,7 @@ bool LightingEffect ::defaultReverse = false;
 class ColorWipe: public LightingEffect {
     uint32_t color;
   public:
-    bool tick() {
+    bool tick() override {
       if (next()) {
         set(color);
         return false;//not done yet.
@@ -287,14 +329,15 @@ class Marquee: public LightingEffect {
 
 } marquee;
 
-LightingEffect *currentEffect = nullptr;
+LightingEffect *currentEffect = &tester;
+
 unsigned updateRate;
 
 bool began = !UseDMA;
 
 bool showticks = true;
 
-bool autoRunning = false;
+bool autoRunning = true;
 
 
 void startEffect(LightingEffect &effect, unsigned steprate_ms = 50) {
@@ -411,7 +454,6 @@ void loop() {
       }
     }
   }
-  \
 }
 
 
@@ -440,7 +482,7 @@ void theaterChaseRainbow(int wait) {
 
 
 #if 0
-patch to pins.h:
+patch that was added to pins.h:
 
 //980F:
 #if defined(SEEED_XIAO_M0)
