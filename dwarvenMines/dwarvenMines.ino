@@ -16,6 +16,15 @@ EzOTA flasher;
 const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 
+/// flags editable by cli:
+const unsigned numSpams = 5;
+bool spam[numSpams]; //5 ranges, can add more and they are not actually prioritized
+#define TRACE spam[4]
+#define BUG3 spam[3]
+#define BUG2 spam[2]
+#define EVENT spam[1]
+#define URGENT spam[0]
+
 // time from first pull to restart
 unsigned fuseSeconds = 3 * 60; // 3 minutes
 //time from solution to vortex halt, for when the operator fails to turn it off.
@@ -88,20 +97,16 @@ SUI dbg(Serial, Serial);
 struct CliState {
   unsigned colorIndex = 0; // might use ~0 to diddle "black"
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
-  bool spewOnTick = false;
   SimpleOutputPin onBoard{2};//Wroom LED
-  unsigned spewWrapper = 0;
+  //  unsigned spewWrapper = 0;
   Ticker pulser;
   bool onTick() {
-    if (pulser.due == Ticker::Never) {//todo: debug 'isRunning'
+    if (!pulser.isRunning()) {
       onBoard << true;
       pulser.next(250);
       return true;
     } else if (pulser.done()) {
       pulser.next(onBoard.toggle() ? 2500 : 1500);
-      if (spewOnTick) {
-        dbg.cout(onBoard ? "\theart\t" : "\tBEAT\t");
-      }
       return true;
     }
     return false;
@@ -127,7 +132,6 @@ struct LeverSet: Printable {
       }
       // check up on bouncing.
       bool onTick() { // implements latched edge detection
-        //        Serial.println("checking one lever");
         if (presently.onTick()) {   // if just became stable
           solved |= presently;
           return true;
@@ -149,10 +153,10 @@ struct LeverSet: Printable {
       size_t printTo(Print& p) const override {
         return p.print(solved ? "ON" : "off");
       }
-    };
+    };//// end Lever class
+
     std::array<Lever, numStations> lever; // using std::array over traditional array to get initializer syntax that we can type
 
-    /** back to the group of levers */
   public:
     enum class Event {
       NonePulled,  // none on
@@ -162,10 +166,8 @@ struct LeverSet: Printable {
     };
 
     Event onTick() {
-      //      Serial.printf("Lever:ontick\n");
       // update, and note major events
       unsigned prior = numSolved();
-      //dbg.cout("Before checking levers ",prior," seem set");
       for (unsigned index = numStations; index-- > 0;) {
         bool changed = lever[index].onTick();
         if (changed && clistate.leverIndex == index) {
@@ -174,7 +176,6 @@ struct LeverSet: Printable {
       }
 
       unsigned someNow = numSolved();
-      //dbg.cout("After checking levers ",prior," seem set");
       if (someNow == prior) { // no substantial change
         return someNow ? Event::SomePulled : Event::NonePulled;
       }
@@ -202,10 +203,10 @@ struct LeverSet: Printable {
     unsigned numSolved() const {
       unsigned sum = 0;
       ForStations(index) {
-        if (lever[index].solved) {
-          ++sum;
-        }
-        //        sum += lever[index].solved;
+        //        if (lever[index].solved) {
+        //          ++sum;
+        //        }
+        sum += lever[index].solved;
       }
       return sum;
     }
@@ -249,47 +250,44 @@ enum RelayChannel { // index into relay array.
   VortexMotor,
   Lights_1,
   Lights_2,
-  DoorRelease, // to be replace with text that is in comments at this time
+  DoorRelease, // to be replaced with text that is in comments at this time
   numRelays    // marker, leave in last position.
 };
 
 SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
-SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
+//23 is a corner pin: SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
 DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
 
 #include "macAddress.h"
 // known units, until we implement a broadcast based protocol.
-std::array knownDevices = { // todo: figure out why template deduction did not do our counting for us.
+std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
   MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
   //  MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}   //probably toasted
 };
-
-
-//todo: compiler knows quite well that there is a class MacAddress, but the next function fails to compile with "unknown class MacAddress" unless I relocate the implementation to later in the file.
-unsigned whichDeviceIs(const MacAddress &perhapsMe);
 
 #include "nowDevice.h"
 /////////////////////////////////////////
 // Structure to convey data
 struct DesiredState : public NowDevice::Message {
   /** this is added to the offset of each light */
+  uint8_t startMarker = 1; //also version number
+  /// body
   unsigned vortexAngle; // 0 to 89 for 0 to 359 degrees of rotation.
   unsigned whichPattern = 0;
   unsigned sequenceNumber = 0;
   ColorSet color;
-
+  /// end body
   /////////////////////////////
-  // transport parts
-  uint8_t endMarker;
+  uint8_t endMarker;//value ignored
 
 
   /** format for delivery, content is copied but not immediately so using stack is risky. */
   Block<uint8_t> incoming() override {
-    return Block<uint8_t> {(&endMarker - reinterpret_cast<uint8_t*>(&vortexAngle)), *reinterpret_cast<uint8_t*>(&vortexAngle)};
+    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
   }
 
   Block<const uint8_t> outgoing() const override {
-    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t*>(&vortexAngle)), *reinterpret_cast<const uint8_t*>(&vortexAngle)};
+    return Block<const uint8_t> {(&endMarker - &startMarker), startMarker};
   }
 
   ///////////////////////////////////
@@ -308,20 +306,22 @@ struct DesiredState : public NowDevice::Message {
   }
 
   void reset() {
-    Serial.printf("Reset colors at %p\n", this);
+    if (BUG2) {
+      Serial.printf("Reset colors at %p\n", this);
+    }
     color.all(LedStringer::Off);
   }
 };
 
 // command to remote
 DesiredState stringState; // zero init: vortex angle 0, all stations black.
-// what remote is doing,or locally copied over when command would have been sent.
-DesiredState echoState;
+// what remote is doing, or locally copied over when command would have been sent.
+DesiredState echoState; //last sent?
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
 // failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
-class Worker : public NowDevice {
+struct Worker : public NowDevice {
     LedStringer leds;
 
     LedStringer::Pattern pattern(unsigned si) { //station index
@@ -332,7 +332,7 @@ class Worker : public NowDevice {
           if (si & 1) {
             p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
           }
-          
+
           //set this many in a row,must be at least 1
           p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
           //every this many, must be greater than or the same as run
@@ -348,7 +348,7 @@ class Worker : public NowDevice {
 
   public:
     void setup(bool justTheString = true) {
-      leds.setup(VortexFX.total);
+      leds.setup(VortexFX.total);//leds are dynamically allocated until we know for sure the structure of the vortex.
       if (!justTheString) {
         //if EL's are restored they get setup here.
         NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
@@ -357,14 +357,24 @@ class Worker : public NowDevice {
       Serial.println("Worker Setup Complete");
     }
 
+    void doStation(unsigned index) {
+      if (TRACE) {
+        Serial.printf("Station %u: ", index);
+      }
+      auto p = pattern(index);
+      if (TRACE) {
+        p.printTo(Serial);
+      }
+      leds.setPattern(stringState[index], p);
+    }
+
     void loop() {
       if (flagged(dataReceived)) { // message received
-        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
+        if (TRACE) {
+          Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
+        }
         ForStations(index) {
-          Serial.printf("Station %u: ", index);
-          auto p = pattern(index);
-          p.printTo(Serial);
-          leds.setPattern(stringState[index], p);
+          doStation(index);
         }
         leds.show();
       }
@@ -382,40 +392,17 @@ class Worker : public NowDevice {
 /// maincontroller.ino:
 // needed c++20 using enum LeverSet::Event ;
 struct Boss : public NowDevice {
-    bool haveRemote = true; // if no remote then is controlling LED string instead of talking to another ESP32 which is actually doing that.
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
     bool autoSend = false;
   public:
     void setup() {
-      lever.setup(50); // todo: proper source for  debounce time
+      lever.setup(50); // todo: proper source for lever debounce time
       NowDevice::setup(echoState); // must do this before we do any other esp_now calls.
-      // BTW:ownAddress is all zeroes until after NowDevice::setup.
-      haveRemote = IamReal; // read a pin
-      if (haveRemote) {     // if not dual role then will actually talk to peer
-        esp_now_peer_info_t peerInfo;
-        memset(&peerInfo, 0, sizeof(peerInfo));
-        // Register peer
-        unsigned myOrdinal = whichDeviceIs(ownAddress);
-        // todo: generically there could be more than one peer, here we trust that there is just one:
-        knownDevices[0/*myOrdinal ^ 1*/] >> peerInfo.peer_addr;
-
-        Serial.println("Mac given to espnow peer");
-        for (unsigned i = 0; i < 6; ++i) {
-          Serial.printf(":%02X", peerInfo.peer_addr[i]);
-        }
-        Serial.println();
-
-        peerInfo.channel = 0; // defering to some inscrutable default selection. Should probably canonize a "show channel" and a different one for luma and hollis.
-        peerInfo.encrypt = false;
-        if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-          Serial.println("Failed to add peer");
-          // no return here as we need to finish local init even if remote connection fails.
-        }
-      } else {
-        Serial.println("Faking reception!");
-      }
+      auto peerError = NowDevice::addPeer(knownEsp32[0], BUG2);
+      reportError(peerError, "Failed to add peer");//FYI only outputs on error
+      //todo: periodically retry adding peer.
       Serial.println("Boss Setup Complete");
     }
 
@@ -423,7 +410,6 @@ struct Boss : public NowDevice {
       // levers are tested on timer tick, since they are debounced by it.
       if (flagged(dataReceived)) { // message received
         if (refreshColors()) {
-
           //todo: resend them
           //          dbg.cout("Worker is ignoring me!");
         }
@@ -433,7 +419,7 @@ struct Boss : public NowDevice {
     bool refreshColors() {
       unsigned diffs = 0;
       ForStations(si) {
-        stringState[si] = lever[si] ? station[si] : 0;//todo: what is the name for the shared 'black' ledColor?
+        stringState[si] = lever[si] ? station[si] : LedStringer::Off;
         if (stringState[si] != echoState[si]) { //until we implement worker status reporting we rely upon the base class faking the echo. see autoEcho.
           ++diffs;
         }
@@ -443,7 +429,7 @@ struct Boss : public NowDevice {
 
     void onSolution() {
       dbg.cout("Yippie!");
-      timebomb.next(Ticker::Never);
+      timebomb.stop();
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
       //todo: any other bells or whistles?
@@ -452,30 +438,39 @@ struct Boss : public NowDevice {
     }
 
     void resetPuzzle() {
-      autoReset.next(Ticker::Never);
-      timebomb.next(Ticker::Never);
+      autoReset.stop();
+      timebomb.stop();
       relay[DoorRelease] << false;
       relay[VortexMotor] << false;
       stringState.reset();
+      //todo:0 reset levers totally
     }
 
     void onTick(MilliTick now) {
       if (autoReset.done()) {
-        Serial.println("auto reset fired, resetting puzzle");
+        if (EVENT) {
+          Serial.println("auto reset fired, resetting puzzle");
+        }
         resetPuzzle();
       }
       if (Run.onTick()) {
         if (Run.pin) {
           //allow puzzle to operate
-          Serial.println("Puzzle running.");
+          if (EVENT) {
+            Serial.println("Puzzle running.");
+          }
         } else {
-          Serial.println("Manually resetting puzzle");
+          if (EVENT) {
+            Serial.println("Manually resetting puzzle");
+          }
           resetPuzzle();
         }
       }
       //      Serial.printf("Primary Ticker\t");
       if (timebomb.done()) {
-        Serial.println("Timed out solving puzzle, resetting lever state");
+        if (EVENT) {
+          Serial.println("Timed out solving puzzle, resetting lever state");
+        }
         lever.restart();
         return;
       }
@@ -484,19 +479,23 @@ struct Boss : public NowDevice {
         case LeverSet::Event::NonePulled: // none on
           break;
         case LeverSet::Event::FirstPulled: // some pulled when none were pulled
-          Serial.println("First lever pulled");
+          if (EVENT) {
+            Serial.println("First lever pulled");
+          }
           timebomb.next(fuseSeconds * 1000);
           break;
         case LeverSet::Event::SomePulled: // nothing special, but not all off
           break;
         case LeverSet::Event::LastPulled:
-          Serial.println("Last lever pulled");
+          if (EVENT) {
+            Serial.println("Last lever pulled");
+          }
           onSolution();
           break;
       }
       //now setup desiredState and if not the same as echoState then send it
       if (refreshColors()) {
-        if (autoSend && !messageOnWire) { //can't send another until prior is handled, this needs work.
+        if (BUG3 && !messageOnWire) { //can't send another until prior is handled, this needs work.
           // Serial.println("sending colors to remote worker");
           ++stringState.sequenceNumber;//mostly to see if connection is working
           sendMessage(stringState);
@@ -515,24 +514,6 @@ unsigned ThisApp::setupCount = 0;
 ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 
 //////////////////////////////////////////////////////////////////////////////////////////////
-// arduino's setup:
-void setup() {
-  Serial.begin(115200);
-  //  flasher.setup();
-  dbg.cout("OTA emabled for download but not yet for monitoring." );
-  if (IamBoss) {
-    Serial.println("Setting up as boss");
-    primary.setup();
-    Serial.println(" and Emulating remote");
-  } else {
-    Serial.println("Setting up remote");
-  }
-  remote.setup(IamBoss);
-
-  Serial.println("Entering forever loop.");
-  //dbg.setup(Serial,Serial);
-  dbg.cout.stifled = false;
-}
 
 
 #define tweakColor(which) station[clistate.colorIndex].which = param; \
@@ -551,10 +532,12 @@ void clido(const unsigned char key, bool wasUpper) {
   unsigned param = dbg[0]; //clears on read, can only access once!
   switch (key) {
     case 'w':
-      //      stringState[0]={255,0,0};
-      //      stringState[1]={255,255,0};
-
-      remote.dataReceived = true;
+      if (cliValidStation(param, key)) {
+        remote.doStation(param);
+        remote.leds.show();
+      } else {
+        dbg.cout("You must precede ", key, " with a number less than ", numStations);
+      }
       break;
     case '.':
       switch (param) {
@@ -573,11 +556,11 @@ void clido(const unsigned char key, bool wasUpper) {
           break;
         case 2:
           primary.lever.restart();
-          Serial.printf("After simulated bombing out there are % d levers active\n", primary.lever.numSolved());
+          Serial.printf("After simulated bombing out there are %d levers active\n", primary.lever.numSolved());
           break;
       }
       break;
-    case '=': 
+    case '=':
       stringState.sequenceNumber = param ? param : 1 + stringState.sequenceNumber;
       primary.sendMessage(stringState);
       dbg.cout("Sending sequenceNumber", stringState.sequenceNumber);
@@ -616,7 +599,7 @@ void clido(const unsigned char key, bool wasUpper) {
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
-        Serial.printf("Lever[ % d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
+        Serial.printf("Lever[ %d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
@@ -624,27 +607,34 @@ void clido(const unsigned char key, bool wasUpper) {
       if (wasUpper) {
         primary.timebomb.next(param);
       }
-      Serial.printf("Timebomb due : % u, in : % d, Now : % u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
+      Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
       break;
     case 'u': //unsolve
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
-        Serial.printf("Lever[ % d] latch cleared, reports : % x\n", primary.lever[clistate.leverIndex]);
+        Serial.printf("Lever[%u] latch cleared, reports : %x\n", primary.lever[clistate.leverIndex]);
         dbg.cout("There are now ", primary.lever.numSolved(), " activated");
       }
       break;
-    case 'q'://periodic spew, lower is off, upper is on.
-      clistate.spewOnTick = wasUpper;
-      break;
+
     case 'd'://keystroke echo, lower is on, upper is off
-      LedStringer::spew = wasUpper ? &Serial : nullptr;
+      switch (param) {
+        case ~0u: LedStringer::spew = wasUpper ? &Serial : nullptr; break;
+        default:
+          if (param < sizeof(spam) / sizeof(spam[0])) {
+            spam[param] = wasUpper;
+          } else {
+            Serial.printf("Known debug flags are 0..%u, or ~ for LedStringer\n", numSpams);
+          }
+          break;
+      }
       break;
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
       for (unsigned countdown = min(param, 4u ); countdown-- > 0;) {
         delay(666);
-        Serial.printf(" % u, \t", countdown);
+        Serial.printf(" %u, \t", countdown);
       }
       ESP.restart();
       break;
@@ -655,23 +645,20 @@ void clido(const unsigned char key, bool wasUpper) {
       switch (param) {
         case 0:
           clistate.onBoard << wasUpper;
-          Serial.printf("LED : % x\n", bool(clistate.onBoard));
+          Serial.printf("LED : %x\n", bool(clistate.onBoard));
           break;
         case ~0u:
           clistate.onBoard.toggle();
-          Serial.printf("LED : % x\n", bool(clistate.onBoard));
+          Serial.printf("LED : %x\n", bool(clistate.onBoard));
           break;
         default:
-          Serial.printf("output % u not yet debuggable\n", param);
+          Serial.printf("output %u not yet debuggable\n", param);
           break;
       }
       break;
     case 'p':
       pinMode(param, OUTPUT);
       digitalWrite(param, wasUpper);
-      break;
-    case '\r':
-      primary.sendMessage(stringState);
       break;
     case ' ':
       primary.lever.printTo(dbg.cout.raw);
@@ -691,16 +678,47 @@ void clido(const unsigned char key, bool wasUpper) {
       //add all other pins in use ...
       break;
     case '?':
-      Serial.printf("usage : \n\tc : \tselect color / station to tweak color\n\tr, g, b : \talter pigment, % u(0x % 2X) is bright\n\tl, s, u : \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
-      Serial.printf("Undocumented : !^Z.o[Enter]qet\n");
+      Serial.printf("usage : \n\tc: \tselect color / station to tweak color\n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
+      Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!");
+      Serial.printf("Undocumented : w!^Z.o[Enter]dt\n");
       break;
     case '!':
       flasher.setup();
       break;
     default:
-      Serial.printf("Unassigned command letter % c\n", key);
+      if (key >= ' ') {
+        Serial.printf("Unassigned command letter %c [%u]\n", key, key);
+      } else {
+        Serial.printf("Most control characters are ignored: ^%c [%u]\n", key + ' ', key);
+      }
       break;
   }
+}
+
+// arduino's setup:
+void setup() {
+  Serial.begin(115200);
+
+  dbg.cout.stifled = false;
+  TRACE = false;
+  BUG3 = false;
+  BUG2 = false;
+  EVENT = true;
+  URGENT = true;
+
+  //  flasher.setup();
+  //  dbg.cout("OTA emabled for download but not yet for monitoring." );
+  if (IamBoss) {
+    Serial.println("Setting up as boss");
+    primary.setup();
+    remote.setup(true);//true: just LED string, for easy testing
+  } else {
+    Serial.println("Setting up as remote");
+    remote.setup(false);
+  }
+
+  Serial.println("Entering forever loop.");
+
 }
 
 // arduino's loop:
@@ -722,13 +740,4 @@ void loop() {
   } else {
     remote.loop();
   }
-}
-
-unsigned whichDeviceIs(const MacAddress & perhapsMe) {
-  for (unsigned index = knownDevices.size(); index-- > 0;) {
-    if (knownDevices[index] == perhapsMe) {
-      return index;
-    }
-  }
-  return ~0; // which is -1 if looked at as an int.
 }
