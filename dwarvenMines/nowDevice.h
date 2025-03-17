@@ -65,12 +65,6 @@ class NowDevice {
       }
       if (sender) {
         sender->messageOnWire = false;
-        //todo: if there is a requested one then send that now, at the moment the extended class will have to track that.
-        if (sender->autoEcho && sender->lastMessage) {
-          if (!failed) {
-            sender->fakeReception(*sender->lastMessage);//yes, send message to self, bypassing radio.
-          }
-        }
       } else {
         Serial.println("no sender configured");
       }
@@ -85,7 +79,7 @@ class NowDevice {
         ++stats.Attempts;
         auto buffer = lastMessage->outgoing();
         esp_err_t result = esp_now_send(*remote, &buffer.content, buffer.size);
-        if (stats.Failures<10) {
+        if (stats.Failures < 10) {
           Serial.printf("esp_now_send returned %d %s on send of %u bytes\n", result, esp_err_to_name(result), buffer.size);
         }
         messageOnWire = result == OK;
@@ -123,8 +117,14 @@ class NowDevice {
       }
     }
 
-    /////////////////////////////////
+    static esp_err_t reportError(esp_err_t error, const char*context) {
+      if (error != ESP_OK) {
+        Serial.printf("%s due to (%d) %s\n", context, error , esp_err_to_name(error));
+      }
+      return error;
+    }
 
+    /////////////////////////////////
     static unsigned setupCount;//=0;
   public:
     MacAddress ownAddress{0}; //will be all zeroes at startup
@@ -133,7 +133,7 @@ class NowDevice {
       message = &receiveBuffer;
       //todo: use a better check for whether this has already been called, or even better have a lazy init state machine run from the loop.
       if (setupCount++) {
-        Serial.printf("Attempted to setup ESP_NOW %u times.",setupCount);
+        Serial.printf("Attempted to setup ESP_NOW %u times.", setupCount);
         return;
       }
       // Init ESP-NOW
@@ -153,6 +153,24 @@ class NowDevice {
       Serial.println(WiFi.macAddress());
     }
 
+    esp_err_t addPeer(const MacAddress &knownPeer, bool spamme) {
+      // BTW:ownAddress is all zeroes until after NowDevice::setup.
+      esp_now_peer_info_t peerInfo;
+      memset(&peerInfo, 0, sizeof(peerInfo));//there appear to be hidden fields needing zero init.
+      // Register peer
+      knownPeer >> peerInfo.peer_addr;
+      if (spamme) {
+        Serial.println("Mac given to espnow peer");
+        for (unsigned i = 0; i < 6; ++i) {
+          Serial.printf(":%02X", peerInfo.peer_addr[i]);
+        }
+        Serial.println();
+      }
+      peerInfo.channel = 0; // defering to some inscrutable default selection. Should probably canonize a "show channel" and a different one for luma and hollis.
+      peerInfo.encrypt = false;
+      return esp_now_add_peer(&peerInfo);
+    }
+
     virtual void loop() {
       //empty loop rather than =0 in case extension doesn't need a loop
       //if we lazy init this is where that executes.
@@ -160,18 +178,6 @@ class NowDevice {
 
     virtual void onTick(MilliTick now) {
       //empty loop rather than =0 in case extension doesn't need timer ticks
-    }
-
-    //talking to yourself, useful when the remote is an option and one device might be doing both boss and worker roles.
-    void fakeReception(const Message &faker) {
-      if (message) {
-//        auto buffer=faker.outgoing();
-//        message->receive(&buffer.content, buffer.len);
-//        Serial.print("Bytes faked: ");
-//        Serial.println(len);
-//        Serial.print(*message);
-        dataReceived = true;
-      }      
     }
 
 };
