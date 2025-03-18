@@ -15,6 +15,7 @@ const unsigned FX_channel = 6; //todo: discuss with crew, do we want to share wi
 //communications manager:
 class NowDevice {
   public:
+    static unsigned debugLevel;//higher gets more spew
     /** a base class that you must derive your messages from.
     */
     class Message: public Printable  {
@@ -54,17 +55,23 @@ class NowDevice {
     //  protected:
     bool autoEcho = true;// until the worker replies to the boss we pretend we got an echo back from them
     static void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-      //todo: check that  mac_addr makes sense.
-      Serial.print("\r\nLast Packet Send Status:\tDelivery ");
       bool failed = status != ESP_NOW_SEND_SUCCESS;
-      Serial.println(failed ? "Failed" : "Succeeded");
+      //maydo: check that mac_addr makes sense.
+      if (debugLevel > 100) {
+        Serial.print("\r\nLast Packet Send Status:\tDelivery ");
+        Serial.println(failed ? "Failed" : "Succeeded"); //only two values are documented, no textifier for more detail.
+      }
       if (failed) {
+        //        if (debugLevel > 50 && (stats.Attempts - stats.Failures) < 20) {
+        //          Serial.println("Failure code: (%d) %s\n", status, esp_err_to_name(status));
+        //        }
         ++stats.Failures;
       } else {
         ++stats.Successes;
       }
       if (sender) {
         sender->messageOnWire = false;
+        sender->onSend(failed);
       } else {
         Serial.println("no sender configured");
       }
@@ -87,6 +94,10 @@ class NowDevice {
           ++stats.Failures;
         }
       }
+    }
+
+    virtual void onSend(bool failed) {
+      //no implementation required.
     }
 
     /////////////////////////////////
@@ -181,3 +192,5 @@ class NowDevice {
     }
 
 };
+
+unsigned NowDevice::debugLevel = 0; //higher gets more spew
