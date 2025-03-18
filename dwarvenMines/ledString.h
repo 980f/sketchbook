@@ -63,7 +63,7 @@ struct LedStringer {
     all( Off );
   }
 
-  struct Pattern { /*: Printable*/
+  struct Pattern {//being printable precludes {} init : Printable {
     //first one to set, note that modulus does get applied to this.
     unsigned offset;
     //set this many in a row,must be at least 1
