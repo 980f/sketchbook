@@ -289,7 +289,8 @@ struct DesiredState : public NowDevice::Message {
     length += stream.printf("Sequence#:%u\t", sequenceNumber);
     length += stream.printf("Show em:%x\t", showem);
     length += stream.printf("Color:%06X\n", color);
-    length += stream.print("Pattern:\t") stream.print(pattern);
+    //    length += stream.print("Pattern:\t") stream.print(pattern);
+    length += pattern.printTo(stream);
     return length;
   }
 
