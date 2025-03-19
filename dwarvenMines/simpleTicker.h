@@ -40,7 +40,11 @@ struct Ticker {
   /** @returns whether the 'future' expiration time is in the past due to wrapping the ticker counter. The program has to run for 49 days for that to occur.
     When not running this starts the timer, when already running this extends the time  */
   bool next(MilliTick later) {
-    due = later + later == Never ? 0 : now;
+    if(later == Never){
+      stop();
+      return false;
+    }
+    due = later + now;
     return due < now; //timer service wrapped.
   }
 
