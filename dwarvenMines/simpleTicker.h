@@ -1,7 +1,9 @@
 #pragma once
 ///////////////////////////////////////////////////////////////////////
 //minimal version of ticker service, will add full one later:
+
 using MilliTick = decltype(millis());
+
 struct Ticker {
   ////////////////////////////////
   // constants and snapshot/cache, reading millis more than once per loop is bad form, creates ambiguities.
@@ -33,6 +35,12 @@ struct Ticker {
     return isDone;
   }
 
+  /** @returns whether the timer has been stopped, which is not the same as !isRunning as it might also be done. */
+  bool isStopped() const {
+    return due==Never;
+  }
+
+  /** @returns whether timer is running, returns false if done and that can get confusing, so you should look at @see isStopped() as that might be what you are actually thinking of */
   bool isRunning() const {
     return (due != Never) && (due > now);
   }

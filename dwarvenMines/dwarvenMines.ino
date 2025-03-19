@@ -108,28 +108,16 @@ struct CliState {
   //  unsigned spewWrapper = 0;
   Ticker pulser;
   bool onTick() {
-    if (TRACE) {
-      Serial.printf("Pulser 1 %u > %u \n", pulser.due, pulser.now);
-    }
-    if (!pulser.isRunning()) {
-      if (TRACE) {
-        Serial.printf("Pulser 2 %u > %u \n", pulser.due, pulser.now);
-      }
-
-      onBoard << true;
-      pulser.next(250);
-      if (TRACE) {
-        Serial.printf("Pulser 3 %u > %u \n", pulser.due, pulser.now);
-      }
-
-      return true;
-    } else if (pulser.done()) {
-      if (TRACE) {
-        Serial.printf("Why is the light not toggling?\n");
-      }
+    if (pulser.done()) {
       pulser.next(onBoard.toggle() ? 2500 : 1500);
       return true;
     }
+    //note: must test done() before isRunning() as it won't be indicating 'isRunning' if it just got done.
+    if (!pulser.isRunning()) {
+      onBoard << true;
+      pulser.next(250);
+      return true;
+    } 
     return false;
   }
 } clistate;
