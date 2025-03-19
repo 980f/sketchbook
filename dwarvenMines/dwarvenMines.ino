@@ -108,11 +108,25 @@ struct CliState {
   //  unsigned spewWrapper = 0;
   Ticker pulser;
   bool onTick() {
+    if (TRACE) {
+      Serial.printf("Pulser 1 %u > %u \n", pulser.due, pulser.now);
+    }
     if (!pulser.isRunning()) {
+      if (TRACE) {
+        Serial.printf("Pulser 2 %u > %u \n", pulser.due, pulser.now);
+      }
+
       onBoard << true;
       pulser.next(250);
+      if (TRACE) {
+        Serial.printf("Pulser 3 %u > %u \n", pulser.due, pulser.now);
+      }
+
       return true;
     } else if (pulser.done()) {
+      if (TRACE) {
+        Serial.printf("Why is the light not toggling?\n");
+      }
       pulser.next(onBoard.toggle() ? 2500 : 1500);
       return true;
     }
@@ -269,7 +283,8 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 // known units, until we implement a broadcast based protocol.
 std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
   MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
-  //  MacAddress{0xD0, 0xEF, 0x76, 0x58, 0xDB, 0x98}   //probably toasted
+  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
+  //Andy's DEVKITV1
 };
 
 #include "nowDevice.h"
@@ -281,7 +296,6 @@ struct DesiredState : public NowDevice::Message {
   uint8_t startMarker = 1; //also version number
 
   /// body
-#if MinesVersion==2
   unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
   CRGB color;
   LedStringer::Pattern pattern;
@@ -296,34 +310,6 @@ struct DesiredState : public NowDevice::Message {
     length += pattern.printTo(stream);
     return length;
   }
-
-#else
-  unsigned vortexAngle; // 0 to 89 for 0 to 359 degrees of rotation.
-  unsigned whichPattern = 0;
-  unsigned sequenceNumber = 0;
-  ColorSet color;
-  ///////////////////////////////////
-  // accessors
-  CRGB &operator [](unsigned si) {
-    return color[si];
-  }
-
-  size_t printTo(Print &stream) {
-    size_t length = 0;
-    length += stream.printf("Angle:%d\t", vortexAngle);
-    length += stream.printf("Pattern:%u\t", whichPattern);
-    length += stream.printf("Sequence#:%u\n", sequenceNumber);
-    length += stream.print(color);
-    return length;
-  }
-
-  void reset() {
-    if (BUG2) {
-      Serial.printf("Reset colors of %p\n", this);
-    }
-    color.all(LedStringer::Off);
-  }
-#endif
   /// end body
   /////////////////////////////
   uint8_t endMarker;//value ignored
@@ -372,15 +358,13 @@ struct Worker : public NowDevice {
   LedStringer leds;
   void setup(bool justTheString = true) {
     LedStringer::spew = &Serial;
-    leds.setup(VortexFX.total,pixel);//using fixed sizes from Tim.
+    leds.setup(VortexFX.total, pixel); //using fixed sizes from Tim.
     if (!justTheString) {
       //if EL's are restored they get setup here.
       NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
     }
     Serial.println("Worker Setup Complete");
   }
-
-#if MinesVersion==2
 
   void loop() {
     if (flagged(dataReceived)) { // message received
@@ -393,36 +377,6 @@ struct Worker : public NowDevice {
       }
     }
   }
-
-#else
-
-
-
-  void doStation(unsigned index) {
-    if (TRACE) {
-      Serial.printf("Station %u: ", index);
-    }
-    auto p = pattern(index, clistate.patternIndex);
-    if (TRACE) {
-      p.printTo(Serial);
-    }
-    leds.setPattern(stringState[index], p);
-  }
-
-
-  void loop() {
-    if (flagged(dataReceived)) { // message received
-      if (TRACE) {
-        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
-      }
-      ForStations(index) {
-        doStation(index);
-      }
-      leds.show();
-    }
-  }
-#endif
-
 
   // this is called once per millisecond, from the arduino loop().
   // It can skip millisecond values if there are function calls which take longer than a milli.
@@ -468,8 +422,7 @@ struct Boss : public NowDevice {
       }
 
       if (refreshColors()) {
-        if (BUG3 && !messageOnWire) { //can't send another until prior is handled, this needs work.
-#if MinesVersion==2
+        if (!messageOnWire) { //can't send another until prior is handled, this needs work.
           ForStations(justcountem) {
             if (++lastStationSent >= numStations) {
               lastStationSent = 0;
@@ -483,9 +436,7 @@ struct Boss : public NowDevice {
             }
 
           }
-#else
-          sendMessage(stringState);
-#endif
+
         }
         //else we will eventually get here and think to try again.
       }
@@ -542,6 +493,9 @@ struct Boss : public NowDevice {
       }
 
       if (refreshRate.done()) {
+        if (TRACE) {
+          Serial.println("Periodic resend");
+        }
         refreshRate.next(REFRESH_RATE_MILLIS);
         ForStations(si) {
           needsUpdate[si] = true;
@@ -602,7 +556,7 @@ bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
     return true;
   }
-  dbg.cout("Invalid station : ", param, ", valid values are [0..", numStations, "] for command ", key);
+  dbg.cout("Invalid station : ", param, ", valid values are [0..", numStations - 1, "] for command ", char(key));
   return false;
 }
 
@@ -637,14 +591,14 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
 
     case 'a':
-//      if (dbg.numParams() > 0) {
-//        VortexFX.perRevolutionActual = param;
-//      }
-//      if (dbg.numParams() > 1) {
-//        VortexFX.perRevolutionVisible = dbg[1];
-//      }
+      //      if (dbg.numParams() > 0) {
+      //        VortexFX.perRevolutionActual = param;
+      //      }
+      //      if (dbg.numParams() > 1) {
+      //        VortexFX.perRevolutionVisible = dbg[1];
+      //      }
       dbg.cout("Ring config: Visible:", VortexFX.perRevolutionVisible , "\t Actual:", VortexFX.perRevolutionActual);
-//      dbg.cout(
+      //      dbg.cout(
       break;
     case 'b':
       tweakColor(b);
@@ -670,7 +624,7 @@ void clido(const unsigned char key, bool wasUpper) {
           if (param < sizeof(spam) / sizeof(spam[0])) {
             spam[param] = wasUpper;
           } else {
-            Serial.printf("Known debug flags are 0..%u, or ~ for LedStringer\n", numSpams);
+            Serial.printf("Known debug flags are 0..%u, or ~ for LedStringer\n", numSpams - 1);
           }
           break;
       }
@@ -738,9 +692,9 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
 
     case 'y':
-      for (unsigned index = 0; index < 50; ++index) {
+      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
         remote.leds[index] = station[index % numStations];
-        dbg.cout("Pixel ",index," color:",HEXLY(station[index % numStations].as_uint32_t()));
+        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
       }
       dbg.cout("show leds");
       remote.leds.show();
@@ -797,7 +751,7 @@ void clido(const unsigned char key, bool wasUpper) {
 void setup() {
   Serial.begin(115200);
 
-  dbg.cout.stifled = false;
+  dbg.cout.stifled = false;//opposite sense of following bug flags
   TRACE = false;
   BUG3 = false;
   BUG2 = false;
