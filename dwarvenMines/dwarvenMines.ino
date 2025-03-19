@@ -1,3 +1,4 @@
+#define MinesVersion 2
 /*
   punch list:
   vortex off: wait for run/reset change of state?
@@ -37,7 +38,7 @@ unsigned REFRESH_RATE_MILLIS = 100; //100 is 10 Hz, for 400 LEDs 83Hz is pushing
 const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
 
-struct StripConfiguration {
+constexpr struct StripConfiguration {
   unsigned perRevolutionActual = 100;//no longer a guess
   unsigned perRevolutionVisible = 89;//from 2024 haunt code
   unsigned perStation = perRevolutionVisible / 2;
@@ -46,6 +47,8 @@ struct StripConfiguration {
 } VortexFX; // not const until wiring is confirmed, so that we can play with config to confirm wiring.
 
 #include "ledString.h" //FastLED stuff, uses LEDStringType
+
+CRGB pixel[VortexFX.total];
 
 struct ColorSet: Printable {
   //to limit power consumption:
@@ -281,7 +284,7 @@ struct DesiredState : public NowDevice::Message {
 #if MinesVersion==2
   unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
   CRGB color;
-  Pattern pattern;
+  LedStringer::Pattern pattern;
   bool showem = false;
   ///////////////////////////
   size_t printTo(Print &stream) {
@@ -341,7 +344,7 @@ DesiredState stringState; // zero init: vortex angle 0, all stations black.
 // what remote is doing, or locally copied over when command would have been sent.
 DesiredState echoState; //last sent?
 ///////////////////////////////////////////////////////////////////////
-LedStringer::Pattern pattern(unsigned si, unsigned style) { //station index
+LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
   LedStringer::Pattern p;
   switch (style) {
     case 0:
@@ -368,12 +371,12 @@ LedStringer::Pattern pattern(unsigned si, unsigned style) { //station index
 struct Worker : public NowDevice {
   LedStringer leds;
   void setup(bool justTheString = true) {
-    leds.setup(VortexFX.total);//leds are dynamically allocated until we know for sure the structure of the vortex.
+    LedStringer::spew = &Serial;
+    leds.setup(VortexFX.total,pixel);//using fixed sizes from Tim.
     if (!justTheString) {
       //if EL's are restored they get setup here.
       NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
     }
-    LedStringer::spew = &Serial;
     Serial.println("Worker Setup Complete");
   }
 
@@ -412,9 +415,9 @@ struct Worker : public NowDevice {
       if (TRACE) {
         Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
       }
-      //        ForStations(index) {
-      //          doStation(index);
-      //        }
+      ForStations(index) {
+        doStation(index);
+      }
       leds.show();
     }
   }
@@ -473,7 +476,7 @@ struct Boss : public NowDevice {
             }
             if (needsUpdate[lastStationSent]) {
               stringState.color = leverState[lastStationSent] ? station[lastStationSent] : LedStringer::Off;
-              stringState.pattern = pattern(si, cliState.patternIndex);
+              stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
               ++stringState.sequenceNumber;//mostly to see if connection is working
               sendMessage(stringState);
               break;
@@ -518,8 +521,7 @@ struct Boss : public NowDevice {
       timebomb.stop();
       relay[DoorRelease] << false;
       relay[VortexMotor] << false;
-      stringState.reset();
-      //todo:0 reset levers totally
+      lever.restart();//todo: perhaps more thoroughly than for timebomb?
     }
 
 
@@ -594,7 +596,6 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 
 
 #define tweakColor(which) station[clistate.colorIndex].which = param; \
-  stringState[clistate.colorIndex] = station[clistate.colorIndex];\
   dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(station[clistate.colorIndex].as_uint32_t()));
 
 bool cliValidStation(unsigned param, const unsigned char key) {
@@ -636,13 +637,14 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
 
     case 'a':
-      if (dbg.numParams() > 1) {
-        VortexFX.perRevolutionActual = param;
-      }
-      if (dbg.numParams() > 1) {
-        VortexFX.perRevolutionVisible = dbg[1];
-      }
+//      if (dbg.numParams() > 0) {
+//        VortexFX.perRevolutionActual = param;
+//      }
+//      if (dbg.numParams() > 1) {
+//        VortexFX.perRevolutionVisible = dbg[1];
+//      }
       dbg.cout("Ring config: Visible:", VortexFX.perRevolutionVisible , "\t Actual:", VortexFX.perRevolutionActual);
+//      dbg.cout(
       break;
     case 'b':
       tweakColor(b);
@@ -728,13 +730,20 @@ void clido(const unsigned char key, bool wasUpper) {
       }
       break;
 
-    case 'w':
-      if (cliValidStation(param, key)) {
-        remote.doStation(param);
-        remote.leds.show();
-      } else {
-        dbg.cout("You must precede ", key, " with a number less than ", numStations);
+    case 'w': //test a style
+      ForStations(si) {
+        remote.leds.setPattern(station[si], pattern(si, param));
       }
+      remote.leds.show();
+      break;
+
+    case 'y':
+      for (unsigned index = 0; index < 50; ++index) {
+        remote.leds[index] = station[index % numStations];
+        dbg.cout("Pixel ",index," color:",HEXLY(station[index % numStations].as_uint32_t()));
+      }
+      dbg.cout("show leds");
+      remote.leds.show();
       break;
     case 'z': //set refresh rate
       REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
