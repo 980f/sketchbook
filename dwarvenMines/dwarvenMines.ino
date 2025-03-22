@@ -1,8 +1,7 @@
-#define MinesVersion 2
 /*
   punch list:
-  vortex off: wait for run/reset change of state?
-  mac diagnostic printout byte order
+  done: vortex off: wait for run/reset change of state?
+  done: mac diagnostic printout byte order
   configurable values to and from EEPROM, or store a string to run through the clirp.
   phase per ring of leds, an array of offsets
   sets of Patterns and use pattern for lever feedback, and test selector for pattern in clirp.
@@ -12,13 +11,34 @@
   10Hz is enough for special FX work, 24Hz is movie theater rate.
 
 */
+#if defined(ARDUINO_LOLIN32_LITE)
+#warning "Using pin assignments for 26pin w/battery interface"
+#define BOARD_LED 22
+// worker/remote pin allocations:
+const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
+#elif defined(WAVESHARE_ESP32_S3_ZERO)
+#warning "Using pin assignments for S3 Zero"
+//there isn't actually an LED on 2, but  it is near the P/S pins.
+#define BOARD_LED 2
+// worker/remote pin allocations:
+const unsigned LED_PIN = 21; // drives the chain of programmable LEDs
+#elif defined(ARDUINO_NOLOGO_ESP32C3_SUPER_MINI)
+#warning "Using pin assignments for C3 Super Mini"
+#define BOARD_LED 8
+// worker/remote pin allocations:
+const unsigned LED_PIN = 3; // drives the chain of programmable LEDs
+#else 
+#warning "Using pin assignments that worked for WROOM"
+#define BOARD_LED 2
+// worker/remote pin allocations:
+const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
+#endif
+
 #include "ezOTA.h" //setup wifi and allow for firmware updates over wifi
 EzOTA flasher;
 //esp stuff pollutes the global namespace with macros for some asm language operations.
 #undef cli
 
-const unsigned numStations = 6;
-#define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 
 /// flags editable by cli:
 const unsigned numSpams = 5;
@@ -29,14 +49,11 @@ bool spam[numSpams]; //5 ranges, can add more and they are not actually prioriti
 #define EVENT spam[1]
 #define URGENT spam[0]
 
-// time from first pull to restart
-unsigned fuseSeconds = 3 * 60; // 3 minutes
-//time from solution to vortex halt, for when the operator fails to turn it off.
-unsigned resetTicks = 87 * 1000;
+
+//Worker config:
 unsigned REFRESH_RATE_MILLIS = 100; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
-// worker/remote pin allocations:
-const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
 #define LEDStringType WS2811, LED_PIN, GRB
+
 
 constexpr struct StripConfiguration {
   unsigned perRevolutionActual = 100;//no longer a guess
@@ -49,6 +66,173 @@ constexpr struct StripConfiguration {
 #include "ledString.h" //FastLED stuff, uses LEDStringType
 
 CRGB pixel[VortexFX.total];
+
+
+/////////////////////////
+// debug cli
+#include "sui.h" //Command Line Interpreter, Reverse Polish expressions.
+SUI dbg(Serial, Serial);
+
+#include "simplePin.h"
+#include "simpleTicker.h"
+//debug trace flags
+struct CliState {
+  unsigned colorIndex = 0; // might use ~0 to diddle "black"
+  unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
+  unsigned patternIndex = 0; //at the moment we have just one.
+  SimpleOutputPin onBoard{BOARD_LED};//Wroom LED
+  //  unsigned spewWrapper = 0;
+  Ticker pulser;
+  bool onTick() {
+    if (pulser.done()) {
+      pulser.next(onBoard.toggle() ? 2500 : 1500);
+      return true;
+    }
+    //note: must test done() before isRunning() as it won't be indicating 'isRunning' if it just got done.
+    if (!pulser.isRunning()) {
+      onBoard << true;
+      pulser.next(250);
+      return true;
+    } 
+    return false;
+  }
+} clistate;
+
+////////////////////////////////////////////
+// Boss/main pin allocations:
+#include "simpleDebouncedPin.h"
+// boss side:
+SimpleOutputPin relay[] = {26, 25, 33, 32, 22, 23}; // all relays in a group to expedite "all off"
+
+enum RelayChannel { // index into relay array.
+  //there are spare outputs declared in relay[] but without an enum to pick them
+  VortexMotor,
+  Lights_1,
+  Lights_2,
+  DoorRelease, // to be replaced with text that is in comments at this time
+  numRelays    // marker, leave in last position.
+};
+
+SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
+//23 is a corner pin: SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
+DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
+
+#include "macAddress.h"
+// known units, until we implement a broadcast based protocol.
+std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
+  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
+  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
+  //Andy's DEVKITV1
+};
+
+#include "nowDevice.h"
+/////////////////////////////////////////
+// Structure to convey data
+
+struct DesiredState : public NowDevice::Message {
+  /** this is added to the offset of each light */
+  uint8_t startMarker = 1; //also version number
+
+  /// body
+  unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
+  CRGB color;
+  LedStringer::Pattern pattern;
+  bool showem = false;
+  ///////////////////////////
+  size_t printTo(Print &stream) {
+    size_t length = 0;
+    length += stream.printf("Sequence#:%u\t", sequenceNumber);
+    length += stream.printf("Show em:%x\t", showem);
+    length += stream.printf("Color:%06X\n", color);
+    //    length += stream.print("Pattern:\t") stream.print(pattern);
+    length += pattern.printTo(stream);
+    return length;
+  }
+  /// end body
+  /////////////////////////////
+  uint8_t endMarker;//value ignored
+
+  /** format for delivery, content is copied but not immediately so using stack is risky. */
+  Block<uint8_t> incoming() override {
+    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
+  }
+
+  Block<const uint8_t> outgoing() const override {
+    return Block<const uint8_t> {(&endMarker - &startMarker), startMarker};
+  }
+
+};
+
+// command to remote
+DesiredState stringState; // zero init: vortex angle 0, all stations black.
+// what remote is doing, or locally copied over when command would have been sent.
+DesiredState echoState; //last sent?
+///////////////////////////////////////////////////////////////////////
+LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
+  LedStringer::Pattern p;
+  switch (style) {
+    case 0:
+      p.offset = (si / 2) * VortexFX.perRevolutionActual; //which ring
+      if (si & 1) {
+        p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
+      }
+
+      //set this many in a row,must be at least 1
+      p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
+      //every this many, must be greater than or the same as run
+      p.period = p.run;
+      //this number of times, must be at least 1
+      p.sets = 1;
+      //Runner will apply this modulus to its generated numbers
+      p.modulus = VortexFX.perRevolutionActual;
+      break;
+  }
+  return p;
+}
+///////////////////////////////////////////////////////////////////////
+// the guy who receives commands as to which lights should be active.
+// failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
+struct Worker : public NowDevice {
+  LedStringer leds;
+  void setup(bool justTheString = true) {
+    LedStringer::spew = &Serial;
+    leds.setup(VortexFX.total, pixel); //using fixed sizes from Tim.
+    if (!justTheString) {
+      //if EL's are restored they get setup here.
+      NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
+    }
+    Serial.println("Worker Setup Complete");
+  }
+
+  void loop() {
+    if (flagged(dataReceived)) { // message received
+      if (TRACE) {
+        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
+      }
+      leds.setPattern(stringState.color, stringState.pattern);
+      if (stringState.showem) {
+        leds.show();
+      }
+    }
+  }
+
+  // this is called once per millisecond, from the arduino loop().
+  // It can skip millisecond values if there are function calls which take longer than a milli.
+  void onTick(MilliTick ignored) {
+    // not yet animating anything, so nothing to do here.
+  }
+} remote;
+
+////////////////////////////////////////////////////////
+/// maincontroller.ino:
+
+// Boss config
+const unsigned numStations = 6;
+#define ForStations(si) for(unsigned si=0; si<numStations; ++si)
+// time from first pull to restart
+unsigned fuseSeconds = 3 * 60; // 3 minutes
+//time from solution to vortex halt, for when the operator fails to turn it off.
+unsigned resetTicks = 87 * 1000;
 
 struct ColorSet: Printable {
   //to limit power consumption:
@@ -92,39 +276,6 @@ struct ColorSet: Printable {
   }
 } station;
 
-/////////////////////////
-// debug cli
-#include "sui.h" //Command Line Interpreter, Reverse Polish expressions.
-SUI dbg(Serial, Serial);
-
-#include "simplePin.h"
-#include "simpleTicker.h"
-//debug trace flags
-struct CliState {
-  unsigned colorIndex = 0; // might use ~0 to diddle "black"
-  unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
-  unsigned patternIndex = 0; //at the moment we have just one.
-  SimpleOutputPin onBoard{2};//Wroom LED
-  //  unsigned spewWrapper = 0;
-  Ticker pulser;
-  bool onTick() {
-    if (pulser.done()) {
-      pulser.next(onBoard.toggle() ? 2500 : 1500);
-      return true;
-    }
-    //note: must test done() before isRunning() as it won't be indicating 'isRunning' if it just got done.
-    if (!pulser.isRunning()) {
-      onBoard << true;
-      pulser.next(250);
-      return true;
-    } 
-    return false;
-  }
-} clistate;
-
-////////////////////////////////////////////
-// Boss/main pin allocations:
-#include "simpleDebouncedPin.h"
 
 struct LeverSet: Printable {
     /**
@@ -251,132 +402,8 @@ struct LeverSet: Printable {
     }
 };
 
-// boss side:
-SimpleOutputPin relay[] = {26, 25, 33, 32, 22, 23}; // all relays in a group to expedite "all off"
 
-enum RelayChannel { // index into relay array.
-  //there are spare outputs declared in relay[] but without an enum to pick them
-  VortexMotor,
-  Lights_1,
-  Lights_2,
-  DoorRelease, // to be replaced with text that is in comments at this time
-  numRelays    // marker, leave in last position.
-};
 
-SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
-//23 is a corner pin: SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
-DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
-
-#include "macAddress.h"
-// known units, until we implement a broadcast based protocol.
-std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
-  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
-  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
-  //Andy's DEVKITV1
-};
-
-#include "nowDevice.h"
-/////////////////////////////////////////
-// Structure to convey data
-
-struct DesiredState : public NowDevice::Message {
-  /** this is added to the offset of each light */
-  uint8_t startMarker = 1; //also version number
-
-  /// body
-  unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
-  CRGB color;
-  LedStringer::Pattern pattern;
-  bool showem = false;
-  ///////////////////////////
-  size_t printTo(Print &stream) {
-    size_t length = 0;
-    length += stream.printf("Sequence#:%u\t", sequenceNumber);
-    length += stream.printf("Show em:%x\t", showem);
-    length += stream.printf("Color:%06X\n", color);
-    //    length += stream.print("Pattern:\t") stream.print(pattern);
-    length += pattern.printTo(stream);
-    return length;
-  }
-  /// end body
-  /////////////////////////////
-  uint8_t endMarker;//value ignored
-
-  /** format for delivery, content is copied but not immediately so using stack is risky. */
-  Block<uint8_t> incoming() override {
-    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
-  }
-
-  Block<const uint8_t> outgoing() const override {
-    return Block<const uint8_t> {(&endMarker - &startMarker), startMarker};
-  }
-
-};
-
-// command to remote
-DesiredState stringState; // zero init: vortex angle 0, all stations black.
-// what remote is doing, or locally copied over when command would have been sent.
-DesiredState echoState; //last sent?
-///////////////////////////////////////////////////////////////////////
-LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
-  LedStringer::Pattern p;
-  switch (style) {
-    case 0:
-      p.offset = (si / 2) * VortexFX.perRevolutionActual; //which ring
-      if (si & 1) {
-        p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
-      }
-
-      //set this many in a row,must be at least 1
-      p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
-      //every this many, must be greater than or the same as run
-      p.period = p.run;
-      //this number of times, must be at least 1
-      p.sets = 1;
-      //Runner will apply this modulus to its generated numbers
-      p.modulus = VortexFX.perRevolutionActual;
-      break;
-  }
-  return p;
-}
-///////////////////////////////////////////////////////////////////////
-// the guy who receives commands as to which lights should be active.
-// failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
-struct Worker : public NowDevice {
-  LedStringer leds;
-  void setup(bool justTheString = true) {
-    LedStringer::spew = &Serial;
-    leds.setup(VortexFX.total, pixel); //using fixed sizes from Tim.
-    if (!justTheString) {
-      //if EL's are restored they get setup here.
-      NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
-    }
-    Serial.println("Worker Setup Complete");
-  }
-
-  void loop() {
-    if (flagged(dataReceived)) { // message received
-      if (TRACE) {
-        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
-      }
-      leds.setPattern(stringState.color, stringState.pattern);
-      if (stringState.showem) {
-        leds.show();
-      }
-    }
-  }
-
-  // this is called once per millisecond, from the arduino loop().
-  // It can skip millisecond values if there are function calls which take longer than a milli.
-  void onTick(MilliTick ignored) {
-    // not yet animating anything, so nothing to do here.
-    // someday: fireworks on 4th ring
-  }
-} remote;
-
-////////////////////////////////////////////////////////
-/// maincontroller.ino:
-// needed c++20 using enum LeverSet::Event ;
 struct Boss : public NowDevice {
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
@@ -409,9 +436,9 @@ struct Boss : public NowDevice {
         //no-one we know is sending us messages!
       }
 
-      if (refreshColors()) {
+      if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
         if (!messageOnWire) { //can't send another until prior is handled, this needs work.
-          ForStations(justcountem) {
+          ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
             if (++lastStationSent >= numStations) {
               lastStationSent = 0;
             }
@@ -419,14 +446,12 @@ struct Boss : public NowDevice {
               stringState.color = leverState[lastStationSent] ? station[lastStationSent] : LedStringer::Off;
               stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
               ++stringState.sequenceNumber;//mostly to see if connection is working
-              sendMessage(stringState);
+              sendMessage(stringState); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
               break;
             }
-
           }
-
         }
-        //else we will eventually get here and think to try again.
+        //else we will eventually get back to loop() and review what needs to be sent.
       }
     }
 
@@ -699,6 +724,7 @@ void clido(const unsigned char key, bool wasUpper) {
       ESP.restart();
       break;
     case ' ':
+      Serial.println(IamBoss?"VortexFX Boss:":"VortexFX Worker");
       primary.lever.printTo(dbg.cout.raw);
       Serial.print("Desired state : \t");
       //did nothing:      Serial.print(stringState);
