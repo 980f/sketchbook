@@ -427,9 +427,9 @@ struct Boss : public NowDevice {
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
       //not needed after we implemented auto init on first use:
-      //      for(unsigned ri=numRelays;ri-->0;){
-      //        relay[ri].setup(OUTPUT);
-      //      }
+      for (unsigned ri = numRelays; ri-- > 0;) {
+        relay[ri].setup(OUTPUT);
+      }
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       refreshLeds();
@@ -663,7 +663,8 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
     case 'o':
       if (param < numRelays) {
-        relay[param] = wasUpper;
+        relay[param] << wasUpper;//don't use '=', it changes the pin assignment!
+        Serial.printf("Relay %u set to %x\n", param, wasUpper);
       } else if (param == ~0u) {
         clistate.onBoard << wasUpper;
         Serial.printf("LED : %x\n", bool(clistate.onBoard));
@@ -678,6 +679,11 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'i':
       pinMode(param, wasUpper ? INPUT_PULLUP : INPUT);
       Serial.printf("Pin %u made an input and is %x\n", param, digitalRead(param));
+      break;
+    case 'q':
+      for (unsigned i = 0; i < numRelays; ++i) {
+        Serial.printf("relay[%u]=%x (D%u)\n", i, bool(relay[i]), relay[i].number);
+      }
       break;
     case 's'://simulate a lever solution
       if (cliValidStation(param, key)) {
