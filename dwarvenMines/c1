@@ -1,0 +1,4 @@
+## leonardo USB as console.
+echo use ^A ^Q to exit, ^A ^X also exits just more aggressively
+## simple \n in program is cr lf to local display
+picocom --imap lfcrlf -b115200 /dev/ttyUSB1
