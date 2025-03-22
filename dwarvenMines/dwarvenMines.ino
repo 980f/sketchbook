@@ -27,7 +27,7 @@ const unsigned LED_PIN = 21; // drives the chain of programmable LEDs
 #define BOARD_LED 8
 // worker/remote pin allocations:
 const unsigned LED_PIN = 3; // drives the chain of programmable LEDs
-#else 
+#else
 #warning "Using pin assignments that worked for WROOM"
 #define BOARD_LED 2
 // worker/remote pin allocations:
@@ -64,24 +64,23 @@ constexpr struct StripConfiguration {
 } VortexFX; // not const until wiring is confirmed, so that we can play with config to confirm wiring.
 
 #include "ledString.h" //FastLED stuff, uses LEDStringType
-
+//the pixel memory: //todo: go back to dynamically allocated to see if that was fine.
 CRGB pixel[VortexFX.total];
-
 
 /////////////////////////
 // debug cli
-#include "sui.h" //Command Line Interpreter, Reverse Polish expressions.
+#include "sui.h" //Simple User Interface
 SUI dbg(Serial, Serial);
 
 #include "simplePin.h"
 #include "simpleTicker.h"
-//debug trace flags
+
+//debug state
 struct CliState {
   unsigned colorIndex = 0; // might use ~0 to diddle "black"
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
   unsigned patternIndex = 0; //at the moment we have just one.
   SimpleOutputPin onBoard{BOARD_LED};//Wroom LED
-  //  unsigned spewWrapper = 0;
   Ticker pulser;
   bool onTick() {
     if (pulser.done()) {
@@ -93,7 +92,7 @@ struct CliState {
       onBoard << true;
       pulser.next(250);
       return true;
-    } 
+    }
     return false;
   }
 } clistate;
@@ -166,6 +165,7 @@ struct DesiredState : public NowDevice::Message {
 // command to remote
 DesiredState stringState; // zero init: vortex angle 0, all stations black.
 // what remote is doing, or locally copied over when command would have been sent.
+//this is stale, but might soon be restored, ignore it as long as this comment is in place.
 DesiredState echoState; //last sent?
 ///////////////////////////////////////////////////////////////////////
 LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
@@ -410,6 +410,15 @@ struct Boss : public NowDevice {
     Ticker autoReset; //ensure things shut down if the operator gets distracted
     Ticker refreshRate; //sendall occasionally to deal with any intermittency.
     bool needsUpdate[numStations];
+
+    void refreshLeds() {
+      refreshRate.next(REFRESH_RATE_MILLIS);
+      ForStations(si) {
+        needsUpdate[si] = true;
+      }
+      stringState.showem = true; //available to optimize when we know many need to be set.
+    }
+
     bool leverState[numStations];//paces sending
     //for pacing sending station updates
     unsigned lastStationSent = 0;
@@ -417,12 +426,13 @@ struct Boss : public NowDevice {
   public:
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
+      //not needed after we implemented auto init on first use:
+      //      for(unsigned ri=numRelays;ri-->0;){
+      //        relay[ri].setup(OUTPUT);
+      //      }
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
-      refreshRate.next(REFRESH_RATE_MILLIS);
-      ForStations(si) {
-        needsUpdate[si] = true; //send all on power up
-      }
+      refreshLeds();
       NowDevice::setup(echoState); // must do this before we do any other esp_now calls.
       auto peerError = NowDevice::addPeer(knownEsp32[0], BUG2);
       reportError(peerError, "Failed to add peer");//FYI only outputs on error
@@ -509,10 +519,7 @@ struct Boss : public NowDevice {
         if (TRACE) {
           Serial.println("Periodic resend");
         }
-        refreshRate.next(REFRESH_RATE_MILLIS);
-        ForStations(si) {
-          needsUpdate[si] = true;
-        }
+        refreshLeds();
       }
 
       switch (lever.onTick()) {
@@ -560,7 +567,7 @@ unsigned ThisApp::setupCount = 0;
 ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 
 //////////////////////////////////////////////////////////////////////////////////////////////
-
+//debug aids
 
 #define tweakColor(which) station[clistate.colorIndex].which = param; \
   dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(station[clistate.colorIndex].as_uint32_t()));
@@ -579,7 +586,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case '.':
       switch (param) {
         case 0:
-          dbg.cout("Refresh colors returned : ", primary.refreshColors());
+          dbg.cout("Refresh colors (lever) returned : ", primary.refreshColors());
           break;
         case 1:
           ForStations(si) {
@@ -598,20 +605,17 @@ void clido(const unsigned char key, bool wasUpper) {
       }
       break;
     case '=':
-      stringState.sequenceNumber = param ? param : 1 + stringState.sequenceNumber;
+      if (param) {
+        stringState.sequenceNumber = param;
+      } else {
+        ++stringState.sequenceNumber;
+      }
+      dbg.cout("Sending sequenceNumber: ", stringState.sequenceNumber);
       primary.sendMessage(stringState);
-      dbg.cout("Sending sequenceNumber", stringState.sequenceNumber);
       break;
 
     case 'a':
-      //      if (dbg.numParams() > 0) {
-      //        VortexFX.perRevolutionActual = param;
-      //      }
-      //      if (dbg.numParams() > 1) {
-      //        VortexFX.perRevolutionVisible = dbg[1];
-      //      }
       dbg.cout("Ring config: Visible:", VortexFX.perRevolutionVisible , "\t Actual:", VortexFX.perRevolutionActual);
-      //      dbg.cout(
       break;
     case 'b':
       tweakColor(b);
@@ -630,9 +634,11 @@ void clido(const unsigned char key, bool wasUpper) {
       }
       break;
 
-    case 'd'://keystroke echo, lower is on, upper is off
+    case 'd'://debug flags, lower is off, upper is on
       switch (param) {
-        case ~0u: LedStringer::spew = wasUpper ? &Serial : nullptr; break;
+        case ~0u:
+          LedStringer::spew = wasUpper ? &Serial : nullptr;
+          break;
         default:
           if (param < sizeof(spam) / sizeof(spam[0])) {
             spam[param] = wasUpper;
@@ -656,23 +662,22 @@ void clido(const unsigned char key, bool wasUpper) {
       NowDevice::debugLevel = param;
       break;
     case 'o':
-      switch (param) {
-        case 0:
-          clistate.onBoard << wasUpper;
-          Serial.printf("LED : %x\n", bool(clistate.onBoard));
-          break;
-        case ~0u:
-          clistate.onBoard.toggle();
-          Serial.printf("LED : %x\n", bool(clistate.onBoard));
-          break;
-        default:
-          Serial.printf("output %u not yet debuggable\n", param);
-          break;
+      if (param < numRelays) {
+        relay[param] = wasUpper;
+      } else if (param == ~0u) {
+        clistate.onBoard << wasUpper;
+        Serial.printf("LED : %x\n", bool(clistate.onBoard));
+      } else {
+        Serial.printf("output %u not yet debuggable (or value is invalid)\n", param);
       }
       break;
-    case 'p':
+    case 'p'://any pin made into an output!
       pinMode(param, OUTPUT);
       digitalWrite(param, wasUpper);
+      break;
+    case 'i':
+      pinMode(param, wasUpper ? INPUT_PULLUP : INPUT);
+      Serial.printf("Pin %u made an input and is %x\n", param, digitalRead(param));
       break;
     case 's'://simulate a lever solution
       if (cliValidStation(param, key)) {
@@ -697,7 +702,7 @@ void clido(const unsigned char key, bool wasUpper) {
       }
       break;
 
-    case 'w': //test a style
+    case 'w': //test a style via "all on"
       ForStations(si) {
         remote.leds.setPattern(station[si], pattern(si, param));
       }
@@ -712,11 +717,18 @@ void clido(const unsigned char key, bool wasUpper) {
       dbg.cout("show leds");
       remote.leds.show();
       break;
-    case 'z': //set refresh rate
+    case 'z': //set refresh rate, 0 kills it rather than spams.
       REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
+      primary.refreshRate.next(REFRESH_RATE_MILLIS);
+      if (REFRESH_RATE_MILLIS != ~0) {
+        Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
+      } else {
+        Serial.printf("refresh disabled\n");
+      }
       break;
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
+      //todo: the following doesn't actually get executed before the reset!
       for (unsigned countdown = min(param, 4u ); countdown-- > 0;) {
         delay(666);
         Serial.printf(" %u, \t", countdown);
@@ -724,13 +736,23 @@ void clido(const unsigned char key, bool wasUpper) {
       ESP.restart();
       break;
     case ' ':
-      Serial.println(IamBoss?"VortexFX Boss:":"VortexFX Worker");
-      primary.lever.printTo(dbg.cout.raw);
-      Serial.print("Desired state : \t");
-      //did nothing:      Serial.print(stringState);
+      if (IamBoss) {
+        Serial.println("VortexFX Boss:");
+        primary.lever.printTo(dbg.cout.raw);
+        Serial.print("Update flags");
+        ForStations(si) {
+          Serial.printf("\t[%u]=%x", si, primary.needsUpdate[si]);
+        }
+        Serial.println();
+        //        Serial.print("Apparent state : \t");
+        //        echoState.printTo(Serial);
+
+        Serial.print("Last Request: \t");
+      } else {
+        Serial.println("VortexFX Worker");
+        Serial.print("Last Action: \t");
+      }
       stringState.printTo(dbg.cout.raw);
-      Serial.print("Apparent state : \t");
-      echoState.printTo(Serial);
       break;
     case '*':
       primary.lever.listPins(Serial);

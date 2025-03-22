@@ -122,7 +122,7 @@ struct LedStringer {
           return true;
         }
         if (spew) {
-          spew->println("One run completed.");
+          spew->println("\nOne run completed. \t");
         }
         if (--set > 0) {
           spew->printf("Remaining sets %u\n", set);
@@ -185,7 +185,7 @@ struct LedStringer {
       } while (runner.next());
     }
     if (spew) {
-      spew->printf("\n\tSet %u pixels\n", numberSet);
+      spew->printf("\nSet %u pixels\n", numberSet);
     }
     return numberSet;//should == pattern.expected();
   }
@@ -207,6 +207,9 @@ struct LedStringer {
   }
 
   void show() {
+    if(spew){
+      spew->println("Calling FastLED.show()");
+    }
     FastLED.show();
   }
 
