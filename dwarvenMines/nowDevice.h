@@ -54,6 +54,7 @@ class NowDevice {
     static NowDevice *sender; //only one sender is allowed at this protocol level.
     //  protected:
     bool autoEcho = true;// until the worker replies to the boss we pretend we got an echo back from them
+    //ACK/NACK thunk
     static void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
       bool failed = status != ESP_NOW_SEND_SUCCESS;
       //maydo: check that mac_addr makes sense.
@@ -81,7 +82,7 @@ class NowDevice {
 
     void sendMessage( const Message &newMessage) {
       // Set values to send
-      lastMessage = &newMessage;
+      lastMessage = &newMessage;//todo: (formal) need to copy object
       if (!crippled && lastMessage) {
         ++stats.Attempts;
         auto buffer = lastMessage->outgoing();
@@ -90,7 +91,7 @@ class NowDevice {
           Serial.printf("esp_now_send returned %d %s on send of %u bytes\n", result, esp_err_to_name(result), buffer.size);
         }
         messageOnWire = result == OK;
-        if (! messageOnWire) {//why does indenter fail on this line?
+        if (! messageOnWire) {
           ++stats.Failures;
         }
       }
@@ -108,23 +109,32 @@ class NowDevice {
     void onMessage(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {
       if (message) {
         message->receive(incomingData, len);
-        Serial.print("Bytes received: ");
-        Serial.println(len);
-        Serial.print(*message);
+        if (debugLevel > 50) {
+          Serial.print("Bytes received: ");
+          Serial.println(len);
+          Serial.print(*message);
+        }
         dataReceived = true;
       } else {
-        Serial.print("Bytes ignored: ");
-        Serial.println(len);
+        if (debugLevel > 10) {
+          Serial.print("Bytes ignored: ");
+          Serial.println(len);
+        }
       }
 
     }
 
   public:
     static NowDevice *receiver; //only one receiver is allowed at this protocol level.
-    //  protected:
+    // receiver thunk
     static void OnDataRecv(const esp_now_recv_info_t *esp_now_info, const uint8_t *incomingData, int len) {//esp32 is not c++ friendly in its callbacks.
       if (receiver) {
         receiver->onMessage(esp_now_info, incomingData, len);
+      } else {
+        if (debugLevel > 30) {
+          Serial.print("Bytes ignored: ");
+          Serial.println(len);
+        }
       }
     }
 
