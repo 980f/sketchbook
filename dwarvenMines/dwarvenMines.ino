@@ -118,7 +118,8 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 #include "macAddress.h"
 // known units, until we implement a broadcast based protocol.
 std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
-  MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
+  //toasted MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
+  MacAddress(0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10);
   MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
   //Andy's DEVKITV1
 };
@@ -459,8 +460,9 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
-#define tweakColor(which) station[clistate.colorIndex].which = param; \
-  dbg.cout("color[",clistate.colorIndex,"] = 0x",HEXLY(station[clistate.colorIndex].as_uint32_t()));
+#define tweakColor(which) stringState.color.which = param; \
+  clido('=',false);\
+  dbg.cout("color = 0x",HEXLY(stringState.color.as_uint32_t()));
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -500,8 +502,12 @@ void clido(const unsigned char key, bool wasUpper) {
       } else {
         ++stringState.sequenceNumber;
       }
-      dbg.cout("Sending sequenceNumber: ", stringState.sequenceNumber);
-      primary.sendMessage(stringState);
+      if (IamBoss) {
+        dbg.cout("Sending sequenceNumber: ", stringState.sequenceNumber);
+        primary.sendMessage(stringState);
+      } else {
+        remote.dataReceived = true;
+      }
       break;
 
     case 'a':
@@ -519,8 +525,8 @@ void clido(const unsigned char key, bool wasUpper) {
 
     case 'c': // select a color to diddle
       if (cliValidStation(param, key)) {
-        clistate.colorIndex = param;
-        dbg.cout("Selecting station ", clistate.colorIndex, ", present value is 0x", HEXLY(station[clistate.colorIndex].as_uint32_t()));
+        station[param] = stringState.color;
+        dbg.cout("station[", param, "] is now , 0x", HEXLY(station[param].as_uint32_t()));
       }
       break;
 
