@@ -51,7 +51,6 @@ bool spam[numSpams]; //5 ranges, can add more and they are not actually prioriti
 
 
 //Worker config:
-unsigned REFRESH_RATE_MILLIS = 100; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 #define LEDStringType WS2811, LED_PIN, GRB
 
 
@@ -231,8 +230,10 @@ const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 // time from first pull to restart
 unsigned fuseSeconds = 3 * 60; // 3 minutes
+unsigned REFRESH_RATE_MILLIS = 5 * 1000; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 //time from solution to vortex halt, for when the operator fails to turn it off.
 unsigned resetTicks = 87 * 1000;
+unsigned frameRate = 16;
 
 struct ColorSet: Printable {
   //to limit power consumption:
@@ -283,6 +284,8 @@ struct Boss : public NowDevice {
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
     Ticker refreshRate; //sendall occasionally to deal with any intermittency.
+    Ticker holdoff; //maximum frame rate, to keep from overrunning worker and maybe losing updates.
+    bool updateAllowed = true;//latch for holdoff.done()
     bool needsUpdate[numStations];
 
     void refreshLeds() {
@@ -291,6 +294,15 @@ struct Boss : public NowDevice {
         needsUpdate[si] = true;
       }
       stringState.showem = true; //available to optimize when we know many need to be set.
+    }
+
+    void startHoldoff() {
+      if (frameRate) {
+        updateAllowed = false;
+        holdoff.next(1000 / frameRate);
+      } else {
+        updateAllowed = true;
+      }
     }
 
     bool leverState[numStations];//paces sending
@@ -317,11 +329,11 @@ struct Boss : public NowDevice {
     void loop() {
       // levers are tested on timer tick, since they are debounced by it.
       if (flagged(dataReceived)) { // message received
-        //no-one we know is sending us messages!
+        //preparing to receive leverSet messages
       }
 
       if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
-        if (!messageOnWire) { //can't send another until prior is handled, this needs work.
+        if (updateAllowed && !messageOnWire) { //can't send another until prior is handled, this needs work.
           ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
             if (++lastStationSent >= numStations) {
               lastStationSent = 0;
@@ -329,8 +341,10 @@ struct Boss : public NowDevice {
             if (needsUpdate[lastStationSent]) {
               stringState.color = leverState[lastStationSent] ? station[lastStationSent] : LedStringer::Off;
               stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
+              stringState.showem = true; //todo: only with last one.
               ++stringState.sequenceNumber;//mostly to see if connection is working
               sendMessage(stringState); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+              startHoldoff();
               break;
             }
           }
@@ -396,6 +410,8 @@ struct Boss : public NowDevice {
         refreshLeds();
       }
 
+
+
       switch (lever.onTick()) {
         case LeverSet::Event::NonePulled: // none on
           break;
@@ -428,8 +444,8 @@ struct Boss : public NowDevice {
           resetPuzzle();
         }
       }
+    }// end tick
 
-    }
 } primary;
 //////////////////////////////////////////////////////////////////////////////////////////////
 using ThisApp = NowDevice; //<DesiredState>;
@@ -521,6 +537,9 @@ void clido(const unsigned char key, bool wasUpper) {
           }
           break;
       }
+      break;
+    case 'f':
+      frameRate = param;
       break;
     case 'l': // select a lever to monitor
       if (cliValidStation(param, key)) {

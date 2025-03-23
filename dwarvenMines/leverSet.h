@@ -1,7 +1,7 @@
 //an Arduino fragment, include in your .ino, no matching .cpp exists at present 
 //expect dbg.cout ChainPrinter for debug messages. 
 //todo: remove dependency on dbg.cout, pass in a debug channel.
-x
+
 #include "simpleDebouncedPin.h"
 
 struct LeverSet: Printable {
