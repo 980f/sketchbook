@@ -100,9 +100,9 @@ struct CliState {
 ////////////////////////////////////////////
 // Boss/main pin allocations:
 #include "simpleDebouncedPin.h"
-// boss side:
-SimpleOutputPin relay[] = {26, 22, 33, 32, 23}; //25 was broken on 'BDAC: all relays in a group to expedite "all off"
 
+
+//enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
   //there are spare outputs declared in relay[] but without an enum to pick them
   VortexMotor,
@@ -112,6 +112,27 @@ enum RelayChannel { // index into relay array.
   numRelays    // marker, leave in last position.
 };
 
+struct RelayQuad {
+  // boss side:
+  SimpleOutputPin channel[numRelays] = {26, 22, 33, 32};//, 23}; //25 was broken on 'BDAC: all relays in a group to expedite "all off"
+
+  SimpleOutputPin & operator [](unsigned enumeratedIndex) {
+    if (enumeratedIndex < countof(channel)) {
+      return channel[enumeratedIndex];
+    } else {
+      return clistate.onBoard;
+    }
+  }
+
+  void setup() {
+    for (unsigned ri = numRelays; ri-- > 0;) {
+      channel[ri].setup(OUTPUT);
+    }
+  }
+
+} relay;
+
+
 SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
 //23 is a corner pin: SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
 DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
@@ -120,8 +141,12 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 // known units, until we implement a broadcast based protocol.
 std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
   //toasted MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
-  MacAddress{0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10},
-  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
+  MacAddress{0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10},   //Worker
+  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC},   //Boss
+  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xB1, 0x8C}, //lolin32, short pins
+  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xAF, 0xD8}, //lolin32, short pins
+
+
   //Andy's DEVKITV1
 };
 
@@ -323,10 +348,7 @@ struct Boss : public NowDevice {
   public:
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
-      //not needed after we implemented auto init on first use:
-      for (unsigned ri = numRelays; ri-- > 0;) {
-        relay[ri].setup(OUTPUT);
-      }
+      relay.setup();
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       refreshLeds();
@@ -627,14 +649,14 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       remote.leds.show();
       break;
 
-//    case 'y':
-//      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
-//        remote.leds[index] = station[index % numStations];
-//        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
-//      }
-//      dbg.cout("show leds");
-//      remote.leds.show();
-//      break;
+    //    case 'y':
+    //      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
+    //        remote.leds[index] = station[index % numStations];
+    //        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
+    //      }
+    //      dbg.cout("show leds");
+    //      remote.leds.show();
+    //      break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
       primary.refreshRate.next(REFRESH_RATE_MILLIS);
