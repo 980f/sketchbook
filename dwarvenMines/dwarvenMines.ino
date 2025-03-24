@@ -77,7 +77,7 @@ SUI dbg(Serial, Serial);
 
 //debug state
 struct CliState {
-  unsigned colorIndex = 0; // might use ~0 to diddle "black"
+  unsigned workerIndex = 0;
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
   unsigned patternIndex = 0; //at the moment we have just one.
   SimpleOutputPin onBoard{BOARD_LED};//Wroom LED
@@ -101,10 +101,8 @@ struct CliState {
 // Boss/main pin allocations:
 #include "simpleDebouncedPin.h"
 
-
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
-  //there are spare outputs declared in relay[] but without an enum to pick them
   VortexMotor,
   Lights_1,
   Lights_2,
@@ -145,8 +143,6 @@ std::array knownEsp32 = {//std::array can deduce type and count, but given type 
   MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC},   //Boss
   MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xB1, 0x8C}, //lolin32, short pins
   MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xAF, 0xD8}, //lolin32, short pins
-
-
   //Andy's DEVKITV1
 };
 
@@ -157,7 +153,8 @@ std::array knownEsp32 = {//std::array can deduce type and count, but given type 
 struct DesiredState : public NowDevice::Message {
   /** this is added to the offset of each light */
   uint8_t startMarker = 1; //also version number
-
+  const char prefix[31] = "FX.Vortex.Lights";
+  const char safetyNull = 0;//ensure preceding string gets a nill even if we type in one that is too long.
   /// body
   unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
   CRGB color;
@@ -166,9 +163,10 @@ struct DesiredState : public NowDevice::Message {
   ///////////////////////////
   size_t printTo(Print &stream) {
     size_t length = 0;
+    length += stream.println(prefix);
     length += stream.printf("Sequence#:%u\t", sequenceNumber);
     length += stream.printf("Show em:%x\t", showem);
-    length += stream.printf("Color:%06X\n", color);
+    length += stream.printf("Color:%06X\n", color.as_uint32_t());
     //    length += stream.print("Pattern:\t") stream.print(pattern);
     length += pattern.printTo(stream);
     return length;
@@ -200,7 +198,7 @@ struct Worker : public NowDevice {
   LedStringer leds;
   void setup(bool justTheString = true) {
     LedStringer::spew = &Serial;
-    leds.setup(VortexFX.total, pixel); //using fixed sizes from Tim.
+    leds.setup(VortexFX.total, pixel);
     if (!justTheString) {
       //if EL's are restored they get setup here.
       NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
@@ -353,7 +351,7 @@ struct Boss : public NowDevice {
       autoReset.stop();
       refreshLeds();
       NowDevice::setup(echoState); // must do this before we do any other esp_now calls.
-      auto peerError = NowDevice::addPeer(knownEsp32[0], BUG2);
+      auto peerError = NowDevice::addPeer(knownEsp32[clistate.workerIndex], BUG2);
       reportError(peerError, "Failed to add peer");//FYI only outputs on error
       //todo: periodically retry adding peer.
       Serial.println("Boss Setup Complete");
@@ -492,9 +490,10 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
-#define tweakColor(which) stringState.color.which = param; \
+#define tweakColor(which) \
+  stringState.color.which = param; \
   clido('=',false,cli);\
-  dbg.cout("color = 0x",HEXLY(stringState.color.as_uint32_t()));
+  Serial.printf("color" "= 0x%06X",stringState.color.as_uint32_t());
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -556,7 +555,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'c': // set a station color, volatile!
       if (cliValidStation(param, key)) {
         station[param] = stringState.color;
-        Serial.printf("station[%u] is now , 0x%06X", param, station[param].as_uint32_t());
+        Serial.printf("station[%u] color is now 0x%06X\n", param, station[param].as_uint32_t());
       }
       break;
 
@@ -643,12 +642,14 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         ForStations(si) {
           remote.leds.setPattern(station[si], pattern(si, param));
         }
-      } else {
+      } else {        
         remote.leds.all(stringState.color);
       }
       remote.leds.show();
       break;
-
+    case 'x':
+      clistate.workerIndex = param;
+      break;
     //    case 'y':
     //      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
     //        remote.leds[index] = station[index % numStations];
