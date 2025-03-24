@@ -107,7 +107,7 @@ enum RelayChannel { // index into relay array.
   VortexMotor,
   Lights_1,
   Lights_2,
-  DoorRelease, // to be replaced with text that is in comments at this time
+  DoorRelease,
   numRelays    // marker, leave in last position.
 };
 
@@ -119,7 +119,7 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 // known units, until we implement a broadcast based protocol.
 std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
   //toasted MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
-  MacAddress(0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10);
+  MacAddress{0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10},
   MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC}   //Boss
   //Andy's DEVKITV1
 };
@@ -167,28 +167,6 @@ DesiredState stringState; // zero init: vortex angle 0, all stations black.
 // what remote is doing, or locally copied over when command would have been sent.
 //this is stale, but might soon be restored, ignore it as long as this comment is in place.
 DesiredState echoState; //last sent?
-///////////////////////////////////////////////////////////////////////
-LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
-  LedStringer::Pattern p;
-  switch (style) {
-    case 0:
-      p.offset = (si / 2) * VortexFX.perRevolutionActual; //which ring
-      if (si & 1) {
-        p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
-      }
-
-      //set this many in a row,must be at least 1
-      p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
-      //every this many, must be greater than or the same as run
-      p.period = p.run;
-      //this number of times, must be at least 1
-      p.sets = 1;
-      //Runner will apply this modulus to its generated numbers
-      p.modulus = VortexFX.perRevolutionActual;
-      break;
-  }
-  return p;
-}
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
 // failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
@@ -279,6 +257,37 @@ struct ColorSet: Printable {
 } station;
 
 #include "leverSet.h"
+
+///////////////////////////////////////////////////////////////////////
+LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
+  LedStringer::Pattern p;
+  switch (style) {
+    case 0: //half ring
+      p.offset = ((si / 2)+1) * VortexFX.perRevolutionActual; //which ring, skipping first
+      if (si & 1) {
+        p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
+      }
+
+      //set this many in a row,must be at least 1
+      p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
+      //every this many, must be greater than or the same as run
+      p.period = p.run;
+      //this number of times, must be at least 1
+      p.sets = 1;
+      //Runner will apply this modulus to its generated numbers
+      p.modulus = VortexFX.perRevolutionActual;
+      break;
+    case 1: //
+      p.offset = si;
+      p.run = 1;
+      p.period = numStations;
+      p.sets = VortexFX.total;
+      p.modulus = 0;
+      break;
+  }
+  return p;
+}
+
 
 struct Boss : public NowDevice {
     LeverSet lever;
