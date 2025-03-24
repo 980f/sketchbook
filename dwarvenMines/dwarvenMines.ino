@@ -10,6 +10,10 @@
   Note: 800 kbaud led update rate, 24 bits per LED, 33+k leds/second @400 LEDS 83 fps. 12 ms per update plus a little for the reset.
   10Hz is enough for special FX work, 24Hz is movie theater rate.
 
+  Nodes:
+  S41L to send lighting desires
+  S41B to send lever states
+
 */
 #if defined(ARDUINO_LOLIN32_LITE)
 #warning "Using pin assignments for 26pin w/battery interface"
@@ -135,26 +139,26 @@ SimplePin IamBoss = {15}; // pin to determine what this device's role is (Boss o
 //23 is a corner pin: SimplePin IamReal = {23}; // pin to determine that this is the real system, not the single processor development one.
 DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
 
-#include "macAddress.h"
-// known units, until we implement a broadcast based protocol.
-std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
-  //toasted MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
-  MacAddress{0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10},   //Worker
-  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC},   //Boss
-  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xB1, 0x8C}, //lolin32, short pins
-  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xAF, 0xD8}, //lolin32, short pins
-  //Andy's DEVKITV1
-};
+//#include "macAddress.h"
+//// known units, until we implement a broadcast based protocol.
+//std::array knownEsp32 = {//std::array can deduce type and count, but given type would not deduce count.
+//  //toasted MacAddress{0xD0, 0xEF, 0x76, 0x5C, 0x7A, 0x10},  //remote worker
+//  MacAddress{0x3C, 0x8A, 0x1F, 0x50, 0xCE, 0x10},   //Worker
+//  MacAddress{0xB0, 0xA7, 0x32, 0x2B, 0xBD, 0xAC},   //Boss
+//  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xB1, 0x8C}, //lolin32, short pins
+//  MacAddress{0x94, 0xB9, 0x7E, 0xE3, 0xAF, 0xD8}, //lolin32, short pins
+//  //Andy's DEVKITV1
+//};
 
-#include "nowDevice.h"
+#include "block.h"
+
 /////////////////////////////////////////
 // Structure to convey data
+//name is stale, is now a command rather than state.
 
-struct DesiredState : public NowDevice::Message {
-  /** this is added to the offset of each light */
-  uint8_t startMarker = 1; //also version number
-  const char prefix[31] = "FX.Vortex.Lights";
-  const char safetyNull = 0;//ensure preceding string gets a nill even if we type in one that is too long.
+struct DesiredState {
+  const unsigned char  prefix[4] = {'S', '4', '1', 'L'};
+  uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
   /// body
   unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
   CRGB color;
@@ -163,7 +167,7 @@ struct DesiredState : public NowDevice::Message {
   ///////////////////////////
   size_t printTo(Print &stream) {
     size_t length = 0;
-    length += stream.println(prefix);
+    length += stream.println(reinterpret_cast<const char *>(prefix));
     length += stream.printf("Sequence#:%u\t", sequenceNumber);
     length += stream.printf("Show em:%x\t", showem);
     length += stream.printf("Color:%06X\n", color.as_uint32_t());
@@ -173,37 +177,49 @@ struct DesiredState : public NowDevice::Message {
   }
   /// end body
   /////////////////////////////
-  uint8_t endMarker;//value ignored
+  uint8_t endMarker;//value ignored, not sent
 
-  /** format for delivery, content is copied but not immediately so using stack is risky. */
-  Block<uint8_t> incoming() override {
+  /** format for delivery, content is copied but not immediately so using stack is risky.
+      we check the prefix but skip copying it since we const'd it.
+  */
+  Block<uint8_t> incoming()  {
     return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
   }
 
-  Block<const uint8_t> outgoing() const override {
-    return Block<const uint8_t> {(&endMarker - &startMarker), startMarker};
+  Block<const uint8_t> outgoing() const {
+    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
   }
 
 };
 
-// command to remote
-DesiredState stringState; // zero init: vortex angle 0, all stations black.
-// what remote is doing, or locally copied over when command would have been sent.
-//this is stale, but might soon be restored, ignore it as long as this comment is in place.
-DesiredState echoState; //last sent?
+// command to set some lights. static for debug convenience, should be member of Worker and Boss.
+DesiredState stringState;
+
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
-// failed due to errors in FastLED's macroed namespace stuff: using FastLed_ns;
-struct Worker : public NowDevice {
+#define BroadcastNode_WIFI_CHANNEL 1
+#include "broadcastNode.h"
+struct Stripper : public BroadcastNode {
+  Stripper(): BroadcastNode(BroadcastNode_Triplet) {}
   LedStringer leds;
   void setup(bool justTheString = true) {
     LedStringer::spew = &Serial;
     leds.setup(VortexFX.total, pixel);
+    //if EL's are restored they get setup here.
     if (!justTheString) {
-      //if EL's are restored they get setup here.
-      NowDevice::setup(stringState); // call after local variables setup to ensure we are immediately ready to receive.
+      BroadcastNode::begin(true, true);
     }
     Serial.println("Worker Setup Complete");
+  }
+
+  bool dataReceived = false;
+
+  void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
+    if (len >= sizeof(stringState) && 0 == memcmp(data, stringState.prefix, len)) { //trusting network to frame packets, and packet to be less than one frame
+      auto buffer = stringState.incoming();
+      memcpy(&buffer.content, data, min(len, buffer.size));//allows new versions to add data at end. That might be a bad idea versus hard crash to show incompatibility.
+      dataReceived = true;
+    }
   }
 
   void loop() {
@@ -223,7 +239,7 @@ struct Worker : public NowDevice {
   void onTick(MilliTick ignored) {
     // not yet animating anything, so nothing to do here.
   }
-} remote;
+} stripper;
 
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
@@ -280,6 +296,7 @@ struct ColorSet: Printable {
   }
 } station;
 
+
 #include "leverSet.h"
 
 ///////////////////////////////////////////////////////////////////////
@@ -313,7 +330,7 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
 }
 
 
-struct Boss : public NowDevice {
+struct Boss : public BroadcastNode {
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
@@ -338,23 +355,37 @@ struct Boss : public NowDevice {
         updateAllowed = true;
       }
     }
+    void sendMessage(const DesiredState &msg) {
+      auto block = stringState.outgoing();
+      send_message(block.size, &block.content);
+    }
 
     bool leverState[numStations];//paces sending
     //for pacing sending station updates
     unsigned lastStationSent = 0;
 
   public:
+
+    Boss(): BroadcastNode(BroadcastNode_Triplet) {}
+
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
       relay.setup();
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       refreshLeds();
-      NowDevice::setup(echoState); // must do this before we do any other esp_now calls.
-      auto peerError = NowDevice::addPeer(knownEsp32[clistate.workerIndex], BUG2);
-      reportError(peerError, "Failed to add peer");//FYI only outputs on error
-      //todo: periodically retry adding peer.
+      BroadcastNode::begin(true, false);//reads and writes
       Serial.println("Boss Setup Complete");
+    }
+
+    bool dataReceived = false;
+
+    void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
+      if (len >= sizeof(stringState) && 0 == memcmp(data, stringState.prefix, len)) { //trusting network to frame packets, and packet to be less than one frame
+        auto buffer = stringState.incoming();
+        memcpy(&buffer.content, data, min(len, buffer.size));//allows new versions to add data at end. That might be a bad idea versus hard crash to show incompatibility.
+        dataReceived = true;
+      }
     }
 
     void loop() {
@@ -364,7 +395,7 @@ struct Boss : public NowDevice {
       }
 
       if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
-        if (updateAllowed && !messageOnWire) { //can't send another until prior is handled, this needs work.
+        if (updateAllowed) { //can't send another until prior is handled, this needs work.
           ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
             if (++lastStationSent >= numStations) {
               lastStationSent = 0;
@@ -479,13 +510,13 @@ struct Boss : public NowDevice {
 
 } primary;
 //////////////////////////////////////////////////////////////////////////////////////////////
-using ThisApp = NowDevice; //<DesiredState>;
-// at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID. These are set in the related setup() calls.
-ThisApp *ThisApp::receiver = nullptr;
-ThisApp *ThisApp::sender = nullptr;
-
-unsigned ThisApp::setupCount = 0;
-ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
+//using ThisApp = NowDevice; //<DesiredState>;
+//// at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID. These are set in the related setup() calls.
+//ThisApp *ThisApp::receiver = nullptr;
+//ThisApp *ThisApp::sender = nullptr;
+//
+//unsigned ThisApp::setupCount = 0;
+//ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
@@ -538,7 +569,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.printf("Sending sequenceNumber: %u\n", stringState.sequenceNumber);
         primary.sendMessage(stringState);
       } else {
-        remote.dataReceived = true;
+        stripper.dataReceived = true;
       }
       break;
 
@@ -587,8 +618,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       Serial.println(WiFi.macAddress());
       break;
     case 'n':
-      NowDevice::debugLevel = param;
-      Serial.printf("esp_now message level has been set to %u", NowDevice::debugLevel );
+      BroadcastNode::spew = param >= 2;
+      BroadcastNode::errors = param >= 0;
+      Serial.printf("broadcast spam and errors have been set to %x,%x\n", BroadcastNode::spew , BroadcastNode::errors );
       break;
     case 'o':
       if (param < numRelays) {
@@ -640,24 +672,16 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'w': //locally test a style via "all on"
       if (IamBoss) {
         ForStations(si) {
-          remote.leds.setPattern(station[si], pattern(si, param));
+          stripper.leds.setPattern(station[si], pattern(si, param));
         }
-      } else {        
-        remote.leds.all(stringState.color);
+      } else {
+        stripper.leds.all(stringState.color);
       }
-      remote.leds.show();
+      stripper.leds.show();
       break;
     case 'x':
       clistate.workerIndex = param;
       break;
-    //    case 'y':
-    //      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
-    //        remote.leds[index] = station[index % numStations];
-    //        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
-    //      }
-    //      dbg.cout("show leds");
-    //      remote.leds.show();
-    //      break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
       primary.refreshRate.next(REFRESH_RATE_MILLIS);
@@ -742,10 +766,10 @@ void setup() {
   if (IamBoss) {
     Serial.println("Setting up as boss");
     primary.setup();
-    remote.setup(true);//true: just LED string, for easy testing
+    stripper.setup(true);//true: just LED string, for easy testing
   } else {
     Serial.println("Setting up as remote");
-    remote.setup(false);
+    stripper.setup(false);
   }
 
   Serial.println("Entering forever loop.");
@@ -761,7 +785,7 @@ void loop() {
     if (IamBoss) {
       primary.onTick(Ticker::now);
     } else {
-      remote.onTick(Ticker::now);
+      stripper.onTick(Ticker::now);
     }
     clistate.onTick();
   }
@@ -769,6 +793,6 @@ void loop() {
   if (IamBoss) {
     primary.loop();
   } else {
-    remote.loop();
+    stripper.loop();
   }
 }
