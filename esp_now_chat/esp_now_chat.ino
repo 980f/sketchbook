@@ -42,7 +42,7 @@ void loop() {
       if (key == '\r') {
         *writer = 0;
         Serial.printf("Emitting message: %s\n", data);
-        if (!me.send_message(reinterpret_cast<const uint8_t*>(data), sizeof(data))) {
+        if (!me.send_message(sizeof(data), reinterpret_cast<const uint8_t*>(data))) {
           Serial.println("Failed to broadcast message");
         }
         writer = data;
