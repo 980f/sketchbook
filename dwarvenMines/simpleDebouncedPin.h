@@ -45,8 +45,6 @@ struct DebouncedInput : public Printable {
     }
   }
 
-
-
   void filter(MilliTick filter) {
     DebounceDelay = filter;
   }
