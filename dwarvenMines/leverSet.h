@@ -1,5 +1,5 @@
-//an Arduino fragment, include in your .ino, no matching .cpp exists at present 
-//expect dbg.cout ChainPrinter for debug messages. 
+//an Arduino fragment, include in your .ino, no matching .cpp exists at present
+//expect dbg.cout ChainPrinter for debug messages.
 //todo: remove dependency on dbg.cout, pass in a debug channel.
 
 #include "simpleDebouncedPin.h"
@@ -58,7 +58,7 @@ struct LeverSet: Printable {
       for (unsigned index = numStations; index-- > 0;) {
         bool changed = lever[index].onTick();
         if (changed && clistate.leverIndex == index) {
-          dbg.cout("lever", index, " just became: ", lever[index].presently, " latched: ", lever[index].solved);
+          Serial.printf("lever[%u] just became: %x,  latched: %x\n", index, lever[index].presently, lever[index].solved);
         }
       }
 
@@ -81,7 +81,7 @@ struct LeverSet: Printable {
     }
 
     void restart() {
-      dbg.cout("Lever::Restart");
+      Serial.println("Lever::Restart");
       ForStations(index) {
         lever[index].restart();
       }
@@ -99,12 +99,11 @@ struct LeverSet: Printable {
     }
 
     void listPins(Print &stream) const {
-      dbg.cout("Lever logical pin assignments");
-      auto namedoesntmatter = dbg.cout.stackFeeder();
+      stream.println("Lever logical pin assignments");
       ForStations(index) {
         stream.printf("\t%u:D%u", index, lever[index].pinNumber());
       }
-      dbg.cout.endl();
+      stream.println();
     }
 
     void setup(MilliTick bouncer) {

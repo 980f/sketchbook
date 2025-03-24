@@ -71,6 +71,7 @@ CRGB pixel[VortexFX.total];
 #include "sui.h" //Simple User Interface
 SUI dbg(Serial, Serial);
 
+
 #include "simplePin.h"
 #include "simpleTicker.h"
 
@@ -263,7 +264,7 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
   LedStringer::Pattern p;
   switch (style) {
     case 0: //half ring
-      p.offset = ((si / 2)+1) * VortexFX.perRevolutionActual; //which ring, skipping first
+      p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
       if (si & 1) {
         p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
       }
@@ -470,7 +471,7 @@ ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
 //debug aids
 
 #define tweakColor(which) stringState.color.which = param; \
-  clido('=',false);\
+  clido('=',false,cli);\
   dbg.cout("color = 0x",HEXLY(stringState.color.as_uint32_t()));
 
 bool cliValidStation(unsigned param, const unsigned char key) {
@@ -481,23 +482,24 @@ bool cliValidStation(unsigned param, const unsigned char key) {
   return false;
 }
 
-void clido(const unsigned char key, bool wasUpper) {
-  unsigned param = dbg[0]; //clears on read, can only access once!
+void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
+  unsigned param = cli[0]; //clears on read, can only access once!
   switch (key) {
     case '.':
       switch (param) {
         case 0:
-          dbg.cout("Refresh colors (lever) returned : ", primary.refreshColors());
+          Serial.printf("Refresh colors (lever) returned : %u", primary.refreshColors());
           break;
         case 1:
           ForStations(si) {
             primary.lever[si] = true;
           }
           primary.onSolution();
-          dbg.cout("simulated solution");
+          Serial.println("simulated solution");
           break;
         case ~0u:
           primary.resetPuzzle();
+          Serial.println("Puzzle reset.");
           break;
         case 2:
           primary.lever.restart();
@@ -512,16 +514,13 @@ void clido(const unsigned char key, bool wasUpper) {
         ++stringState.sequenceNumber;
       }
       if (IamBoss) {
-        dbg.cout("Sending sequenceNumber: ", stringState.sequenceNumber);
+        Serial.printf("Sending sequenceNumber: %u\n", stringState.sequenceNumber);
         primary.sendMessage(stringState);
       } else {
         remote.dataReceived = true;
       }
       break;
 
-    case 'a':
-      dbg.cout("Ring config: Visible:", VortexFX.perRevolutionVisible , "\t Actual:", VortexFX.perRevolutionActual);
-      break;
     case 'b':
       tweakColor(b);
       break;
@@ -532,10 +531,10 @@ void clido(const unsigned char key, bool wasUpper) {
       tweakColor(r);
       break;
 
-    case 'c': // select a color to diddle
+    case 'c': // set a station color, volatile!
       if (cliValidStation(param, key)) {
         station[param] = stringState.color;
-        dbg.cout("station[", param, "] is now , 0x", HEXLY(station[param].as_uint32_t()));
+        Serial.printf("station[%u] is now , 0x%06X", param, station[param].as_uint32_t());
       }
       break;
 
@@ -545,7 +544,7 @@ void clido(const unsigned char key, bool wasUpper) {
           LedStringer::spew = wasUpper ? &Serial : nullptr;
           break;
         default:
-          if (param < sizeof(spam) / sizeof(spam[0])) {
+          if (param < numSpams) {
             spam[param] = wasUpper;
           } else {
             Serial.printf("Known debug flags are 0..%u, or ~ for LedStringer\n", numSpams - 1);
@@ -559,7 +558,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case 'l': // select a lever to monitor
       if (cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        dbg.cout("Selecting station ", clistate.leverIndex, " lever for diagnostic tracing");
+        Serial.printf("Selecting station %u lever for diagnostic tracing", clistate.leverIndex);
       }
       break;
 
@@ -568,6 +567,7 @@ void clido(const unsigned char key, bool wasUpper) {
       break;
     case 'n':
       NowDevice::debugLevel = param;
+      Serial.printf("esp_now message level has been set to %u", NowDevice::debugLevel );
       break;
     case 'o':
       if (param < numRelays) {
@@ -598,7 +598,7 @@ void clido(const unsigned char key, bool wasUpper) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = true;
         Serial.printf("Lever[ %d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
-        dbg.cout("There are now ", primary.lever.numSolved(), " activated");
+        Serial.printf("There are now %u activated\n", primary.lever.numSolved());
       }
       break;
     case 't':
@@ -612,25 +612,29 @@ void clido(const unsigned char key, bool wasUpper) {
         clistate.leverIndex = param;
         primary.lever[clistate.leverIndex] = false;
         Serial.printf("Lever[%u] latch cleared, reports : %x\n", primary.lever[clistate.leverIndex]);
-        dbg.cout("There are now ", primary.lever.numSolved(), " activated");
+        Serial.printf("There are now %u activated\n", primary.lever.numSolved());
       }
       break;
 
-    case 'w': //test a style via "all on"
-      ForStations(si) {
-        remote.leds.setPattern(station[si], pattern(si, param));
+    case 'w': //locally test a style via "all on"
+      if (IamBoss) {
+        ForStations(si) {
+          remote.leds.setPattern(station[si], pattern(si, param));
+        }
+      } else {
+        remote.leds.all(stringState.color);
       }
       remote.leds.show();
       break;
 
-    case 'y':
-      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
-        remote.leds[index] = station[index % numStations];
-        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
-      }
-      dbg.cout("show leds");
-      remote.leds.show();
-      break;
+//    case 'y':
+//      for (unsigned index = 0; index < 60; ++index) {//60 LEDS in test system, they will show the LAST 60 for the real system.
+//        remote.leds[index] = station[index % numStations];
+//        dbg.cout("Pixel ", index, " color:", HEXLY(station[index % numStations].as_uint32_t()));
+//      }
+//      dbg.cout("show leds");
+//      remote.leds.show();
+//      break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
       primary.refreshRate.next(REFRESH_RATE_MILLIS);
@@ -652,7 +656,7 @@ void clido(const unsigned char key, bool wasUpper) {
     case ' ':
       if (IamBoss) {
         Serial.println("VortexFX Boss:");
-        primary.lever.printTo(dbg.cout.raw);
+        primary.lever.printTo(Serial);
         Serial.print("Update flags");
         ForStations(si) {
           Serial.printf("\t[%u]=%x", si, primary.needsUpdate[si]);
@@ -666,7 +670,7 @@ void clido(const unsigned char key, bool wasUpper) {
         Serial.println("VortexFX Worker");
         Serial.print("Last Action: \t");
       }
-      stringState.printTo(dbg.cout.raw);
+      stringState.printTo(Serial);
       break;
     case '*':
       primary.lever.listPins(Serial);
@@ -700,6 +704,8 @@ void clido(const unsigned char key, bool wasUpper) {
 // arduino's setup:
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(115200);
+  Serial2.begin(115200);
 
   dbg.cout.stifled = false;//opposite sense of following bug flags
   TRACE = false;
