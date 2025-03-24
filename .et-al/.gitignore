@@ -1,5 +1,6 @@
-cache
-logs
-staging
-
+package_*_index.json 
+*.sig
+cache/
+staging/
+packages/
 
