@@ -1,0 +1,2 @@
+## recreate links to source in other Arduino project
+ln -sf ../dwarvenMines/broadcastNode.h
