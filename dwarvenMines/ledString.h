@@ -191,8 +191,8 @@ struct LedStringer {
   }
 
   void setup() {
-    if(spew){
-      spew->printf("FLED:addLeds <%s>(%p,%u)\n"," LEDStringType " , leds, quantity);
+    if (spew) {
+      spew->printf("FLED:addLeds <%s>(%p,%u)\n", " LEDStringType " , leds, quantity);
     }
     FastLED.addLeds<LEDStringType>(leds, quantity);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
   }
@@ -207,10 +207,16 @@ struct LedStringer {
   }
 
   void show() {
-    if(spew){
+    auto start = millis();
+    if (spew) {
       spew->println("Calling FastLED.show()");
     }
     FastLED.show();
+    auto end = millis();
+    if (spew) {
+      spew->printf("FastLED.show() took %u millis\n", end - start);
+    }
+
   }
 
   CRGB & operator [](unsigned i) {
