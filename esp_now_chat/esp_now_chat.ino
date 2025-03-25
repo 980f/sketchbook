@@ -7,11 +7,11 @@
 
 */
 
-#define ESPNOW_WIFI_CHANNEL 6
+#define BroadcastNode_WIFI_CHANNEL 6
 
 #include "broadcastNode.h"
 
-BroadcastNode me(ESPNOW_Triplet );
+BroadcastNode me(BroadcastNode_Triplet );
 
 
 void setup() {
@@ -42,7 +42,7 @@ void loop() {
       if (key == '\r') {
         *writer = 0;
         Serial.printf("Emitting message: %s\n", data);
-        if (!me.send_message(sizeof(data), reinterpret_cast<const uint8_t*>(data))) {
+        if (!me.send_message(writer-data, reinterpret_cast<const uint8_t*>(data))) {
           Serial.println("Failed to broadcast message");
         }
         writer = data;
