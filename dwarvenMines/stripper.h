@@ -1,4 +1,5 @@
 #pragma once
+#define BroadcastNode_WIFI_CHANNEL 6
 
 // vortex lights
 /////////////////////////////////////////
@@ -39,6 +40,12 @@ struct DesiredState {
     return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
   }
 
+  /** expect the whole object including prefix */
+  bool isValidMessage(unsigned len, const uint8_t* data) {
+    auto expect = outgoing();
+    return len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+  }
+
 };
 
 // command to set some lights. static for debug convenience, should be member of Worker and Boss.
@@ -46,14 +53,14 @@ DesiredState stringState;
 
 ///////////////////////////////////////////////////////////////////////
 // the guy who receives commands as to which lights should be active.
-#define BroadcastNode_WIFI_CHANNEL 1
+
 #include "broadcastNode.h"
 struct Stripper : public BroadcastNode {
   Stripper(): BroadcastNode(BroadcastNode_Triplet) {}
   LedStringer leds;
 
   struct ELgroup {
-    static constexpr unsigned numEls=8;
+    static constexpr unsigned numEls = 8;
     SimpleOutputPin ELPin[numEls] = {4, 16, 17, 18, 19, 21, 22, 23};
     /** floating inputs into the control board are a bad idea. */
     void shutup() {//expedite and ensure the unused relays don't click and clack due to noise.
@@ -63,11 +70,11 @@ struct Stripper : public BroadcastNode {
       }
     }
 
-    SimpleOutputPin &operator [](unsigned which){
-      if(which<numEls){
+    SimpleOutputPin &operator [](unsigned which) {
+      if (which < numEls) {
         return ELPin[which];
       } else {
-        return ELPin[numEls-1];//last relay gets to be abused by bad code.
+        return ELPin[numEls - 1]; //last relay gets to be abused by bad code.
       }
     }
 
@@ -86,13 +93,20 @@ struct Stripper : public BroadcastNode {
 
   bool dataReceived = false;
 
+
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if (len >= sizeof(stringState) && 0 == memcmp(data, stringState.prefix, len)) { //trusting network to frame packets, and packet to be less than one frame
+    if (EVENT) {
+      Serial.printf("Received: %.*s\n", std::min(size_t(4), len), data);
+    }
+    if (stringState.isValidMessage(len, data)) { //trusting network to frame packets, and packet to be less than one frame
       auto buffer = stringState.incoming();
-      memcpy(&buffer.content, data, min(len, buffer.size));//allows new versions to add data at end. That might be a bad idea versus hard crash to show incompatibility.
+      memcpy(&buffer.content, data, buffer.size);
       dataReceived = true;
+    } else {
+      BroadcastNode::onReceive(data, len, broadcast);
     }
   }
+
 
   void loop() {
     if (flagged(dataReceived)) { // message received

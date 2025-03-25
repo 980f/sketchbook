@@ -15,6 +15,7 @@
   S41B to send lever states
 
 */
+
 #if defined(ARDUINO_LOLIN32_LITE)
 #warning "Using pin assignments for 26pin w/battery interface"
 #define BOARD_LED 22
@@ -246,6 +247,9 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
 
 #include "simpleDebouncedPin.h"
 
+#include "remoteGpio.h"
+RemoteGPIO::Message levers2;//also levers :)  //static for debug convenience, should be member of Boss
+
 struct Boss : public BroadcastNode {
     LeverSet lever;
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
@@ -274,6 +278,9 @@ struct Boss : public BroadcastNode {
     }
     void sendMessage(const DesiredState &msg) {
       auto block = stringState.outgoing();
+      if (TRACE) {
+        Serial.printf("sendMessage: %u, %.4s  (%p)\n", block.size, &block.content, &block.content);
+      }
       send_message(block.size, &block.content);
     }
 
@@ -291,24 +298,39 @@ struct Boss : public BroadcastNode {
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       refreshLeds();
-      BroadcastNode::begin(true);//reads and writes
+      spew = true;//bn debug flag
+      if (!BroadcastNode::begin(true)) {
+        Serial.println("Broadcast begin failed");
+      }
       Serial.println("Boss Setup Complete");
     }
 
     bool dataReceived = false;
 
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-      if (len >= sizeof(stringState) && 0 == memcmp(data, stringState.prefix, len)) { //trusting network to frame packets, and packet to be less than one frame
-        auto buffer = stringState.incoming();
-        memcpy(&buffer.content, data, min(len, buffer.size));//allows new versions to add data at end. That might be a bad idea versus hard crash to show incompatibility.
+      if (levers2.isValidMessage(len, data)) { //trusting network to frame packets, and packet to be less than one frame
+        auto buffer = levers2.incoming();
+        memcpy(&buffer.content, data, buffer.size);
         dataReceived = true;
+      } else {//can precede this with a check on a DesiredState and receive an echo if the stripper sends one.
+        BroadcastNode::onReceive(data, len, broadcast);
       }
     }
+
+    bool remoteReset = false;
 
     void loop() {
       // levers are tested on timer tick, since they are debounced by it.
       if (flagged(dataReceived)) { // message received
-        //preparing to receive leverSet messages
+        //for levers2 stuff the solved bits in the initial leverStates.
+        ForStations(each) {
+          if (levers2[each]) {//set on true, leave as is on false.
+            lever[each] = true;
+          }
+        }
+        if (changed(remoteReset, levers2[numStations])) {
+          checkRun(remoteReset);
+        }
       }
 
       if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
@@ -365,6 +387,19 @@ struct Boss : public BroadcastNode {
       lever.restart();//todo: perhaps more thoroughly than for timebomb?
     }
 
+    void checkRun(bool beRunning) {
+      if (beRunning) {
+        //allow puzzle to operate
+        if (EVENT) {
+          Serial.println("Puzzle running.");
+        }
+      } else {
+        if (EVENT) {
+          Serial.println("Manually resetting puzzle");
+        }
+        resetPuzzle();
+      }
+    }
 
     void onTick(MilliTick now) {
       if (autoReset.done()) {
@@ -413,30 +448,11 @@ struct Boss : public BroadcastNode {
       }
 
       if (Run.onTick()) {
-        if (Run.pin) {
-          //allow puzzle to operate
-          if (EVENT) {
-            Serial.println("Puzzle running.");
-          }
-        } else {
-          if (EVENT) {
-            Serial.println("Manually resetting puzzle");
-          }
-          resetPuzzle();
-        }
+        checkRun(Run.pin);
       }
     }// end tick
 
 } primary;
-//////////////////////////////////////////////////////////////////////////////////////////////
-//using ThisApp = NowDevice; //<DesiredState>;
-//// at the moment we are unidirectional, need to learn more about peers and implement bidirectional pairing by function ID. These are set in the related setup() calls.
-//ThisApp *ThisApp::receiver = nullptr;
-//ThisApp *ThisApp::sender = nullptr;
-//
-//unsigned ThisApp::setupCount = 0;
-//ThisApp::SendStatistics ThisApp::stats{0, 0, 0};
-
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
@@ -533,9 +549,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.printf("Selecting station %u lever for diagnostic tracing", clistate.leverIndex);
       }
       break;
-
     case 'm':
       Serial.println(WiFi.macAddress());
+      //      primary.send_message();
       break;
     case 'n':
       BroadcastNode::spew = param >= 2;
@@ -649,11 +665,14 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       //add all other pins in use ...
       break;
     case '?':
-      Serial.printf("usage : \n\tc: \tselect color / station to tweak color\n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
-      Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!");
-      Serial.printf("\t[millis]Z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
+      Serial.printf("Program: %s ", __FILE__);
+      Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
+      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
+      Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");
+      Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
+      Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
       Serial.printf("\t^Z restarts the program, param is seconds of delay, 4 secs minimum \n");
-      Serial.printf("Undocumented : w!.o[Enter]dt\n");
+      Serial.printf("Undocumented : =w*.o[Enter]dt\n");
       break;
     case '!':
       flasher.setup();
@@ -671,8 +690,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 // arduino's setup:
 void setup() {
   Serial.begin(115200);
-  Serial1.begin(115200);
-  Serial2.begin(115200);
+  //confirmed existence, todo: choose pins other than default
+  //  Serial1.begin(115200);
+  //  Serial2.begin(115200);
 
   dbg.cout.stifled = false;//opposite sense of following bug flags
   TRACE = false;

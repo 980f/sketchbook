@@ -13,13 +13,13 @@ struct DebouncedInput : public Printable {
   //usually the value is not changed, it is a program constant, we aren't forcing that as we might make it eeprom configurable.
   MilliTick DebounceDelay;
 
-  DebouncedInput(unsigned pinNumber, bool activeHigh, MilliTick DebounceDelay = ~0u): pin(pinNumber, activeHigh), DebounceDelay(DebounceDelay) {}
+  DebouncedInput(unsigned pinNumber, bool activeHigh = false, MilliTick DebounceDelay = ~0u): pin(pinNumber, activeHigh), DebounceDelay(DebounceDelay) {}
 
   /** @returns whether the input has officially changed to a new state */
   bool onTick(MilliTick ignored = 0) {
-//    Serial.printf("some input");
+    //    Serial.printf("some input");
     if (changed(bouncy, bool(pin))) {//explicit cast need to get around a "const" issue with changed.
-      Serial.printf("Pin Changed: D%u to %x\n",pin.number,bouncy);
+      Serial.printf("Pin Changed: D%u to %x\n", pin.number, bouncy);
       bouncing.next(DebounceDelay);
       return false;
     }

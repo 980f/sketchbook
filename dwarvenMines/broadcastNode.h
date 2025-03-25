@@ -29,10 +29,6 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
     //todo: remember that we added ourselves and remove ourselves, but we shouldn't be dynamically doing that so NYI.    ~BroadcastNode () {}
 
-    virtual bool validMessage(size_t len, const uint8_t *data) {
-      return true;//default promiscuous
-    }
-
     // Function to send a message to all devices within the network
     bool send_message(size_t len, const uint8_t *data) {
       if (len == 0 || data == nullptr) {
@@ -49,15 +45,9 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
   protected:
-
     // Function to print the received messages from the master
-    void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {//declared by espressif
+    void onReceive(const uint8_t *data, size_t len,bool broadcast) override {//prototype declared by espressif
       if (spew) {
-        if (broadcast) {
-          Serial.printf("Received a broadcast message:\n");
-        } else {
-          Serial.printf("Received a message from master " MACSTR ":\n", MAC2STR(addr()));
-        }
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
       }
     }
@@ -73,10 +63,7 @@ class BroadcastNode : public ESP_NOW_Peer {
         }
       }
       //here is where we could qualify the peer and if its message indicates it is on our network than "add_peer" it and process the message.
-      if (validMessage(len, data)) {
-        //todo: construct peer from info->src_addr and esp_now add that.
-        onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
-      }
+      onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
     }
   public:
     /** typically called from setup on your sole statically created BroadcastNode with (true)
@@ -92,29 +79,25 @@ class BroadcastNode : public ESP_NOW_Peer {
       if (spew) {
         Serial.printf("Startup took around %d ms\n", startupTime);
       }
-
       if (errors) {
         Serial.printf("Using Channel: %d\n", BroadcastNode_WIFI_CHANNEL);
         Serial.println("Own  MAC Address: " + WiFi.macAddress());
       }
-
-      // Initialize the ESP-NOW protocol
       if (!ESP_NOW.begin()) {
         if (errors) {
           Serial.println("Failed to initialize ESP-NOW");
         }
         return false;
       }
-      if (isLocal) {
+      if (isLocal) {//then this node handles "new peer" notifications 
         ESP_NOW.onNewPeer(new_node_thunk, this);
       }
       
-      add();//adds self to list, needed to get callbacks, although receive seems to work regardless.
-      
+      add();//adds self to list, needed to get callbacks, although receive seems to work regardless.     
       return true;
     }
 
 };
 
-bool BroadcastNode::spew = false;
+bool BroadcastNode::spew = true;
 bool BroadcastNode::errors = true;

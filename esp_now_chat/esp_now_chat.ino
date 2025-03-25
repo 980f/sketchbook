@@ -16,14 +16,17 @@ BroadcastNode me(BroadcastNode_Triplet );
 
 void setup() {
   Serial.begin(115200);
+  Serial.printf("Program: %s\n\n",__FILE__);
   me.spew = true;
-  if (!me.begin(true, false)) {
+  if (!me.begin(true)) {
     Serial.println("Failed to initialize ESP-NOW");
-    Serial.println("Reeboting in 5 seconds... hoping that magically fixes things");
-    delay(5000);
+    Serial.println("Rebooting in 5 seconds... hoping that magically fixes things");
+    for(unsigned countdown=5;countdown-->0;){
+      Serial.printf("\t%d",countdown);
+      delay(1000);
+    }
     ESP.restart();
   }
-
   Serial.println("Setup complete.");
 }
 
