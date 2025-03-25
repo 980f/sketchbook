@@ -38,6 +38,7 @@ class BroadcastNode : public ESP_NOW_Peer {
       if (len == 0 || data == nullptr) {
         return true; //vacuous messages are instantly sent successfully
       }
+      esp_log_level_set("*", ESP_LOG_WARN);
       if (send(data, len)) {
         return true;
       }
@@ -78,8 +79,9 @@ class BroadcastNode : public ESP_NOW_Peer {
       }
     }
   public:
-    /** typically called from setup on your sole statically created BroadcastNode with (true,false) */
-    bool begin(bool isLocal, bool isReceiveOnly) {
+    /** typically called from setup on your sole statically created BroadcastNode with (true)
+    isLocal seems to always be true, we are trying to ignore who sends a message, all context must be in the message itself.*/
+    bool begin(bool isLocal) {
       int startupTime = - millis();
       WiFi.mode(WIFI_STA);
       WiFi.setChannel(BroadcastNode_WIFI_CHANNEL);
@@ -106,9 +108,9 @@ class BroadcastNode : public ESP_NOW_Peer {
       if (isLocal) {
         ESP_NOW.onNewPeer(new_node_thunk, this);
       }
-      if (!isReceiveOnly) {
-        add();//adds self to list, not sure if that is actually needed.
-      }
+      
+      add();//adds self to list, needed to get callbacks, although receive seems to work regardless.
+      
       return true;
     }
 

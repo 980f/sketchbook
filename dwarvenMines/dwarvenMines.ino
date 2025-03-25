@@ -32,7 +32,7 @@ const unsigned LED_PIN = 21; // drives the chain of programmable LEDs
 // worker/remote pin allocations:
 const unsigned LED_PIN = 3; // drives the chain of programmable LEDs
 #else
-#warning "Using pin assignments that worked for WROOM"
+//#warning "Using pin assignments that worked for WROOM"
 #define BOARD_LED 2
 // worker/remote pin allocations:
 const unsigned LED_PIN = 13; // drives the chain of programmable LEDs
@@ -79,6 +79,7 @@ SUI dbg(Serial, Serial);
 #include "simplePin.h"
 #include "simpleTicker.h"
 
+
 //debug state
 struct CliState {
   unsigned workerIndex = 0;
@@ -113,6 +114,7 @@ enum RelayChannel { // index into relay array.
   DoorRelease,
   numRelays    // marker, leave in last position.
 };
+
 
 struct RelayQuad {
   // boss side:
@@ -152,94 +154,7 @@ DebouncedInput Run = {4, true, 1250}; //pin to enable else reset the puzzle. Ver
 
 #include "block.h"
 
-/////////////////////////////////////////
-// Structure to convey data
-//name is stale, is now a command rather than state.
-
-struct DesiredState {
-  const unsigned char  prefix[4] = {'S', '4', '1', 'L'};
-  uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
-  /// body
-  unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
-  CRGB color;
-  LedStringer::Pattern pattern;
-  bool showem = false;
-  ///////////////////////////
-  size_t printTo(Print &stream) {
-    size_t length = 0;
-    length += stream.println(reinterpret_cast<const char *>(prefix));
-    length += stream.printf("Sequence#:%u\t", sequenceNumber);
-    length += stream.printf("Show em:%x\t", showem);
-    length += stream.printf("Color:%06X\n", color.as_uint32_t());
-    //    length += stream.print("Pattern:\t") stream.print(pattern);
-    length += pattern.printTo(stream);
-    return length;
-  }
-  /// end body
-  /////////////////////////////
-  uint8_t endMarker;//value ignored, not sent
-
-  /** format for delivery, content is copied but not immediately so using stack is risky.
-      we check the prefix but skip copying it since we const'd it.
-  */
-  Block<uint8_t> incoming()  {
-    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
-  }
-
-  Block<const uint8_t> outgoing() const {
-    return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
-  }
-
-};
-
-// command to set some lights. static for debug convenience, should be member of Worker and Boss.
-DesiredState stringState;
-
-///////////////////////////////////////////////////////////////////////
-// the guy who receives commands as to which lights should be active.
-#define BroadcastNode_WIFI_CHANNEL 1
-#include "broadcastNode.h"
-struct Stripper : public BroadcastNode {
-  Stripper(): BroadcastNode(BroadcastNode_Triplet) {}
-  LedStringer leds;
-  void setup(bool justTheString = true) {
-    LedStringer::spew = &Serial;
-    leds.setup(VortexFX.total, pixel);
-    //if EL's are restored they get setup here.
-    if (!justTheString) {
-      BroadcastNode::begin(true, true);
-    }
-    Serial.println("Worker Setup Complete");
-  }
-
-  bool dataReceived = false;
-
-  void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if (len >= sizeof(stringState) && 0 == memcmp(data, stringState.prefix, len)) { //trusting network to frame packets, and packet to be less than one frame
-      auto buffer = stringState.incoming();
-      memcpy(&buffer.content, data, min(len, buffer.size));//allows new versions to add data at end. That might be a bad idea versus hard crash to show incompatibility.
-      dataReceived = true;
-    }
-  }
-
-  void loop() {
-    if (flagged(dataReceived)) { // message received
-      if (TRACE) {
-        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
-      }
-      leds.setPattern(stringState.color, stringState.pattern);
-      if (stringState.showem) {
-        leds.show();
-      }
-    }
-  }
-
-  // this is called once per millisecond, from the arduino loop().
-  // It can skip millisecond values if there are function calls which take longer than a milli.
-  void onTick(MilliTick ignored) {
-    // not yet animating anything, so nothing to do here.
-  }
-} stripper;
+#include "stripper.h"
 
 ////////////////////////////////////////////////////////
 /// maincontroller.ino:
@@ -329,6 +244,7 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
   return p;
 }
 
+#include "simpleDebouncedPin.h"
 
 struct Boss : public BroadcastNode {
     LeverSet lever;
@@ -338,6 +254,7 @@ struct Boss : public BroadcastNode {
     Ticker holdoff; //maximum frame rate, to keep from overrunning worker and maybe losing updates.
     bool updateAllowed = true;//latch for holdoff.done()
     bool needsUpdate[numStations];
+    DebouncedInput forceSolved;//(23, false, 1750); //large delay for dramatic effect, and so button can be dropped before the action occurs.
 
     void refreshLeds() {
       refreshRate.next(REFRESH_RATE_MILLIS);
@@ -366,7 +283,7 @@ struct Boss : public BroadcastNode {
 
   public:
 
-    Boss(): BroadcastNode(BroadcastNode_Triplet) {}
+    Boss(): BroadcastNode(BroadcastNode_Triplet), forceSolved(23, false, 1750) {}
 
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
@@ -374,7 +291,7 @@ struct Boss : public BroadcastNode {
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       refreshLeds();
-      BroadcastNode::begin(true, false);//reads and writes
+      BroadcastNode::begin(true);//reads and writes
       Serial.println("Boss Setup Complete");
     }
 
@@ -415,8 +332,8 @@ struct Boss : public BroadcastNode {
       }
     }
 
-    void onSend(bool failed) {
-      needsUpdate[lastStationSent] = failed;//if failed still needs to be updated, else it has been updated.
+    void onSent(bool succeeded) override {
+      needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
     }
 
     bool refreshColors() {
@@ -472,8 +389,6 @@ struct Boss : public BroadcastNode {
         refreshLeds();
       }
 
-
-
       switch (lever.onTick()) {
         case LeverSet::Event::NonePulled: // none on
           break;
@@ -491,6 +406,10 @@ struct Boss : public BroadcastNode {
           }
           onSolution();
           break;
+      }
+
+      if (forceSolved.onTick() && bool(forceSolved)) {
+        onSolution();
       }
 
       if (Run.onTick()) {
@@ -569,6 +488,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.printf("Sending sequenceNumber: %u\n", stringState.sequenceNumber);
         primary.sendMessage(stringState);
       } else {
+        stringState.showem = true;
         stripper.dataReceived = true;
       }
       break;

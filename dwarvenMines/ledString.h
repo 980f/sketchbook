@@ -1,9 +1,5 @@
 #pragma once
 
-//a complaint about template argument NUM_LEDS not found means that you did not declare: const unsigned NUM_LEDS = 89;
-//#ifndef NUM_LEDS
-//#error you must define NUM_LEDS to use this module
-//#endif
 
 #ifndef LEDStringType
 #error you must define LEDStringType to use this module, format is for example: WS2811, 13, GRB
@@ -11,7 +7,7 @@
 #endif
 //////////////////////////////////////////////////////////////////////
 //if we don't define the following we get all sorts of class name clashes, there are plenty of generic named things in FastLED.
-//there are failures to honor the namespace, no time to figur that out so we will rename outs, fuckit. #define FASTLED_NAMESPACE FastLed_ns
+//BUT there are failures in FastLED to honor the namespace, no time to figure that out so we will rename ours, fuggit. #define FASTLED_NAMESPACE FastLed_ns
 #define FASTLED_INTERNAL
 #include <FastLED.h>
 
@@ -52,7 +48,7 @@ struct LedStringer {
   */
   void all(CRGB same) {
     if (spew) {
-      spew->printf("setting all leds to %0X\n", same);
+      spew->printf("setting all leds to %0X\n", same.as_uint32_t());
     }
     forLEDS(i) {
       leds[i] = same;
@@ -163,15 +159,15 @@ struct LedStringer {
     unsigned numberSet = 0; //diagnostic
     if (spew) {
       if (color == Off) {
-        color = CRGB(10, 50, 50);
+        color = CRGB(40, 20, 20);//TODO: debug! Must fix before shipping
       }
     }
-    if (pattern) {
+    if (pattern) {//test if it is valid, will produce at least one pixel address
       if (spew) {
         spew->print("Setting pattern \t");
         //        spew->print(pattern);
         pattern.printTo(*spew);
-        spew->printf("\tcolor: %06X\n", color.as_uint32_t());
+        spew->printf("\tto color: %06X\n", color.as_uint32_t());
       }
 
       auto runner = pattern.runner();
@@ -207,16 +203,15 @@ struct LedStringer {
   }
 
   void show() {
-    auto start = millis();
+    auto elapsed = -micros();
     if (spew) {
       spew->println("Calling FastLED.show()");
     }
     FastLED.show();
-    auto end = millis();
+    elapsed += micros();
     if (spew) {
-      spew->printf("FastLED.show() took %u millis\n", end - start);
+      spew->printf("FastLED.show() took %u uS\n", elapsed);
     }
-
   }
 
   CRGB & operator [](unsigned i) {
@@ -241,3 +236,14 @@ template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   CRGB leds[NUM_LEDS];
   LedString(): LedStringer {NUM_LEDS, leds} {}
 };
+
+#if 0  //DOC block
+/* Despite the #if 0 some tool still parsed the following block.
+The fast mode timing is 1.25 uS per bit, 24 bits per pixel, so 30 uSec per pixel.
+The first time you call FastLED.show() it takes about 1 millisecond longer than other calls, OR perhaps I was seeing a beat with my program's invocation.
+With 400 pixels I saw around 570 uS overhead per show, but the data doesn't start streaming to the pixels until that time is nearly up.
+That indicates to me that the first time some dynamic memory allocation is occuring, and that subsequently the time is how long it takes to expand the three bytes into 24 bits. 
+
+For my 400 pixel example I should avoid calling show() for 12+ ms after the previous call if I don't want to get hit with a block.
+*/
+#endif

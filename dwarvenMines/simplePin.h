@@ -7,9 +7,9 @@ struct SimplePin {
   unsigned modeSet = ~0u; // an invalid value
 
   operator bool () {
-//    Serial.printf("Read D%u\t", number);
+    //    Serial.printf("Read D%u\t", number);
     if (modeSet == ~0u) {
-      setup(INPUT);
+      setup(activeHigh ? INPUT : INPUT_PULLUP);
     }
     return digitalRead(number) == activeHigh;
   }
@@ -24,7 +24,7 @@ struct SimplePin {
   SimplePin(unsigned pinNumber, bool activeHigh = true): number(pinNumber), activeHigh(activeHigh) { }
 
   void setup(unsigned the_pinMode) {
-//    Serial.printf("setup pin %u to %u\n", number, the_pinMode);
+    //    Serial.printf("setup pin %u to %u\n", number, the_pinMode);
     modeSet = the_pinMode;
     pinMode(number, the_pinMode);
   }
