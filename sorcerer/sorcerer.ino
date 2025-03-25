@@ -137,6 +137,7 @@ void clido(int key) {
   bool isUpper = key <= 'Z'; //can't remember asrduino name for isupper.
   switch (tolower(key)) {
     case ' ':
+      dbg("Program: ", __FILE__);
       dbg("1/Dark:");
       fx[1].show(dbg);
       dbg("0/Light:");
@@ -238,81 +239,81 @@ class WifiSerial {
     const char* ssid;
     const char* password;
 
-    void attach(){
-  // todo: use these instead of tryConnect state machine
-//  
-//  telnet.onConnect();
-//  telnet.onConnectionAttempt(onTelnetConnectionAttempt);
-//  telnet.onReconnect(onTelnetReconnect);
-//  telnet.onDisconnect(onTelnetDisconnect);
-//  
-  //
-  telnet.onInputReceived([](String str) {
-    // checks for a certain command
-    if (str == "ping") {
-      telnet.println("> pong");
-      Serial.println("- Telnet: pong");
-    // disconnect the client
-    } else if (str == "bye") {
-      telnet.println("> disconnecting you...");
-      telnet.disconnectClient();
-      }
-  });
-
-  Serial.print("- Telnet: ");
-  if (telnet.begin(port)) {
-    Serial.println("running");
-  } else {
-    Serial.println("error.");
-    errorMsg("Will reboot...");
-  }
-}
-    }
-
-    ////////////////////////////////////////
-
-    bool isConnected() const {
-      return (WiFi.status() == WL_CONNECTED);
-    }
-
-    bool tryConnect() {
-      if (changed(connected, isConnected())) {
-        if (connected) { //then just connected
-          WiFi.setAutoReconnect(true);
-          WiFi.persistent(true);
-          return true;
-        } else {
-          //lost connection, do we need to do anything?
+    void attach() {
+      // todo: use these instead of tryConnect state machine
+      //
+      //  telnet.onConnect();
+      //  telnet.onConnectionAttempt(onTelnetConnectionAttempt);
+      //  telnet.onReconnect(onTelnetReconnect);
+      //  telnet.onDisconnect(onTelnetDisconnect);
+      //
+      //
+      telnet.onInputReceived([](String str) {
+        // checks for a certain command
+        if (str == "ping") {
+          telnet.println("> pong");
+          Serial.println("- Telnet: pong");
+          // disconnect the client
+        } else if (str == "bye") {
+          telnet.println("> disconnecting you...");
+          telnet.disconnectClient();
         }
-      }
+      });
 
-      WiFi.mode(WIFI_STA);
+      Serial.print("- Telnet: ");
+      if (telnet.begin(port)) {
+        Serial.println("running");
+      } else {
+        Serial.println("error.");
+        errorMsg("Will reboot...");
+      }
+    }
+}
+
+////////////////////////////////////////
+
+bool isConnected() const {
+  return (WiFi.status() == WL_CONNECTED);
+}
+
+bool tryConnect() {
+  if (changed(connected, isConnected())) {
+    if (connected) { //then just connected
+      WiFi.setAutoReconnect(true);
+      WiFi.persistent(true);
+      return true;
+    } else {
+      //lost connection, do we need to do anything?
+    }
+  }
+
+  WiFi.mode(WIFI_STA);
 #if DoWakeup
-      if (waking.done()) { //the 'true once' function
-        woke = true;
-      } else if (waking) {
-        return false;
-      }
-      if (!woke) {
-        WiFi.forceSleepWake();
-        waking = 200;
-        return false;
-      }
+  if (waking.done()) { //the 'true once' function
+    woke = true;
+  } else if (waking) {
+    return false;
+  }
+  if (!woke) {
+    WiFi.forceSleepWake();
+    waking = 200;
+    return false;
+  }
 #endif
 
-      WiFi.begin(ssid, password);
+  WiFi.begin(ssid, password);
 
-      return isConnected();
-    }
+  return isConnected();
+}
 
 
 
-    void onTick() {
-      tryConnect();
-      if(connected){
-         
-      }
-    }
+void onTick() {
+  tryConnect();
+  if (connected) {
+
+  }
+}
 
 };
 
@@ -346,7 +347,7 @@ void loop() {
   if (MilliTicker) {
     auto pop = SoftMilliTimer::logging(false);
     if (changed(dbg.stifled, !bool(Serial))) {
-      dbg("\nWifilights  ");
+      dbg("\nWifilights  ", __FILE__);
       clido(' ');
     }
 

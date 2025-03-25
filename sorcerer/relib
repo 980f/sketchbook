@@ -8,7 +8,7 @@ ln -sf lib/clirp.h
 ln -sf lib/ezcpp/cstr.cpp
 ln -sf lib/ezcpp/cstr.h
 ln -sf lib/digitalpin.h
-ln -sf ../safely/cppext/extremer.h
+ln -sf lib/ezcpp/extremer.h
 ln -sf lib/ezcpp/eztypes.h
 ln -sf lib/histogrammer.h
 ln -sf lib/ezcpp/index.h
