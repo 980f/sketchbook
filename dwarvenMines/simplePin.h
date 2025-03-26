@@ -15,9 +15,10 @@ struct SimplePin {
   }
 
   //this confuses the compiler, so we will use shift operators to set values
-  //  void operator = (bool setto) const {
-  //    digitalWrite(pin, setto == activeHigh);
-  //  }
+  void operator = (bool setto) = delete ;  //need to make this work, but until then it is invalid
+  //    const {
+  //      digitalWrite(pin, setto == activeHigh);
+  //    }
 
   //  SimplePin(SimplePin &&other) = default;
 
@@ -31,6 +32,17 @@ struct SimplePin {
 
 };
 
+#ifndef INPUT_PULLDOWN
+#define INPUT_PULLDOWN INPUT
+#endif
+
+struct SimpleInputPin: public SimplePin {
+  SimpleInputPin(unsigned pinNumber, bool activeHigh = true): SimplePin(pinNumber, activeHigh) {}
+  void setup() {
+    SimplePin::setup(activeHigh ? INPUT_PULLDOWN : INPUT_PULLUP);
+  }
+};
+
 struct SimpleOutputPin: public SimplePin {
 
   //not constexpr, must run actual code, not just record bit patterns.
@@ -38,9 +50,13 @@ struct SimpleOutputPin: public SimplePin {
 
   void operator <<(bool setto) {
     if (modeSet == ~0u) { //lazy init
-      setup(OUTPUT);
+      SimplePin::setup(OUTPUT);
     }
     digitalWrite(number, setto == activeHigh);
+  }
+
+  void setup() {
+    SimplePin::setup(OUTPUT);
   }
 
   bool toggle() {
