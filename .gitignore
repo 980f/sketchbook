@@ -3,3 +3,14 @@ shared/
 *.bak
 *.gnumeric
 
+gall
+gitlist
+heltec_demo/
+*.zip
+*~
+.et-al/logs/
+ASCIITable/
+Blink/
+BlinkWithoutDelay/
+FFat_ESP32/
+*.replaced

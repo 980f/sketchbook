@@ -1,0 +1,8 @@
+ln -sf ../remoteGpio.h
+ln -sf ../broadcastNode.h
+ln -sf ../simpleTicker.h
+ln -sf ../simpleDebouncedPin.h
+ln -sf ../simplePin.h
+ln -sf ../cheaptricks.h
+ln -sf ../eztypes.h
+ln -sf ../block.h
