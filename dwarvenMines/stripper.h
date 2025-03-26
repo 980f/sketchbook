@@ -32,10 +32,6 @@ struct DesiredState {
   /** format for delivery, content is copied but not immediately so using stack is risky.
       we check the prefix but skip copying it since we const'd it.
   */
-  Block<uint8_t> incoming()  {
-    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
-  }
-
   Block<const uint8_t> outgoing() const {
     return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
   }
@@ -44,6 +40,24 @@ struct DesiredState {
   bool isValidMessage(unsigned len, const uint8_t* data) {
     auto expect = outgoing();
     return len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+  }
+
+  Block<uint8_t> incoming()  {
+    return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
+  }
+
+  /** for efficiency this presumes you got a true from isValidMessage*/
+  void parse(unsigned len, const uint8_t* data)  {
+    auto buffer = incoming();
+    memcpy(&buffer.content, data + sizeof(prefix), buffer.size);
+  }
+
+  bool accept(unsigned len, const uint8_t* data) {
+    if (isValidMessage(len, data)) {
+      parse(len, data);
+      return true;
+    }
+    return false;
   }
 
 };
@@ -66,7 +80,7 @@ struct Stripper : public BroadcastNode {
     void shutup() {//expedite and ensure the unused relays don't click and clack due to noise.
       for (unsigned index = numEls; index-- > 0;) {
         ELPin[index] << false;
-        ELPin[index].setup(OUTPUT);
+        ELPin[index].setup();
       }
     }
 

@@ -14,3 +14,10 @@ Blink/
 BlinkWithoutDelay/
 FFat_ESP32/
 *.replaced
+vortex/
+cons
+esp32WS2811/
+octoid/cmake-build-debug/
+octoid/.idea
+WiFiTelnetToSerial/
+*.bin

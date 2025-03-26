@@ -26,13 +26,16 @@ struct RemoteGPIO: BroadcastNode {
   struct Message {
     const unsigned char prefix[4] = {'G', 'P', 'I', 'O'};
     uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
+    uint8_t padding[3]; //see if we can name the padding!
+    //note: without packed attribute we have 3 spare bytes here, so marker could be [4] and 1,2,3 used for debug info
     /// body
     unsigned sequenceNumber = 0;//for debug or stutter detection
     bool value[numRemoteGPIO];
     /// end body
     /////////////////////////////
     uint8_t endMarker;//value ignored, not sent
-
+    bool spew = false;
+   
     ///////////////////////////
     size_t printTo(Print &stream) {
       size_t length = 0;
@@ -57,18 +60,37 @@ struct RemoteGPIO: BroadcastNode {
     /** format for delivery, content is copied but not immediately so using stack is risky.
         we check the prefix but skip copying it since we const'd it.
     */
-    Block<uint8_t> incoming()  {
-      return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
-    }
 
     Block<const uint8_t> outgoing() const {
       return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
     }
 
     /** expect the whole object including prefix */
-    bool isValidMessage(unsigned len, const uint8_t* data) {
+    bool isValidMessage(unsigned len, const uint8_t* data) const {
       auto expect = outgoing();
-      return len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+      bool yep = len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+      if (spew) {
+        Serial.printf("GPIO?:%.*s\texpecting:%u, got %u\t%s\n", len, data, expect.size, len, yep ? "valid" : "clueless");
+      }
+      return yep;
+    }
+
+    Block<uint8_t> incoming()  {
+      return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
+    }
+
+    /** for efficiency this presumes you got a true from isValidMessage*/
+    void parse(unsigned len, const uint8_t* data)  {
+      auto buffer = incoming();
+      memcpy(&buffer.content, data + sizeof(prefix), buffer.size);
+    }
+
+    bool accept(unsigned len, const uint8_t* data) {
+      if (isValidMessage(len, data)) {
+        parse(len, data);
+        return true;
+      }
+      return false;
     }
 
   };
@@ -95,7 +117,7 @@ struct RemoteGPIO: BroadcastNode {
 
   RemoteGPIO(): BroadcastNode(BroadcastNode_Triplet) {}
 
-  bool setup(MilliTick bouncer = 50) {    
+  bool setup(MilliTick bouncer = 50) {
     ForPin(index) {
       gpio[index].filter(bouncer);
       gpio[index].setup(true);//true here makes the pin report that it has just changed to whatever its present value is.

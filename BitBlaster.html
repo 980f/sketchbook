@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>BitBlaster</title>
+    <meta name="author" content="Andy Heilveil (github/980f)">
+  </head>
+  <body>
+    <p>Bit Blaster</p>
+    <p>Arduino interactive tester</p>
+    <p><br>
+      RPN user interface is used to dynamically configure pins and
+      exercise them.</p>
+    <p><br>
+      Command format is arguments separated by commas followed by a key
+      character. <br>
+      If you forget to enter an argument many commands will infer a zero
+      if that makes sense.</p>
+    <p>This program is insensitive to case, the UI library used is not.</p>
+    <p>Many commands configure pins, a few exercise them.</p>
+    <table border="1">
+      <tbody>
+        <tr>
+          <th style=" background-color: white;">functionality</th>
+          <th style=" background-color: white;">command<br>
+            letter</th>
+          <td><br>
+          </td>
+          <th style=" background-color: white;">arg</th>
+          <th style=" background-color: white;"><br>
+          </th>
+          <th style=" background-color: white;"><br>
+          </th>
+          <th style=" background-color: white;">example</th>
+          <th style=" background-color: white;"><br>
+          </th>
+        </tr>
+        <tr>
+          <td>simple input</td>
+          <td>i</td>
+          <td><br>
+          </td>
+          <td>pin&nbsp; number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>10i</td>
+          <td>pin 10 appears in&nbsp; status block report</td>
+        </tr>
+        <tr>
+          <td>configure<br>
+            simple output</td>
+          <td>o</td>
+          <td><br>
+          </td>
+          <td>pin&nbsp; number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>13</td>
+          <td>pin 13 is set low<br>
+            pin 13 is set high </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>configure pwm or true analog output<br>
+            If a pin is capable of true analog output then pwm may not
+            be testable depending on how vendor implements accessing
+            dacs.</td>
+          <td>p</td>
+          <td><br>
+          </td>
+          <td>pin number</td>
+          <td>frequency</td>
+          <td>basis</td>
+          <td>6,1000,100p</td>
+          <td>pin 6 is pwm'd with 1kHZ period, values are percentage.</td>
+        </tr>
+        <tr>
+          <td>stepper output<br>
+            a pair of pins cycles through 4 phase stepper table<br>
+            swap numbers to change rotation direction given by commands</td>
+          <td style="height: 19px;">s</td>
+          <td><br>
+          </td>
+          <td>pin number</td>
+          <td>pin&nbsp; number2</td>
+          <td>max step rate <br>
+            milliseconds per step</td>
+          <td>2,3,4s</td>
+          <td>pin 2 and 3 are a stepper interface and the maximum step
+            rate is 250Hz.</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>select pin for commands that have 'optional pin number'<br>
+            such commands check the number of arguments and if there is
+            one less than a full set the pin number given here is used
+            as that&nbsp; argument</td>
+          <td>*</td>
+          <td><br>
+          </td>
+          <td>pin number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>14*</td>
+          <td>if 14 is a simple digital output then [ and ] will set it
+            low and high respectively.</td>
+        </tr>
+        <tr>
+          <td>pwm: increase <br>
+            SDO: set high<br>
+            Stepper: step forward</td>
+          <td>]</td>
+          <td><br>
+          </td>
+          <td>optional<br>
+            pin number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>pwm: decrease<br>
+            SDO: set low<br>
+            Stepper: step backward</td>
+          <td>[</td>
+          <td><br>
+          </td>
+          <td>optional<br>
+            pin number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>adds to or subtracts from or sets value of state of
+            selected pin<br>
+          </td>
+          <td>+ - =</td>
+          <td><br>
+          </td>
+          <td>optional<br>
+            pin number</td>
+          <td>value</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>display input</td>
+          <td>ENTER</td>
+          <td><br>
+          </td>
+          <td>optional pin number</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td>12<i>enter</i><br>
+          </td>
+          <td>status of pin 12 is reported<br>
+          </td>
+        </tr>
+        <tr>
+          <td>display all inputs</td>
+          <td>TAB</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><i>tab</i><br>
+          </td>
+          <td>all input pins are reported<br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p><br>
+    </p>
+  </body>
+</html>

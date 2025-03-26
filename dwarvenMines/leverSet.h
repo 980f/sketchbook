@@ -18,8 +18,8 @@ struct LeverSet: Printable {
         return presently.pin.number;
       }
       // check up on bouncing.
-      bool onTick() { // implements latched edge detection
-        if (presently.onTick()) {   // if just became stable
+      bool onTick(MilliTick now) { // implements latched edge detection
+        if (presently.onTick(now)) {   // if just became stable
           solved |= presently;
           return true;
         }
@@ -52,11 +52,11 @@ struct LeverSet: Printable {
       LastPulled,  // all on
     };
 
-    Event onTick() {
+    Event onTick(MilliTick now) {
       // update, and note major events
       unsigned prior = numSolved();
       for (unsigned index = numStations; index-- > 0;) {
-        bool changed = lever[index].onTick();
+        bool changed = lever[index].onTick(now);
         if (changed && clistate.leverIndex == index) {
           Serial.printf("lever[%u] just became: %x,  latched: %x\n", index, lever[index].presently, lever[index].solved);
         }

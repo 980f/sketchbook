@@ -15,7 +15,7 @@ BroadcastNode me(BroadcastNode_Triplet );
 
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(921600);
   Serial.printf("Program: %s\n\n",__FILE__);
   me.spew = true;
   if (!me.begin(true)) {

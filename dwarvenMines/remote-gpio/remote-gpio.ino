@@ -14,8 +14,6 @@ void explode() {
   ESP.restart();
 }
 
-Ticker imAlive;
-
 
 void setup() {
   Serial.begin(921600);
@@ -28,16 +26,11 @@ void setup() {
     explode();
   }
   Serial.println("Setup complete.");
-  imAlive.stop();//imAlive.next(200);
 }
 
 
 void loop() {
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    if (imAlive.done()) {
-      imAlive.next(1000);
-      Serial.printf("The time is now %u\n", Ticker::now);
-    }
     my.onTick();
     my.loop();//inside ticker as the only time things can change is on the timer
   }
@@ -68,6 +61,12 @@ void loop() {
       case '.':
         my.shouldSend = true;
         break;
+      case '=':
+      {
+        auto buf=my.toSend.outgoing();
+        my.dumpHex(buf,Serial);
+      }
+          break;
     }
   }
 }

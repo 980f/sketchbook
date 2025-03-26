@@ -13,6 +13,7 @@
 
 #define BroadcastNode_Triplet BroadcastNode_WIFI_CHANNEL, WIFI_IF_STA, nullptr
 
+#include "block.h"
 
 class BroadcastNode : public ESP_NOW_Peer {
     static void new_node_thunk(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {//declared by espressif
@@ -44,9 +45,26 @@ class BroadcastNode : public ESP_NOW_Peer {
       return false;
     }
 
+
+    static void dumpHex(unsigned len, const uint8_t *data, Print &stream) {
+      stream.printf("Hex Dump: %u bytes Address:%p\n", len, data);
+      while (len-- > 0) {
+        stream.printf(" %02X", *data++);
+        if (0 == len % 8) {
+          stream.println();
+        }
+      }
+      stream.println();
+    }
+
+    static void dumpHex(Block<const uint8_t> &buff, Print &stream) {
+      dumpHex(buff.size, &buff.content, stream);
+    }
+
+
   protected:
     // Function to print the received messages from the master
-    void onReceive(const uint8_t *data, size_t len,bool broadcast) override {//prototype declared by espressif
+    void onReceive(const uint8_t *data, size_t len, bool broadcast) override { //prototype declared by espressif
       if (spew) {
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
       }
@@ -67,7 +85,7 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
   public:
     /** typically called from setup on your sole statically created BroadcastNode with (true)
-    isLocal seems to always be true, we are trying to ignore who sends a message, all context must be in the message itself.*/
+      isLocal seems to always be true, we are trying to ignore who sends a message, all context must be in the message itself.*/
     bool begin(bool isLocal) {
       int startupTime = - millis();
       WiFi.mode(WIFI_STA);
@@ -89,11 +107,11 @@ class BroadcastNode : public ESP_NOW_Peer {
         }
         return false;
       }
-      if (isLocal) {//then this node handles "new peer" notifications 
+      if (isLocal) {//then this node handles "new peer" notifications
         ESP_NOW.onNewPeer(new_node_thunk, this);
       }
-      
-      add();//adds self to list, needed to get callbacks, although receive seems to work regardless.     
+
+      add();//adds self to list, needed to get callbacks, although receive seems to work regardless.
       return true;
     }
 
