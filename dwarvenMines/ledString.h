@@ -86,9 +86,19 @@ struct LedStringer {
       return modulus ? rawcomputation % modulus : rawcomputation;
     }
 
+    bool isViable() const {
+      return sets != ~0 && sets > 0 && run != ~0 && run > 0 && period >= run;
+    }
+
     /** @returns whether this pattern is usable*/
     operator bool() const {
-      return sets > 0 && run > 0 && period >= run;
+      return isViable();
+    }
+
+    void makeViable() {
+      if (period < run) {
+        period = run;
+      }
     }
 
     struct Runner {
@@ -108,19 +118,21 @@ struct LedStringer {
         run = pattern.run;
       }
 
-      //computes next and @returns whether there actually is a valid one
+      /** computes next and @returns whether there actually is a valid one
+          designed to work in the while() in a do{} while();
+      */
       bool next() {
-        if (run == ~0) { //we are done
-          return false; //have been done
+        if (!run || run == ~0) { // ~0 case for guard against ~ entered in debug UI.
+          return false; //we are done or have been done
         }
-        if (run-- > 0) {
+        if (--run) {
           ++latest;
           return true;
         }
         if (spew) {
           spew->println("\nOne run completed. \t");
         }
-        if (--set > 0) {
+        if (set != ~0 && --set > 0) {
           spew->printf("Remaining sets %u\n", set);
           run = pattern.run;
           latest += pattern.period - pattern.run; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
@@ -133,7 +145,7 @@ struct LedStringer {
 
       //@returns the value computed by next,
       operator unsigned () const {
-        return pattern(latest);//pattern just wraps the index by the  modulus
+        return pattern(latest);//pattern() just wraps the index by the  modulus
       }
 
       Runner(const Pattern &pattern): pattern(pattern) {
@@ -239,11 +251,11 @@ template <unsigned NUM_LEDS> struct LedString: public LedStringer {
 
 #if 0  //DOC block
 /* Despite the #if 0 some tool still parsed the following block.
-The fast mode timing is 1.25 uS per bit, 24 bits per pixel, so 30 uSec per pixel.
-The first time you call FastLED.show() it takes about 1 millisecond longer than other calls, OR perhaps I was seeing a beat with my program's invocation.
-With 400 pixels I saw around 570 uS overhead per show, but the data doesn't start streaming to the pixels until that time is nearly up.
-That indicates to me that the first time some dynamic memory allocation is occuring, and that subsequently the time is how long it takes to expand the three bytes into 24 bits. 
+  The fast mode timing is 1.25 uS per bit, 24 bits per pixel, so 30 uSec per pixel.
+  The first time you call FastLED.show() it takes about 1 millisecond longer than other calls, OR perhaps I was seeing a beat with my program's invocation.
+  With 400 pixels I saw around 570 uS overhead per show, but the data doesn't start streaming to the pixels until that time is nearly up.
+  That indicates to me that the first time some dynamic memory allocation is occuring, and that subsequently the time is how long it takes to expand the three bytes into 24 bits.
 
-For my 400 pixel example I should avoid calling show() for 12+ ms after the previous call if I don't want to get hit with a block.
+  For my 400 pixel example I should avoid calling show() for 12+ ms after the previous call if I don't want to get hit with a block.
 */
 #endif

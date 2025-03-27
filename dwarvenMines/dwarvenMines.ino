@@ -151,6 +151,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       tester.pattern.run = param;
       if (cli.argc() > 1) {
         tester.pattern.period = cli[1];
+        tester.pattern.makeViable();
       }
       sendTest();
       break;
