@@ -46,7 +46,7 @@ struct DesiredState {
     if (TRACE) {
       Serial.printf("Incoming: %u %s\n", msg.size, &msg.content);
       Serial.printf("Expectin: %u %s\n", expect.size, &expect.content);
-      
+
     }
     return msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
   }
@@ -116,10 +116,10 @@ struct Stripper : public BroadcastNode {
 
   bool dataReceived = false;
 
- 
+
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if(true||TRACE){
-      Serial.println("Stripper::onReceive()");
+    if (true || TRACE) {
+      Serial.printf("Stripper::onReceive() as %p", this);
     }
     if (stringState.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
       if (TRACE) {

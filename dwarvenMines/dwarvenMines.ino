@@ -241,6 +241,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'm':
       Serial.println(WiFi.macAddress());
+      Serial.printf("Primary is at %p, remote is at %p\n", &primary, &stripper);
       break;
     case 'n':
       BroadcastNode::spew = param >= 2;

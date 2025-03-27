@@ -63,10 +63,11 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
 
-  protected:
+//  protected:
     // Function to print the received messages from the master
     void onReceive(const uint8_t *data, size_t len, bool broadcast) override { //#prototype declared by espressif, can't change that.
       if (spew) {
+        Serial.printf("onReceive called on (%p)\n",this);
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
         dumpHex(Packet{len, *data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
       }
@@ -77,7 +78,7 @@ class BroadcastNode : public ESP_NOW_Peer {
     void unknown_node(const esp_now_recv_info_t *info, unsigned len, const uint8_t *data) {
       if (spew) {
         if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {//todo: apply our MAC class
-          Serial.printf("Node " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+          Serial.printf("In unknownNode: " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
         } else {
           Serial.printf("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
         }

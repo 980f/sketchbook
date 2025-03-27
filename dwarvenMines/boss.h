@@ -185,7 +185,13 @@ struct Boss : public BroadcastNode {
         }
         dataReceived = true;
         //can insert here a check on a DesiredState and receive an echo if the stripper sends one.
+      } else if (stringState.accept(Packet{len, *data})) {
+        Serial.println("primary received S41L message"); 
+        stripper.dataReceived = true;
       } else {
+        if (TRACE) {
+          Serial.printf("Boss doesn't know what the following does: (%p)\n", this);
+        }
         BroadcastNode::onReceive(data, len, broadcast);
       }
     }
