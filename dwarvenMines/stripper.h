@@ -112,9 +112,7 @@ struct Stripper : public BroadcastNode {
     if (EVENT) {
       Serial.printf("Received: %.*s\n", std::min(size_t(4), len), data);
     }
-    if (stringState.isValidMessage(len, data)) { //trusting network to frame packets, and packet to be less than one frame
-      auto buffer = stringState.incoming();
-      memcpy(&buffer.content, data, buffer.size);
+    if (stringState.accept(len, data)) { //trusting network to frame packets, and packet to be less than one frame
       dataReceived = true;
     } else {
       BroadcastNode::onReceive(data, len, broadcast);
