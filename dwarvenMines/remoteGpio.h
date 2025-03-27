@@ -26,8 +26,10 @@ struct RemoteGPIO: BroadcastNode {
   struct Message {
     const unsigned char prefix[4] = {'G', 'P', 'I', 'O'};
     uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
-    uint8_t padding[3]; //see if we can name the padding!
     //note: without packed attribute we have 3 spare bytes here, so marker could be [4] and 1,2,3 used for debug info
+    uint8_t padding[3]; //see if we can name the padding!
+    ////////////////////
+    /// attempst to template the body ran afoul of embedding a string in an object. probably doable with c++20, with lots of pain.
     /// body
     unsigned sequenceNumber = 0;//for debug or stutter detection
     bool value[numRemoteGPIO];
@@ -35,7 +37,7 @@ struct RemoteGPIO: BroadcastNode {
     /////////////////////////////
     uint8_t endMarker;//value ignored, not sent
     bool spew = false;
-   
+
     ///////////////////////////
     size_t printTo(Print &stream) {
       size_t length = 0;
@@ -57,6 +59,7 @@ struct RemoteGPIO: BroadcastNode {
       }
     }
 
+    /////////////////////////
     /** format for delivery, content is copied but not immediately so using stack is risky.
         we check the prefix but skip copying it since we const'd it.
     */
@@ -66,11 +69,11 @@ struct RemoteGPIO: BroadcastNode {
     }
 
     /** expect the whole object including prefix */
-    bool isValidMessage(unsigned len, const uint8_t* data) const {
+    bool isValidMessage(const Block< const uint8_t> msg) const {
       auto expect = outgoing();
-      bool yep = len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+      bool yep = msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
       if (spew) {
-        Serial.printf("GPIO?:%.*s\texpecting:%u, got %u\t%s\n", len, data, expect.size, len, yep ? "valid" : "clueless");
+        Serial.printf("GPIO?:%.*s\texpecting:%u, got %u\t%s\n", msg.size, &msg.content, expect.size, msg.size, yep ? "valid" : "garbage");
       }
       return yep;
     }
@@ -80,15 +83,15 @@ struct RemoteGPIO: BroadcastNode {
     }
 
     /** for efficiency this presumes you got a true from isValidMessage*/
-    void parse(unsigned len, const uint8_t* data)  {
+    bool parse(const Block< const uint8_t> &msg)  {
       auto buffer = incoming();
-      memcpy(&buffer.content, data + sizeof(prefix), buffer.size);
+      memcpy(&buffer.content, &msg.content + sizeof(prefix), buffer.size);
+      return true;//no further qualification at this time
     }
 
-    bool accept(unsigned len, const uint8_t* data) {
-      if (isValidMessage(len, data)) {
-        parse(len, data);
-        return true;
+    bool accept(const Block< const uint8_t> &msg) {
+      if (isValidMessage(msg)) {
+        return parse(msg);
       }
       return false;
     }
@@ -130,7 +133,7 @@ struct RemoteGPIO: BroadcastNode {
     ++toSend.sequenceNumber;//for debug
     toSend.printTo(Serial);
     auto outer = toSend.outgoing();
-    send_message(outer.size, &outer.content);
+    send_message(outer);
 
     periodically.next(period);
   }

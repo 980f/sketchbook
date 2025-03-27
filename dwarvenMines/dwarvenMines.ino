@@ -90,6 +90,7 @@ struct CliState {
   unsigned workerIndex = 0;
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
   unsigned patternIndex = 0; //at the moment we have just one.
+
   SimpleOutputPin onBoard{BOARD_LED};//Wroom LED
   Ticker pulser;
   bool onTick() {
@@ -112,13 +113,16 @@ SimpleInputPin IamBoss {15, true}; // pin to determine what this device's role i
 #include "boss.h"
 Boss primary;
 
+DesiredState tester;
+
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
 #define tweakColor(which) \
-  stringState.color.which = param; \
-  clido('=',false,cli);\
-  Serial.printf("color" "= 0x%06X",stringState.color.as_uint32_t());
+  tester.color.which = param; \
+  primary.sendMessage(tester);\
+  Serial.printf("color" "= 0x%06X",tester.color.as_uint32_t());
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -128,9 +132,35 @@ bool cliValidStation(unsigned param, const unsigned char key) {
   return false;
 }
 
+void sendTest() {
+  ++tester.sequenceNumber;
+  tester.showem = true;
+  tester.printTo(Serial);
+  primary.sendMessage(tester);
+}
+
 void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
   unsigned param = cli[0]; //clears on read, can only access once!
   switch (key) {
+    //aehjkvy /;[]\-
+    case '/': //send tester
+      tester.pattern.offset = param;
+      sendTest();
+      break;
+    case '-': //run,period- sets,modulus/ offset k
+      tester.pattern.run = param;
+      if (cli.argc() > 1) {
+        tester.pattern.period = cli[1];
+      }
+      sendTest();
+      break;
+    case '\\':
+      tester.pattern.sets = param;
+      if (cli.argc() > 1) {
+        tester.pattern.modulus = cli[1];
+      }
+      sendTest();
+      break;
     case '.':
       switch (param) {
         case 0:
@@ -180,7 +210,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 
     case 'c': // set a station color, volatile!
       if (cliValidStation(param, key)) {
-        station[param] = stringState.color;
+        station[param] = tester.color;
         Serial.printf("station[%u] color is now 0x%06X\n", param, station[param].as_uint32_t());
       }
       break;
@@ -210,7 +240,6 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'm':
       Serial.println(WiFi.macAddress());
-      //      primary.send_message();
       break;
     case 'n':
       BroadcastNode::spew = param >= 2;

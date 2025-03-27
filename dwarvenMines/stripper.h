@@ -9,11 +9,17 @@
 struct DesiredState {
   const unsigned char  prefix[4] = {'S', '4', '1', 'L'};
   uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
+  //3 spare bytes here if we don't PACK
   /// body
   unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
   CRGB color;
   LedStringer::Pattern pattern;
   bool showem = false;
+
+  /// end body
+  /////////////////////////////
+  uint8_t endMarker;//value ignored, not sent
+
   ///////////////////////////
   size_t printTo(Print &stream) {
     size_t length = 0;
@@ -25,21 +31,19 @@ struct DesiredState {
     length += pattern.printTo(stream);
     return length;
   }
-  /// end body
-  /////////////////////////////
-  uint8_t endMarker;//value ignored, not sent
-
+  /////////////////////////
   /** format for delivery, content is copied but not immediately so using stack is risky.
       we check the prefix but skip copying it since we const'd it.
   */
+
   Block<const uint8_t> outgoing() const {
     return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
   }
 
   /** expect the whole object including prefix */
-  bool isValidMessage(unsigned len, const uint8_t* data) {
+  bool isValidMessage(const Block< const uint8_t> msg) const {
     auto expect = outgoing();
-    return len >= expect.size && 0 == memcmp(data, &expect.content, sizeof(prefix));
+    return msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
   }
 
   Block<uint8_t> incoming()  {
@@ -47,15 +51,15 @@ struct DesiredState {
   }
 
   /** for efficiency this presumes you got a true from isValidMessage*/
-  void parse(unsigned len, const uint8_t* data)  {
+  bool parse(const Block< const uint8_t> &msg)  {
     auto buffer = incoming();
-    memcpy(&buffer.content, data + sizeof(prefix), buffer.size);
+    memcpy(&buffer.content, &msg.content + sizeof(prefix), buffer.size);
+    return true;//no further qualification at this time
   }
 
-  bool accept(unsigned len, const uint8_t* data) {
-    if (isValidMessage(len, data)) {
-      parse(len, data);
-      return true;
+  bool accept(const Block< const uint8_t> &msg) {
+    if (isValidMessage(msg)) {
+      return parse(msg);
     }
     return false;
   }
@@ -109,10 +113,15 @@ struct Stripper : public BroadcastNode {
 
 
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if (EVENT) {
-      Serial.printf("Received: %.*s\n", std::min(size_t(4), len), data);
-    }
-    if (stringState.accept(len, data)) { //trusting network to frame packets, and packet to be less than one frame
+    if (stringState.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
+      if (TRACE) {
+        Serial.println("Got pattern message:");
+        stringState.printTo(Serial);
+        if (BUG3) {
+          dumpHex(len, data, Serial);
+        }
+      }
+
       dataReceived = true;
     } else {
       BroadcastNode::onReceive(data, len, broadcast);

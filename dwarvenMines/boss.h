@@ -156,11 +156,14 @@ struct Boss : public BroadcastNode {
     }
 
     void sendMessage(const DesiredState &msg) {
-      auto block = stringState.outgoing();
+      auto block = msg.outgoing();
       if (TRACE) {
         Serial.printf("sendMessage: %u, %.4s  (%p)\n", block.size, &block.content, &block.content);
+        if (BUG3) {
+          dumpHex(block, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
+        }
       }
-      send_message(block.size, &block.content);
+      send_message(block);
     }
 
     bool leverState[numStations];//paces sending
@@ -172,7 +175,7 @@ struct Boss : public BroadcastNode {
     bool dataReceived = false;
 
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-      if (levers2.accept(len, data)) { //trusting network to frame packets, and packet to be less than one frame
+      if (levers2.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
         if (TRACE) {
           Serial.println("Got GPIO message:");
           levers2.printTo(Serial);
@@ -181,7 +184,8 @@ struct Boss : public BroadcastNode {
           }
         }
         dataReceived = true;
-      } else {//can precede this with a check on a DesiredState and receive an echo if the stripper sends one.
+        //can insert here a check on a DesiredState and receive an echo if the stripper sends one.
+      } else {
         BroadcastNode::onReceive(data, len, broadcast);
       }
     }

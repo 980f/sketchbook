@@ -21,6 +21,7 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
   public:
+    using Packet = Block<const uint8_t>;
     //debug control flags
     static bool spew;// = false;
     static bool errors;// = true;
@@ -31,12 +32,12 @@ class BroadcastNode : public ESP_NOW_Peer {
     //todo: remember that we added ourselves and remove ourselves, but we shouldn't be dynamically doing that so NYI.    ~BroadcastNode () {}
 
     // Function to send a message to all devices within the network
-    bool send_message(size_t len, const uint8_t *data) {
-      if (len == 0 || data == nullptr) {
+    bool send_message(const Packet &msg) {
+      if (msg.isVacuous()) {
         return true; //vacuous messages are instantly sent successfully
       }
       esp_log_level_set("*", ESP_LOG_WARN);
-      if (send(data, len)) {
+      if (send(&msg.content, msg.size)) {
         return true;
       }
       if (errors) {
@@ -57,16 +58,17 @@ class BroadcastNode : public ESP_NOW_Peer {
       stream.println();
     }
 
-    static void dumpHex(Block<const uint8_t> &buff, Print &stream) {
+    static void dumpHex(const Packet &buff, Print &stream) {
       dumpHex(buff.size, &buff.content, stream);
     }
 
 
   protected:
     // Function to print the received messages from the master
-    void onReceive(const uint8_t *data, size_t len, bool broadcast) override { //prototype declared by espressif
+    void onReceive(const uint8_t *data, size_t len, bool broadcast) override { //#prototype declared by espressif, can't change that.
       if (spew) {
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
+        dumpHex(Packet{len, *data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
       }
     }
 
