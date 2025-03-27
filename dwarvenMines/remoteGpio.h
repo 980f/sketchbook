@@ -118,6 +118,12 @@ struct RemoteGPIO: BroadcastNode {
     }
   }
 
+  void forceMode(unsigned mode=INPUT_PULLUP){ 
+    ForPin(index) {
+      SimplePin(gpio[index].pin).setup(mode);
+    }
+  }
+
   RemoteGPIO(): BroadcastNode(BroadcastNode_Triplet) {}
 
   bool setup(MilliTick bouncer = 50) {

@@ -43,6 +43,11 @@ struct DesiredState {
   /** expect the whole object including prefix */
   bool isValidMessage(const Block< const uint8_t> msg) const {
     auto expect = outgoing();
+    if (TRACE) {
+      Serial.printf("Incoming: %u %s\n", msg.size, &msg.content);
+      Serial.printf("Expectin: %u %s\n", expect.size, &expect.content);
+      
+    }
     return msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
   }
 
@@ -111,8 +116,11 @@ struct Stripper : public BroadcastNode {
 
   bool dataReceived = false;
 
-
+ 
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
+    if(true||TRACE){
+      Serial.println("Stripper::onReceive()");
+    }
     if (stringState.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
       if (TRACE) {
         Serial.println("Got pattern message:");
@@ -121,9 +129,9 @@ struct Stripper : public BroadcastNode {
           dumpHex(len, data, Serial);
         }
       }
-
       dataReceived = true;
     } else {
+      Serial.println("Not my type of packet");
       BroadcastNode::onReceive(data, len, broadcast);
     }
   }
@@ -131,14 +139,12 @@ struct Stripper : public BroadcastNode {
 
   void loop() {
     if (flagged(dataReceived)) { // message received
-      if (TRACE) {
-        Serial.printf("Seq#:%u\n", stringState.sequenceNumber);
+      if (EVENT) {
+        stringState.printTo(Serial);
       }
       leds.setPattern(stringState.color, stringState.pattern);
       if (flagged(stringState.showem)) {
-        EL[0] << true;
         leds.show();
-        EL[0] << false;
       }
     }
   }

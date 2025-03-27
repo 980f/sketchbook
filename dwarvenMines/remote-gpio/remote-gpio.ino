@@ -5,6 +5,7 @@
 
 RemoteGPIO my;
 
+
 void explode() {
   Serial.println("Rebooting in a few seconds... hoping that magically fixes things");
   for (unsigned countdown = 4; countdown-- > 0;) {
@@ -25,15 +26,16 @@ void setup() {
     Serial.println("Failed to initialize ESP-NOW");
     explode();
   }
+  my.forceMode(INPUT_PULLUP);//GP25 seems to become a low output at random, likely during wifi setup.
   Serial.println("Setup complete.");
 }
 
 
 void loop() {
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    my.onTick();
-    my.loop();//inside ticker as the only time things can change is on the timer
+    my.onTick();    
   }
+    my.loop();//inside ticker as the only time things can change is on the timer
 
   if (Serial.available()) {
     auto key = Serial.read();
@@ -54,7 +56,6 @@ void loop() {
         ForPin(index) {
           Serial.printf("\t[%u]", index);
           my.gpio[index].printTo(Serial);
-
         }
         Serial.println();
         break;
@@ -62,11 +63,11 @@ void loop() {
         my.shouldSend = true;
         break;
       case '=':
-      {
-        auto buf=my.toSend.outgoing();
-        my.dumpHex(buf,Serial);
-      }
-          break;
+        my.dumpHex(my.toSend.outgoing(), Serial);
+        break;
+      case '!':
+        my.forceMode(INPUT_PULLUP);
+        break;
     }
   }
 }
