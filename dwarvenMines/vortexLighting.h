@@ -36,7 +36,7 @@ struct VortexLighting {
     unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
     CRGB color;
     LedStringer::Pattern pattern;
-    bool showem = false;
+    bool showem = true;
 
     /// end body
     /////////////////////////////

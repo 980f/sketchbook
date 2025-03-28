@@ -217,7 +217,7 @@ struct LedStringer {
   void show() {
     auto elapsed = -micros();
     if (spew) {
-      spew->println("Calling FastLED.show()");
+      spew->printf("Calling FastLED.show() at %u\n", millis());
     }
     FastLED.show();
     elapsed += micros();
@@ -231,19 +231,22 @@ struct LedStringer {
     return leds[i];
   }
 
-  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
-    return CRGB (
-             map(phase, 0, cycle, target.r, from.r),
-             map(phase, 0, cycle, target.g, from.g),
-             map(phase, 0, cycle, target.b, from.b)
-           );
-  }
+//  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
+//    return CRGB (
+//             map(phase, 0, cycle, target.r, from.r),
+//             map(phase, 0, cycle, target.g, from.g),
+//             map(phase, 0, cycle, target.b, from.b)
+//           );
+//  }
 
 };
 
 Print *LedStringer::spew = nullptr;
 
-//statically allocate the array
+
+/** @deprecated untested
+ * statically allocate the array
+*/
 template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   CRGB leds[NUM_LEDS];
   LedString(): LedStringer {NUM_LEDS, leds} {}
@@ -254,7 +257,7 @@ template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   The fast mode timing is 1.25 uS per bit, 24 bits per pixel, so 30 uSec per pixel.
   The first time you call FastLED.show() it takes about 1 millisecond longer than other calls, OR perhaps I was seeing a beat with my program's invocation.
   With 400 pixels I saw around 570 uS overhead per show, but the data doesn't start streaming to the pixels until that time is nearly up.
-  That indicates to me that the first time some dynamic memory allocation is occuring, and that subsequently the time is how long it takes to expand the three bytes into 24 bits.
+  That indicates to me that the first time show() is called some dynamic memory allocation is occuring, and that subsequently the time is how long it takes to expand the three bytes into 24 bits.
 
   For my 400 pixel example I should avoid calling show() for 12+ ms after the previous call if I don't want to get hit with a block.
 */

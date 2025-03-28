@@ -167,12 +167,13 @@ struct Boss : public VortexCommon {
       */
       bool check() {
         if (inProgress > 0) {
-          //          msg.color=
+          ++msg.sequenceNumber;
           msg.pattern.offset = 3 * inProgress;
           msg.pattern.run = 1;
           msg.pattern.period = every;
           msg.pattern.modulus = 0;
           msg.pattern.sets = VortexFX.total / msg.pattern.period;
+          msg.showem = true;//jam this guy until we find a performance issue
           return true;
         }
         return false;

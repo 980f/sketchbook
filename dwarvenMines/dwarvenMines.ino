@@ -355,10 +355,13 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.println();
 
         Serial.printf("Backgrounder countdown: %u\n", boss->backgrounder.inProgress);
+        Serial.print("Background message:\t");
+        boss->backgrounder.msg.printTo(Serial);
         Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , REFRESH_RATE_MILLIS);
-        //        Serial.print("Apparent state : \t");
-        //        echoState.printTo(Serial);
-
+        if(boss->echoAck.dataReceived) {
+          Serial.print("Echoed message:\t");
+          boss->echoAck.printTo(Serial);
+        }
         Serial.print("Last Request: \t");
       } else {
         Serial.println("VortexFX Worker");
