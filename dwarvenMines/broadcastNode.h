@@ -22,6 +22,7 @@ class BroadcastNode : public ESP_NOW_Peer {
 
   public:
     using Packet = Block<const uint8_t>;
+    using Body = Block<uint8_t>;
     //debug control flags
     static bool spew;// = false;
     static bool errors;// = true;
@@ -63,11 +64,11 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
 
-//  protected:
+    //  protected:
     // Function to print the received messages from the master
     void onReceive(const uint8_t *data, size_t len, bool broadcast) override { //#prototype declared by espressif, can't change that.
       if (spew) {
-        Serial.printf("onReceive called on (%p)\n",this);
+        Serial.printf("onReceive called on (%p)\n", this);
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
         dumpHex(Packet{len, *data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
       }

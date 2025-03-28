@@ -1,7 +1,7 @@
 #pragma once
 
 #include "block.h"
-#include "stripper.h"
+#include "vortexLighting.h"
 
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
@@ -12,7 +12,6 @@ enum RelayChannel { // index into relay array.
   DoorRelease,
   numRelays    // marker, leave in last position.
 };
-
 
 struct RelayQuad {
   // boss side:
@@ -91,7 +90,7 @@ struct ColorSet: Printable {
 };
 
 ColorSet foreground;
-ColorSet background; //need some lights to stay on so the room has some illumination.
+//ColorSet background; //need some lights to stay on so the room has some illumination.
 
 ///////////////////////////////////////////////////////////////////////
 LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
@@ -128,23 +127,79 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
 #include "leverSet.h"
 
 struct Boss : public VortexCommon {
-    LeverSet lever;
+    //puzzle state drive by physical inputs
+    bool leverState[numStations];//paces sending
 
+    bool remoteSolved = false;
+    bool remoteReset = false;
+
+    LeverSet lever;
     RemoteGPIO::Message levers2;//also levers :)  //static for debug convenience, should be member of Boss
 
+    DebouncedInput forceSolved;//(23, false, 1750); //large delay for dramatic effect, and so button can be dropped before the action occurs.
+    //timing
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
-    Ticker refreshRate; //sendall occasionally to deal with any intermittency.
+    Ticker refreshRate; //sendall occasionally to deal with any intermittency in LED connection
+
+    /*light management
+       holdoff and updateAllowed keeps us from overrunning lighting worker
+       Background paints the "slightly broken" lighting, so that tunnel is not too dark
+       needsupdate flags solved stations that might need their associate lighting updated
+    */
     Ticker holdoff; //maximum frame rate, to keep from overrunning worker and maybe losing updates.
     bool updateAllowed = true;//latch for holdoff.done()
+
+    struct BackgroundIlluminator {
+      unsigned inProgress = 0; //state machine
+      VortexLighting::Message msg;
+
+      //config:
+      unsigned every = 7; //tunable by debug, chould be const or NV
+      unsigned steps = 1;
+
+      void erase() {
+        inProgress = steps;
+      }
+
+      /* //only call when updateAllowed is true
+          @returns true if its message should be sent.
+      */
+      bool check() {
+        if (inProgress > 0) {
+          //          msg.color=
+          msg.pattern.offset = 3 * inProgress;
+          msg.pattern.run = 1;
+          msg.pattern.period = every;
+          msg.pattern.modulus = 0;
+          msg.pattern.sets = VortexFX.total / msg.pattern.period;
+          return true;
+        }
+        return false;
+      }
+      bool doneIf(bool succeeded) {
+        if (!inProgress) {
+          return true;//been done, or never started
+        }
+        if (--inProgress) {
+          return false;//not done yet, expect check() to be called soon
+        }
+        return true;//just got done
+      }
+    } backgrounder;
+
     bool needsUpdate[numStations];
-    DebouncedInput forceSolved;//(23, false, 1750); //large delay for dramatic effect, and so button can be dropped before the action occurs.
+    unsigned lastStationSent = 0;//counter for needsUpdate
+
+    // end lighting group
+    //////////////////////////////////
 
     void refreshLeds() {
-      refreshRate.next(REFRESH_RATE_MILLIS);
+      backgrounder.erase();
       ForStations(si) {
-        needsUpdate[si] = true;
-      }      
+        needsUpdate[si] = lever[si];//only rewrite those that are on, the rest are left in background state.
+      }
+      refreshRate.next(REFRESH_RATE_MILLIS);
     }
 
     void startHoldoff() {
@@ -154,6 +209,24 @@ struct Boss : public VortexCommon {
       } else {
         updateAllowed = true;
       }
+    }
+
+    void onSolution() {
+      dbg.cout("Yippie!");
+      timebomb.stop();
+      relay[DoorRelease] << true;
+      relay[VortexMotor] << true;
+      //todo: any other bells or whistles?
+      //timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
+      autoReset.next(resetTicks);
+    }
+
+    void resetPuzzle() {
+      autoReset.stop();
+      timebomb.stop();
+      relay[DoorRelease] << false;
+      relay[VortexMotor] << false;
+      lever.restart();//todo: perhaps more thoroughly than for timebomb?
     }
 
     void leverAction(LeverSet::Event event) {
@@ -175,19 +248,35 @@ struct Boss : public VortexCommon {
           onSolution();
           break;
       }
-
     }
 
- 
+    void checkRun(bool beRunning) {
+      if (beRunning) {
+        //allow puzzle to operate
+        if (EVENT) {
+          Serial.println("Puzzle running.");
+        }
+      } else {
+        if (EVENT) {
+          Serial.println("Manually resetting puzzle");
+        }
+        resetPuzzle();
+      }
+    }
 
-    bool leverState[numStations];//paces sending
-    //for pacing sending station updates
-    unsigned lastStationSent = 0;
-    bool remoteSolved = false;
+    /* check levers*/
+    bool refreshColors() {
+      unsigned diffs = 0;
+      ForStations(si) {
+        if (changed(leverState[si], lever[si])) {
+          needsUpdate[si] = true;
+          ++diffs;
+        }
+      }
+      return diffs > 0;
+    }
 
-    bool remoteReset = false;
-    bool dataReceived = false;
-
+    VortexLighting::Message echoAck;//not expecting these as of QN2025 first night
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
       if (levers2.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
         if (TRACE) {
@@ -197,18 +286,22 @@ struct Boss : public VortexCommon {
             dumpHex(len, data, Serial);
           }
         }
-        dataReceived = true;
-        //can insert here a check on a DesiredState and receive an echo if the stripper sends one.
-      } else if (command.accept(Packet{len, *data})) {//todo: different object to receive incoming lighting requests.
-        Serial.println("Boss received S41L message");
-//        stripper.dataReceived = true;
+      } else if (echoAck.accept(Packet{len, *data})) {//todo: different object to receive incoming lighting requests.
+        //defer to loop, Serial prints are a burden on the onReceive stuff.
       } else {
         if (TRACE) {
-          Serial.printf("Boss doesn't know what the following does: (%p)\n", this);
+          Serial.printf("Boss at %p doesn't know what the following does:\n", this);
         }
         BroadcastNode::onReceive(data, len, broadcast);
       }
     }
+
+    void onSent(bool succeeded) override {
+      if (backgrounder.doneIf(succeeded)) {
+        needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
+      }
+    }
+
 
   public:
 
@@ -219,14 +312,13 @@ struct Boss : public VortexCommon {
       relay.setup();
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
-      refreshLeds();
+      refreshLeds(); //include background 'erase'
       spew = true;//bn debug flag
       if (!BroadcastNode::begin(true)) {
         Serial.println("Broadcast begin failed");
       }
       Serial.println("Boss Setup Complete");
     }
-
 
     void loop() {
       // local levers are tested on timer tick, since they are debounced by it.
@@ -258,8 +350,18 @@ struct Boss : public VortexCommon {
         }
       }
 
-      if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
-        if (updateAllowed) { //can't send another until prior is handled, this needs work.
+      if (flagged(echoAck.dataReceived)) {
+        if (TRACE) {
+          Serial.println("Boss received S41L message");
+          echoAck.printTo(Serial);
+        }
+      }
+
+      if (updateAllowed) { //can't send another until prior is handled, this needs work.
+        if (backgrounder.check()) {
+          sendMessage(backgrounder.msg); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+          startHoldoff();
+        } else if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
           ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
             if (++lastStationSent >= numStations) {
               lastStationSent = 0;
@@ -268,70 +370,24 @@ struct Boss : public VortexCommon {
               if (leverState[lastStationSent]) {
                 command.color = foreground[lastStationSent];
                 command.pattern = pattern(lastStationSent, clistate.patternIndex);
-//              } else {
-//                stringState.color = background[lastStationSent];
-//                stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
               }
               command.showem = true; //todo: only with last one.
               ++command.sequenceNumber;//mostly to see if connection is working
               sendMessage(command); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
               startHoldoff();
-              break;
+              break;//onSent gets us to the next station to update
             }
           }
         }
-        //else we will eventually get back to loop() and review what needs to be sent.
+        //else we will eventually get back to loop() and to here to review what needs to be sent.
       }
     }
 
-    void onSent(bool succeeded) override {
-      needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
-    }
-
-    bool refreshColors() {
-      unsigned diffs = 0;
-      ForStations(si) {
-        if (changed(leverState[si], lever[si])) {
-          needsUpdate[si] = true;
-          ++diffs;
-        }
-      }
-      return diffs > 0;
-    }
-
-    void onSolution() {
-      dbg.cout("Yippie!");
-      timebomb.stop();
-      relay[DoorRelease] << true;
-      relay[VortexMotor] << true;
-      //todo: any other bells or whistles?
-      //timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
-      autoReset.next(resetTicks);
-    }
-
-    void resetPuzzle() {
-      autoReset.stop();
-      timebomb.stop();
-      relay[DoorRelease] << false;
-      relay[VortexMotor] << false;
-      lever.restart();//todo: perhaps more thoroughly than for timebomb?
-    }
-
-    void checkRun(bool beRunning) {
-      if (beRunning) {
-        //allow puzzle to operate
-        if (EVENT) {
-          Serial.println("Puzzle running.");
-        }
-      } else {
-        if (EVENT) {
-          Serial.println("Manually resetting puzzle");
-        }
-        resetPuzzle();
-      }
-    }
 
     void onTick(MilliTick now) {
+      if (holdoff.done()) {
+        updateAllowed = true;
+      }
       if (autoReset.done()) {
         if (EVENT) {
           Serial.println("auto reset fired, resetting puzzle");

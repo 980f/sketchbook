@@ -61,15 +61,15 @@ struct LedStringer {
 
   struct Pattern {//being printable precludes {} init : Printable {
     //first one to set, note that modulus does get applied to this.
-    unsigned offset;
+    unsigned offset = 0;
     //set this many in a row,must be at least 1
-    unsigned run;
+    unsigned run = 0;
     //every this many, must be greater than or the same as run
-    unsigned period;
+    unsigned period = 0;
     //this number of times, must be at least 1
-    unsigned sets;
+    unsigned sets = 0;
     //Runner will apply this modulus to its generated numbers
-    unsigned modulus;
+    unsigned modulus = 0;
 
     //making the class directly Printable loses us brace init, so we mimic that until we have the time to write some constructors
     size_t printTo(Print &dbg) const {
@@ -135,7 +135,7 @@ struct LedStringer {
         if (set != ~0 && --set > 0) {
           spew->printf("Remaining sets %u\n", set);
           run = pattern.run;
-          latest += pattern.period - pattern.run; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
+          latest += pattern.period - pattern.run + 1; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
           return true;
         }
         spew->println("Pattern completed.");

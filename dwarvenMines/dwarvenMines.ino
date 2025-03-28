@@ -57,23 +57,6 @@ bool spam[numSpams]; //5 ranges, can add more and they are not actually prioriti
 #define EVENT spam[1]
 #define URGENT spam[0]
 
-
-//Worker config:
-#define LEDStringType WS2811, LED_PIN, GRB
-
-
-constexpr struct StripConfiguration {
-  unsigned perRevolutionActual = 100;//no longer a guess
-  unsigned perRevolutionVisible = 89;//from 2024 haunt code
-  unsigned perStation = perRevolutionVisible / 2;
-  unsigned numStrips = 4;
-  unsigned total = perRevolutionActual * numStrips;
-} VortexFX; // not const until wiring is confirmed, so that we can play with config to confirm wiring.
-
-#include "ledString.h" //FastLED stuff, uses LEDStringType
-//the pixel memory: //todo: go back to dynamically allocated to see if that was fine.
-CRGB pixel[VortexFX.total];
-
 /////////////////////////
 // debug cli
 #include "sui.h" //Simple User Interface
@@ -113,12 +96,13 @@ SimpleInputPin IamBoss {15, true}; // pin to determine what this device's role i
 //23 is a corner pin: SimpleInputPin IamReal  {23,false}; // pin to determine that this is the real system, not the single processor development one.
 #include "boss.h"
 Boss *boss = nullptr;
+#include "stripper.h"
 Stripper *worker = nullptr;
+
 VortexCommon *agent = nullptr; //will be one of {boss|worker}
 
 //test objects
 VortexLighting::Message tester;
-
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
@@ -196,7 +180,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       } else {
         ++agent->command.sequenceNumber;
       }
-      if (IamBoss) {
+      if (boss) {
         Serial.printf("Sending sequenceNumber: %u\n", boss->command.sequenceNumber);
         boss->sendMessage(boss->command);
       } else {
@@ -216,9 +200,15 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
 
     case 'c': // set a station color, volatile!
-      if (boss && cliValidStation(param, key)) {
-        foreground[param] = tester.color;
-        Serial.printf("station[%u] color is now 0x%06X\n", param, foreground[param].as_uint32_t());
+      if (boss) {
+        if (cliValidStation(param, key)) {
+          foreground[param] = tester.color;
+          Serial.printf("station[%u] color is now 0x%06X\n", param, foreground[param].as_uint32_t());
+        }
+        if (param == ~0) {
+          boss->backgrounder.msg.color = tester.color;
+          boss->backgrounder.erase();
+        }
       }
       break;
 
@@ -237,9 +227,17 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       break;
     case 'f':
-      if (boss) {        
+      if (boss) {
         /*boss->*/
         frameRate = param;
+      }
+      break;
+    case 'k':
+      if (boss) {
+        boss->backgrounder.every = param;
+        if (cli.argc() > 1) {
+          boss->backgrounder.steps = cli[1];
+        }
       }
       break;
     case 'l': // select a lever to monitor
@@ -321,12 +319,17 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       if (boss) {
-        REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
-        boss->refreshRate.next(REFRESH_RATE_MILLIS);
-        if (REFRESH_RATE_MILLIS != ~0) {
-          Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
+        if (param = ~0) {
+          REFRESH_RATE_MILLIS = Ticker::Never;
+          boss->refreshLeds();
         } else {
-          Serial.printf("refresh disabled\n");
+          REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
+          boss->refreshRate.next(REFRESH_RATE_MILLIS);
+          if (REFRESH_RATE_MILLIS != Ticker::Never) {
+            Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
+          } else {
+            Serial.printf("refresh disabled\n");
+          }
         }
       }
       break;
@@ -334,7 +337,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
       //todo: the following doesn't actually get executed before the reset!
-      for (unsigned countdown = min(param, 4u ); countdown-- > 0;) {
+      for (unsigned countdown = max(param, 4u); countdown-- > 0;) {//on 4u: std:max requires identical arguments, should be rewritten to accept convertable arguments, convert second to first.
         delay(666);
         Serial.printf(" %u, \t", countdown);
       }
@@ -344,11 +347,15 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       if (boss) {
         Serial.println("VortexFX Boss:");
         boss->lever.printTo(Serial);
+
         Serial.print("Update flags");
         ForStations(si) {
           Serial.printf("\t[%u]=%x", si, boss->needsUpdate[si]);
         }
         Serial.println();
+
+        Serial.printf("Backgrounder countdown: %u\n", boss->backgrounder.inProgress);
+        Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , REFRESH_RATE_MILLIS);
         //        Serial.print("Apparent state : \t");
         //        echoState.printTo(Serial);
 
@@ -411,11 +418,11 @@ void setup() {
   //  dbg.cout("OTA emabled for download but not yet for monitoring." );
 
   if (IamBoss) {
-    Serial.println("Setting up as boss");
+    Serial.println("\n\nSetting up as boss");
     agent = boss = new Boss();
     boss->setup();
   } else {
-    Serial.println("Setting up as remote worker");
+    Serial.println("\n\nSetting up as remote worker");
     agent = worker = new Stripper();
     worker->setup();
   }
@@ -438,7 +445,7 @@ void loop() {
     }
     clistate.onTick();
   }
-  
+
   // check event flags
   if (boss) {
     boss->loop();

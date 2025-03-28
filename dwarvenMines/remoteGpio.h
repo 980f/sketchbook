@@ -68,12 +68,12 @@ struct RemoteGPIO: BroadcastNode {
         we check the prefix but skip copying it since we const'd it.
     */
 
-    Block<const uint8_t> outgoing() const {
-      return Block<const uint8_t> {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
+    Packet outgoing() const {
+      return Packet {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
     }
 
     /** expect the whole object including prefix */
-    bool isValidMessage(const Block< const uint8_t> msg) const {
+    bool isValidMessage(const Packet &msg) const {
       auto expect = outgoing();
       bool yep = msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
       if (spew) {
@@ -82,19 +82,19 @@ struct RemoteGPIO: BroadcastNode {
       return yep;
     }
 
-    Block<uint8_t> incoming()  {
-      return Block<uint8_t> {(&endMarker - &startMarker), startMarker};
+    Body incoming()  {
+      return Body {(&endMarker - &startMarker), startMarker};
     }
 
     /** for efficiency this presumes you got a true from isValidMessage*/
-    bool parse(const Block< const uint8_t> &msg)  {
+    bool parse(const Packet &msg)  {
       auto buffer = incoming();
       memcpy(&buffer.content, &msg.content + sizeof(prefix), buffer.size);
       dataReceived = true;
       return true;//no further qualification at this time
     }
 
-    bool accept(const Block< const uint8_t> &msg) {
+    bool accept(const Packet &msg) {
       if (isValidMessage(msg)) {
         return parse(msg);
       }
