@@ -121,5 +121,5 @@ class BroadcastNode : public ESP_NOW_Peer {
 
 };
 
-bool BroadcastNode::spew = true;
+bool BroadcastNode::spew = false;
 bool BroadcastNode::errors = true;
