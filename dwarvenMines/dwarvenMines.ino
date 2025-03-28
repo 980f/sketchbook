@@ -109,11 +109,15 @@ struct CliState {
 } clistate;
 
 SimpleInputPin IamBoss {15, true}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
+
 //23 is a corner pin: SimpleInputPin IamReal  {23,false}; // pin to determine that this is the real system, not the single processor development one.
 #include "boss.h"
-Boss primary;
+Boss *boss = nullptr;
+Stripper *worker = nullptr;
+VortexCommon *agent = nullptr; //will be one of {boss|worker}
 
-DesiredState tester;
+//test objects
+VortexLighting::Message tester;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -121,8 +125,8 @@ DesiredState tester;
 
 #define tweakColor(which) \
   tester.color.which = param; \
-  primary.sendMessage(tester);\
-  Serial.printf("color" "= 0x%06X",tester.color.as_uint32_t());
+  Serial.printf("color" "= 0x%06X\n",tester.color.as_uint32_t());\
+  sendTest();
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -136,7 +140,7 @@ void sendTest() {
   ++tester.sequenceNumber;
   tester.showem = true;
   tester.printTo(Serial);
-  primary.sendMessage(tester);
+  agent->sendMessage(tester);
 }
 
 void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
@@ -163,39 +167,41 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       sendTest();
       break;
     case '.':
-      switch (param) {
-        case 0:
-          Serial.printf("Refresh colors (lever) returned : %u", primary.refreshColors());
-          break;
-        case 1:
-          ForStations(si) {
-            primary.lever[si] = true;
-          }
-          primary.onSolution();
-          Serial.println("simulated solution");
-          break;
-        case ~0u:
-          primary.resetPuzzle();
-          Serial.println("Puzzle reset.");
-          break;
-        case 2:
-          primary.lever.restart();
-          Serial.printf("After simulated bombing out there are %d levers active\n", primary.lever.numSolved());
-          break;
-      }
+
+      if (boss)
+        switch (param) {
+          case 0:
+            Serial.printf("Refresh colors (lever) returned : %u", boss->refreshColors());
+            break;
+          case 1:
+            ForStations(si) {
+              boss->lever[si] = true;
+            }
+            boss->onSolution();
+            Serial.println("simulated solution");
+            break;
+          case ~0u:
+            boss->resetPuzzle();
+            Serial.println("Puzzle reset.");
+            break;
+          case 2:
+            boss->lever.restart();
+            Serial.printf("After simulated bombing out there are %d levers active\n", boss->lever.numSolved());
+            break;
+        }
       break;
     case '=':
       if (param) {
-        stringState.sequenceNumber = param;
+        agent->command.sequenceNumber = param;
       } else {
-        ++stringState.sequenceNumber;
+        ++agent->command.sequenceNumber;
       }
       if (IamBoss) {
-        Serial.printf("Sending sequenceNumber: %u\n", stringState.sequenceNumber);
-        primary.sendMessage(stringState);
+        Serial.printf("Sending sequenceNumber: %u\n", boss->command.sequenceNumber);
+        boss->sendMessage(boss->command);
       } else {
-        stringState.showem = true;
-        stripper.dataReceived = true;
+        worker->command.showem = true;
+        worker->command.dataReceived = true;
       }
       break;
 
@@ -210,9 +216,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
 
     case 'c': // set a station color, volatile!
-      if (cliValidStation(param, key)) {
-        station[param] = tester.color;
-        Serial.printf("station[%u] color is now 0x%06X\n", param, station[param].as_uint32_t());
+      if (boss && cliValidStation(param, key)) {
+        foreground[param] = tester.color;
+        Serial.printf("station[%u] color is now 0x%06X\n", param, foreground[param].as_uint32_t());
       }
       break;
 
@@ -231,7 +237,10 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       break;
     case 'f':
-      frameRate = param;
+      if (boss) {        
+        /*boss->*/
+        frameRate = param;
+      }
       break;
     case 'l': // select a lever to monitor
       if (cliValidStation(param, key)) {
@@ -241,7 +250,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'm':
       Serial.println(WiFi.macAddress());
-      Serial.printf("Primary is at %p, remote is at %p\n", &primary, &stripper);
+      Serial.printf("Boss is %p, worker is %p\n", boss, worker);
       break;
     case 'n':
       BroadcastNode::spew = param >= 2;
@@ -273,50 +282,55 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       break;
     case 's'://simulate a lever solution
-      if (cliValidStation(param, key)) {
+      if (boss && cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        primary.lever[clistate.leverIndex] = true;
-        Serial.printf("Lever[ %d] latch triggered, reports : % x\n", clistate.leverIndex, primary.lever[clistate.leverIndex]);
-        Serial.printf("There are now %u activated\n", primary.lever.numSolved());
+        boss->lever[clistate.leverIndex] = true;
+        Serial.printf("Lever[ %d] latch triggered, reports : % x\n", clistate.leverIndex, boss->lever[clistate.leverIndex]);
+        Serial.printf("There are now %u activated\n", boss->lever.numSolved());
       }
       break;
     case 't':
-      if (wasUpper) {
-        primary.timebomb.next(param);
+      if (boss) {
+        if (wasUpper) {
+          boss->timebomb.next(param);
+        }
+        Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", boss->timebomb.due, boss->timebomb.remaining(), Ticker::now);
       }
-      Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", primary.timebomb.due, primary.timebomb.remaining(), Ticker::now);
       break;
     case 'u': //unsolve
-      if (cliValidStation(param, key)) {
+      if (boss && cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        primary.lever[clistate.leverIndex] = false;
-        Serial.printf("Lever[%u] latch cleared, reports : %x\n", primary.lever[clistate.leverIndex]);
-        Serial.printf("There are now %u activated\n", primary.lever.numSolved());
+        boss->lever[clistate.leverIndex] = false;
+        Serial.printf("Lever[%u] latch cleared, reports : %x\n", boss->lever[clistate.leverIndex]);
+        Serial.printf("There are now %u activated\n", boss->lever.numSolved());
       }
       break;
 
     case 'w': //locally test a style via "all on"
-      if (IamBoss) {
+      if (boss) {
         ForStations(si) {
-          stripper.leds.setPattern(station[si], pattern(si, param));
+          boss->leds.setPattern(foreground[si], pattern(si, param));
         }
-      } else {
-        stripper.leds.all(stringState.color);
+      } else if (worker) {
+        worker->leds.all(tester.color);
       }
-      stripper.leds.show();
+      agent->leds.show();
       break;
     case 'x':
       clistate.workerIndex = param;
       break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
-      REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
-      primary.refreshRate.next(REFRESH_RATE_MILLIS);
-      if (REFRESH_RATE_MILLIS != ~0) {
-        Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
-      } else {
-        Serial.printf("refresh disabled\n");
+      if (boss) {
+        REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
+        boss->refreshRate.next(REFRESH_RATE_MILLIS);
+        if (REFRESH_RATE_MILLIS != ~0) {
+          Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
+        } else {
+          Serial.printf("refresh disabled\n");
+        }
       }
       break;
+
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
       //todo: the following doesn't actually get executed before the reset!
@@ -327,12 +341,12 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       ESP.restart();
       break;
     case ' ':
-      if (IamBoss) {
+      if (boss) {
         Serial.println("VortexFX Boss:");
-        primary.lever.printTo(Serial);
+        boss->lever.printTo(Serial);
         Serial.print("Update flags");
         ForStations(si) {
-          Serial.printf("\t[%u]=%x", si, primary.needsUpdate[si]);
+          Serial.printf("\t[%u]=%x", si, boss->needsUpdate[si]);
         }
         Serial.println();
         //        Serial.print("Apparent state : \t");
@@ -343,21 +357,23 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.println("VortexFX Worker");
         Serial.print("Last Action: \t");
       }
-      stringState.printTo(Serial);
+      agent->command.printTo(Serial);
       break;
     case '*':
-      primary.lever.listPins(Serial);
-      Serial.print("Relay assignments : ");
-      for (unsigned channel = numRelays; channel-- > 0;) {
-        Serial.printf("\t % u : D % u", channel, relay[channel].number);
+      if (boss) {
+        boss->lever.listPins(Serial);
+        Serial.print("Relay assignments : ");
+        for (unsigned channel = numRelays; channel-- > 0;) {
+          Serial.printf("\t % u : D % u", channel, relay[channel].number);
+        }
+        Serial.println();
+        //add all other pins in use ...
       }
-      Serial.println();
-      //add all other pins in use ...
       break;
     case '?':
       Serial.printf("Program: %s ", __FILE__);
       Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
-      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", station.MAX_BRIGHTNESS , station.MAX_BRIGHTNESS );
+      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
       Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");
       Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
       Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
@@ -396,11 +412,12 @@ void setup() {
 
   if (IamBoss) {
     Serial.println("Setting up as boss");
-    primary.setup();
-    stripper.setup(true);//true: just LED string, for easy testing
+    agent = boss = new Boss();
+    boss->setup();
   } else {
-    Serial.println("Setting up as remote");
-    stripper.setup(false);
+    Serial.println("Setting up as remote worker");
+    agent = worker = new Stripper();
+    worker->setup();
   }
 
   Serial.println("Entering forever loop.");
@@ -413,17 +430,20 @@ void loop() {
   dbg(clido);//process incoming keystrokes
   // time paced logic
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    if (IamBoss) {
-      primary.onTick(Ticker::now);
-    } else {
-      stripper.onTick(Ticker::now);
+    if (boss) {
+      boss->onTick(Ticker::now);
+    }
+    if (worker) {
+      worker->onTick(Ticker::now);
     }
     clistate.onTick();
   }
+  
   // check event flags
-  if (IamBoss) {
-    primary.loop();
-  } else {
-    stripper.loop();
+  if (boss) {
+    boss->loop();
+  }
+  if (worker) {
+    worker->loop();
   }
 }

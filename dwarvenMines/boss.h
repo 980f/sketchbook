@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "block.h"
 #include "stripper.h"
 
@@ -89,11 +88,10 @@ struct ColorSet: Printable {
   size_t printTo(Print &stream) const override {
     return printColorSet(" Colors", Color, stream);
   }
-} station;
+};
 
-ColorSet background;
-
-#include "leverSet.h"
+ColorSet foreground;
+ColorSet background; //need some lights to stay on so the room has some illumination.
 
 ///////////////////////////////////////////////////////////////////////
 LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
@@ -114,22 +112,26 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
       //Runner will apply this modulus to its generated numbers
       p.modulus = VortexFX.perRevolutionActual;
       break;
-    case 1: //
+    case 1: //rainbow
       p.offset = si;
       p.run = 1;
       p.period = numStations;
-      p.sets = VortexFX.total;
+      p.sets = VortexFX.total / numStations;
       p.modulus = 0;
       break;
+
   }
   return p;
 }
 
 #include "remoteGpio.h"
-RemoteGPIO::Message levers2;//also levers :)  //static for debug convenience, should be member of Boss
+#include "leverSet.h"
 
-struct Boss : public BroadcastNode {
+struct Boss : public VortexCommon {
     LeverSet lever;
+
+    RemoteGPIO::Message levers2;//also levers :)  //static for debug convenience, should be member of Boss
+
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
     Ticker refreshRate; //sendall occasionally to deal with any intermittency.
@@ -142,8 +144,7 @@ struct Boss : public BroadcastNode {
       refreshRate.next(REFRESH_RATE_MILLIS);
       ForStations(si) {
         needsUpdate[si] = true;
-      }
-      stringState.showem = true; //available to optimize when we know many need to be set.
+      }      
     }
 
     void startHoldoff() {
@@ -155,16 +156,29 @@ struct Boss : public BroadcastNode {
       }
     }
 
-    void sendMessage(const DesiredState &msg) {
-      auto block = msg.outgoing();
-      if (TRACE) {
-        Serial.printf("sendMessage: %u, %.4s  (%p)\n", block.size, &block.content, &block.content);
-        if (BUG3) {
-          dumpHex(block, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
-        }
+    void leverAction(LeverSet::Event event) {
+      switch (event) {
+        case LeverSet::Event::NonePulled: // none on
+          break;
+        case LeverSet::Event::FirstPulled: // some pulled when none were pulled
+          if (EVENT) {
+            Serial.println("First lever pulled");
+          }
+          timebomb.next(fuseSeconds * 1000);
+          break;
+        case LeverSet::Event::SomePulled: // nothing special, but not all off
+          break;
+        case LeverSet::Event::LastPulled:
+          if (EVENT) {
+            Serial.println("Last lever pulled");
+          }
+          onSolution();
+          break;
       }
-      send_message(block);
+
     }
+
+ 
 
     bool leverState[numStations];//paces sending
     //for pacing sending station updates
@@ -185,9 +199,9 @@ struct Boss : public BroadcastNode {
         }
         dataReceived = true;
         //can insert here a check on a DesiredState and receive an echo if the stripper sends one.
-      } else if (stringState.accept(Packet{len, *data})) {
-        Serial.println("primary received S41L message"); 
-        stripper.dataReceived = true;
+      } else if (command.accept(Packet{len, *data})) {//todo: different object to receive incoming lighting requests.
+        Serial.println("Boss received S41L message");
+//        stripper.dataReceived = true;
       } else {
         if (TRACE) {
           Serial.printf("Boss doesn't know what the following does: (%p)\n", this);
@@ -198,7 +212,7 @@ struct Boss : public BroadcastNode {
 
   public:
 
-    Boss(): BroadcastNode(BroadcastNode_Triplet), forceSolved(23, false, 1750) {}
+    Boss(): forceSolved(23, false, 1750) {}
 
     void setup() {
       lever.setup(50); // todo: proper source for lever debounce time
@@ -215,11 +229,12 @@ struct Boss : public BroadcastNode {
 
 
     void loop() {
-      // levers are tested on timer tick, since they are debounced by it.
-      if (flagged(dataReceived)) { // message received
+      // local levers are tested on timer tick, since they are debounced by it.
+      if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
           Serial.println("Processing remote gpio");
         }
+        unsigned prior = lever.numSolved();
         //for levers2 stuff the solved bits in the initial leverStates.
         ForStations(each) {
           if (levers2[each]) {//set on true, leave as is on false.
@@ -229,6 +244,8 @@ struct Boss : public BroadcastNode {
             lever[each] = true;
           }
         }
+
+        leverAction(lever.computeEvent(prior, lever.numSolved()));
 
         if (changed(remoteReset, levers2[numStations])) {
           checkRun(remoteReset);
@@ -249,15 +266,15 @@ struct Boss : public BroadcastNode {
             }
             if (needsUpdate[lastStationSent]) {
               if (leverState[lastStationSent]) {
-                stringState.color = station[lastStationSent];
-                stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
-              } else {
-                stringState.color = background[lastStationSent];
-                stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
+                command.color = foreground[lastStationSent];
+                command.pattern = pattern(lastStationSent, clistate.patternIndex);
+//              } else {
+//                stringState.color = background[lastStationSent];
+//                stringState.pattern = pattern(lastStationSent, clistate.patternIndex);
               }
-              stringState.showem = true; //todo: only with last one.
-              ++stringState.sequenceNumber;//mostly to see if connection is working
-              sendMessage(stringState); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+              command.showem = true; //todo: only with last one.
+              ++command.sequenceNumber;//mostly to see if connection is working
+              sendMessage(command); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
               startHoldoff();
               break;
             }
@@ -337,24 +354,7 @@ struct Boss : public BroadcastNode {
         refreshLeds();
       }
 
-      switch (lever.onTick(now)) {
-        case LeverSet::Event::NonePulled: // none on
-          break;
-        case LeverSet::Event::FirstPulled: // some pulled when none were pulled
-          if (EVENT) {
-            Serial.println("First lever pulled");
-          }
-          timebomb.next(fuseSeconds * 1000);
-          break;
-        case LeverSet::Event::SomePulled: // nothing special, but not all off
-          break;
-        case LeverSet::Event::LastPulled:
-          if (EVENT) {
-            Serial.println("Last lever pulled");
-          }
-          onSolution();
-          break;
-      }
+      leverAction(lever.onTick(now));
 
       if (Run.onTick()) {
         checkRun(Run.pin);

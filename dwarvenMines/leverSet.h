@@ -5,6 +5,28 @@
 #include "simpleDebouncedPin.h"
 
 struct LeverSet: Printable {
+  public:
+    enum class Event {
+      NonePulled,  // none on
+      FirstPulled, // some pulled when none were pulled
+      SomePulled,  // nothing special, but not all off
+      LastPulled,  // all on
+    };
+
+    static Event computeEvent(unsigned prior, unsigned someNow) {
+      if (someNow == prior) { // no substantial change
+        return someNow ? Event::SomePulled : Event::NonePulled;
+      }
+      // something significant changed
+      if (someNow == numStations) {
+        return Event::LastPulled; // takes priority over FirstPulled when simultaneous
+      }
+      if (prior == 0) {
+        return Event::FirstPulled;
+      }
+      return Event::SomePulled; // a different number but nothing special.
+    }
+
     /**
        Each lever
     */
@@ -44,13 +66,7 @@ struct LeverSet: Printable {
 
     std::array<Lever, numStations> lever; // using std::array over traditional array to get initializer syntax that we can type
 
-  public:
-    enum class Event {
-      NonePulled,  // none on
-      FirstPulled, // some pulled when none were pulled
-      SomePulled,  // nothing special, but not all off
-      LastPulled,  // all on
-    };
+
 
     Event onTick(MilliTick now) {
       // update, and note major events
@@ -61,19 +77,7 @@ struct LeverSet: Printable {
           Serial.printf("lever[%u] just became: %x,  latched: %x\n", index, lever[index].presently, lever[index].solved);
         }
       }
-
-      unsigned someNow = numSolved();
-      if (someNow == prior) { // no substantial change
-        return someNow ? Event::SomePulled : Event::NonePulled;
-      }
-      // something significant changed
-      if (someNow == numStations) {
-        return Event::LastPulled; // takes priority over FirstPulled when simultaneous
-      }
-      if (prior == 0) {
-        return Event::FirstPulled;
-      }
-      return Event::SomePulled; // a different number but nothing special.
+      return computeEvent(prior, numSolved());
     }
 
     bool& operator[](unsigned index) {

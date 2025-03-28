@@ -36,6 +36,10 @@ struct RemoteGPIO: BroadcastNode {
     /// end body
     /////////////////////////////
     uint8_t endMarker;//value ignored, not sent
+
+    //local state.
+    bool dataReceived = false;
+
     bool spew = false;
 
     ///////////////////////////
@@ -86,6 +90,7 @@ struct RemoteGPIO: BroadcastNode {
     bool parse(const Block< const uint8_t> &msg)  {
       auto buffer = incoming();
       memcpy(&buffer.content, &msg.content + sizeof(prefix), buffer.size);
+      dataReceived = true;
       return true;//no further qualification at this time
     }
 
@@ -118,7 +123,7 @@ struct RemoteGPIO: BroadcastNode {
     }
   }
 
-  void forceMode(unsigned mode=INPUT_PULLUP){ 
+  void forceMode(unsigned mode = INPUT_PULLUP) {
     ForPin(index) {
       SimplePin(gpio[index].pin).setup(mode);
     }
