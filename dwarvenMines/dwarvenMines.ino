@@ -1,11 +1,11 @@
 /*
-build and debug for QN2025 vortex special effects.
+  build and debug for QN2025 vortex special effects.
 
   post mortem:
   leverset needs to be reworked to accept pushed from multiple sources:gpio,remoteGpio,debug
   debouncing ditto, do not use i/o debouncer for delayed reaction stuff, use resettable monostable.
 
-  
+
   punch list:
 
   done: "off" is small set of varied lights for illumination
@@ -77,7 +77,7 @@ SUI dbg(Serial, Serial);
 
 //debug state
 struct CliState {
-  unsigned workerIndex = 0;
+  //  unsigned workerIndex = 0;
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
   unsigned patternIndex = 1; //1 rainbow, 0 half ring.
 
@@ -245,6 +245,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         if (cli.argc() > 1) {
           boss->backgrounder.steps = cli[1];
         }
+        boss->backgrounder.erase();
       }
       break;
     case 'l': // select a lever to monitor
@@ -255,16 +256,16 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'm':
       Serial.println(WiFi.macAddress());
-      Serial.printf("Boss is %p, worker is %p\n", boss, worker);
+      Serial.printf("Boss is %p, worker is %p, agent is %p\n", boss, worker, agent);
       break;
     case 'n':
-      BroadcastNode::spew = param >= 2;
-      BroadcastNode::errors = param >= 0;
+      BroadcastNode::spew = param > 1;
+      BroadcastNode::errors = param > 0;
       Serial.printf("broadcast spam and errors have been set to %x,%x\n", BroadcastNode::spew , BroadcastNode::errors );
       break;
     case 'o':
       if (param < numRelays) {
-        relay[param] << wasUpper;//don't use '=', it changes the pin assignment!
+        relay[param] << wasUpper;//don't use '=', it changed the pin assignment!
         Serial.printf("Relay %u set to %x\n", param, wasUpper);
       } else if (param == ~0u) {
         clistate.onBoard << wasUpper;
@@ -283,7 +284,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'q':
       for (unsigned i = 0; i < numRelays; ++i) {
-        Serial.printf("relay[%u]=%x (D%u)\n", i, bool(relay[i]), relay[i].number);
+        Serial.printf("relay[%u]:%x (D%u)\n", i, bool(relay[i]), relay[i].number);
       }
       break;
     case 's'://simulate a lever solution
@@ -322,7 +323,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       agent->leds.show();
       break;
     case 'x':
-      clistate.workerIndex = param;
+      if (boss) {
+        /*boss->*/ audioLeadinTicks = param;
+      }
       break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       if (boss) {
