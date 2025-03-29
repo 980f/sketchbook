@@ -1,8 +1,15 @@
 /*
+build and debug for QN2025 vortex special effects.
+
+  post mortem:
+  leverset needs to be reworked to accept pushed from multiple sources:gpio,remoteGpio,debug
+  debouncing ditto, do not use i/o debouncer for delayed reaction stuff, use resettable monostable.
+
+  
   punch list:
 
-  "off" is small set of varied lights for illumination
-  sets of Patterns and use pattern for lever feedback, and test selector for pattern in clirp.
+  done: "off" is small set of varied lights for illumination
+  done: sets of Patterns and use pattern for lever feedback, and test selector for pattern in clirp.
   configurable values to and from EEPROM, or store a string to run through the clirp.
 
   done: vortex off: wait for run/reset change of state?
@@ -13,9 +20,9 @@
   Note: 800 kbaud led update rate, 24 bits per LED, 33+k leds/second @400 LEDS 83 fps. 12 ms per update plus a little for the reset.
   10Hz is enough for special FX work, 24Hz is movie theater rate.
 
-  Nodes:
-  S41L to send lighting desires
-  GPIO to send lever physical state
+  Node Messages:
+  S41L to send lighting desires, was a pedagogic choice, should be more like VXLX
+  GPIO to send lever/other input physical state
 
 */
 

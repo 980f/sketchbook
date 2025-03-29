@@ -1,21 +1,26 @@
 #pragma once
 
+/**
+  business logic of QN2025 vortex special effects.
+
+*/
+
 #include "block.h"
-#include "vortexLighting.h"
+#include "vortexLighting.h" //common parts of coordinator and light manager devices
 
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
   VortexMotor,
-  Lights_1,
-  Lights_2,
+  Audio,
+  SpareNC,
   DoorRelease,
   numRelays    // marker, leave in last position.
 };
 
 struct RelayQuad {
   // boss side:
-  SimpleOutputPin channel[numRelays] = {26, 22, 33, 32};//, 23}; //25 was broken on 'BDAC: all relays in a group to expedite "all off"
+  SimpleOutputPin channel[numRelays] = {26, 22, 33, 32};//, 23}; //25 was broken on 'BDAC: all relays in a group to expedite "all off": actually D25 has a generic problem with wifi as input, perhaps as output as well.
 
   SimpleOutputPin & operator [](unsigned enumeratedIndex) {
     if (enumeratedIndex < countof(channel)) {
@@ -31,9 +36,9 @@ struct RelayQuad {
     }
   }
 
-  void all(bool on){
+  void all(bool on) {
     for (unsigned ri = numRelays; ri-- > 0;) {
-      channel[ri]<<on;
+      channel[ri] << on;
     }
   }
 
@@ -48,10 +53,13 @@ const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 // time from first pull to restart
 unsigned fuseSeconds = 3 * 60; // 3 minutes
-unsigned REFRESH_RATE_MILLIS = 5 * 1000; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
+MilliTick REFRESH_RATE_MILLIS = 5 * 1000; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 //time from solution to vortex halt, for when the operator fails to turn it off.
-unsigned resetTicks = 37 * 1000;
+MilliTick resetTicks = 37 * 1000;
+//time from solution to vortex/door open:
+MilliTick audioLeadinTicks = 2970; //arbitrary number around 3 seconds.
 unsigned frameRate = 16;
+
 
 struct ColorSet: Printable {
   //to limit power consumption:
@@ -96,11 +104,17 @@ struct ColorSet: Printable {
 };
 
 ColorSet foreground;
-unsigned reordered[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined
+
+#include "remoteGpio.h"
+unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for GPIO
+
+#include "leverSet.h"
+
+//todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
 ///////////////////////////////////////////////////////////////////////
 LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
   LedStringer::Pattern p;
-  si = reordered[si];
+  si = gpioScramble[si];
   switch (style) {
     case 0: //half ring
       p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
@@ -126,8 +140,6 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
   return p;
 }
 
-#include "remoteGpio.h"
-#include "leverSet.h"
 
 struct Boss : public VortexCommon {
     //puzzle state drive by physical inputs
@@ -143,6 +155,7 @@ struct Boss : public VortexCommon {
     //timing
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
+    Ticker audioLeadin; //give time for audio to start and run to machine moving noises.
     Ticker refreshRate; //sendall occasionally to deal with any intermittency in LED connection
 
     /*light management
@@ -187,8 +200,8 @@ struct Boss : public VortexCommon {
           }
           msg.pattern.modulus = 0;//broken, ensur eit is not used
           msg.showem = true;//jam this guy until we find a performance issue
-          if(BUG2){
-            Serial.printf("BGND: step %d\t",inProgress);
+          if (BUG2) {
+            Serial.printf("BGND: step %d\t", inProgress);
             msg.printTo(Serial);
           }
           return true;
@@ -212,14 +225,15 @@ struct Boss : public VortexCommon {
     // end lighting group
     //////////////////////////////////
 
+    // set lever related LED's again, in case update got lost or lighting processor spontaneously restarted.
     void refreshLeds() {
-      //too much: backgrounder.erase();
       ForStations(si) {
         needsUpdate[si] = lever[si];//only rewrite those that are on, the rest are left in background state.
       }
       refreshRate.next(REFRESH_RATE_MILLIS);
     }
 
+    //do not overrun lighting processor, not until it develops an input queue.
     void startHoldoff() {
       if (frameRate) {
         updateAllowed = false;
@@ -232,20 +246,27 @@ struct Boss : public VortexCommon {
     void onSolution() {
       dbg.cout("Yippie!");
       timebomb.stop();
-      relay.all(true);
-//      relay[DoorRelease] << true;
-//      relay[VortexMotor] << true;
-      //todo: any other bells or whistles?
-      //timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
+      audioLeadin.next(audioLeadinTicks);
+      relay[Audio] << true; //audio needs time to get to where motor sounds start
+      //      relay.all(true);
+      //      relay[DoorRelease] << true;
+      //      relay[VortexMotor] << true;
       autoReset.next(resetTicks);
+    }
+
+    void onAudioCue() {
+      relay[DoorRelease] << true;
+      relay[VortexMotor] << true;
+      relay[SpareNC] << true;
+      relay[Audio] << false; //not urgent, but handy for debug.
     }
 
     void resetPuzzle() {
       autoReset.stop();
       timebomb.stop();
       relay.all(false);
-//      relay[DoorRelease] << false;
-//      relay[VortexMotor] << false;
+      //      relay[DoorRelease] << false;
+      //      relay[VortexMotor] << false;
       lever.restart();//todo: perhaps more thoroughly than for timebomb?
       backgrounder.erase();
     }
@@ -409,6 +430,7 @@ struct Boss : public VortexCommon {
       if (holdoff.done()) {
         updateAllowed = true;
       }
+
       if (autoReset.done()) {
         if (EVENT) {
           Serial.println("auto reset fired, resetting puzzle");
@@ -429,6 +451,10 @@ struct Boss : public VortexCommon {
           Serial.println("Periodic resend");
         }
         refreshLeds();
+      }
+
+      if (audioLeadin.done()) {
+        onAudioCue();
       }
 
       leverAction(lever.onTick(now));
