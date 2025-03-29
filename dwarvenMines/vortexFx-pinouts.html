@@ -105,7 +105,8 @@
           <td>lever input, contact </td>
         </tr>
         <tr>
-          <td>relay 2/4</td>
+          <td><em>seemed broken<br>
+            </em></td>
           <td><br>
           </td>
           <td>D25</td>
@@ -127,7 +128,7 @@
           <td>lever input, contact </td>
         </tr>
         <tr>
-          <td><br>
+          <td>relay 2/4<br>
           </td>
           <td><br>
           </td>
@@ -151,7 +152,7 @@
           <td>run/reset</td>
         </tr>
         <tr>
-          <td><br>
+          <td>?audio also?<br>
           </td>
           <td><br>
           </td>
@@ -233,7 +234,7 @@
     </table>
     <br>
     <table border="1">
-      <caption>remote gpio Dwarven Mines Usage </caption>
+      <caption>remote gpio: Dwarven Mines Usage </caption>
       <tbody>
         <tr>
           <td>gpio</td>
@@ -322,7 +323,7 @@
           <td>D27</td>
           <td>4</td>
           <td>D0</td>
-          <td><br>
+          <td><em>(force boot)</em><br>
           </td>
         </tr>
         <tr>
@@ -375,15 +376,16 @@
     </table>
     <br>
     <br>
-    boss and worker are Devkit-1, rgpio is lolin32 (had 5 in hand and only 1 more Devkit-1). Lolin32 is different pinout.<br>
+    boss and worker are Devkit-1, remote_gpio is lolin32 (had 5 in hand and only 1 more Devkit-1). Lolin32 is different pinout.<br>
+    <br>
+    Changes of boss since Haunt2024:<br>
     <ol>
       <li> Rewired to add 5 more inputs beside the former trigger. These are pulled up at the processor.</li>
       <li>The connector that was the trigger is now the run/reset</li>
-      <li>todo: on boss gpio15 is jumpered high, on worker it is jumpered low. We may implement "Real" which if high means to use wifi to talk, else boss does both roles (makes debug easier).</li>
-      <li>we may add a "force solved" input for testing convenience.</li>
-      <li>D13 is run to connect that feeds power during normal operation, for testing LED string during software development when power comes over USB.</li>
+      <li>on boss gpio15 is jumpered low, on worker it is jumpered high/internal pullup trusted. </li>
+      <li>D13 was for a while run to WS281x connector, for testing LED string during software development when power comes over USB, reconnection state is unknown</li>
     </ol>
-    <p>Debug commands:</p>
+    <p>Debug commands:&nbsp; (updated 29mar2025)</p>
     <table style="width: 100%" border="1">
       <tbody>
         <tr>
@@ -393,12 +395,11 @@
           <td>list some of these commands</td>
         </tr>
         <tr>
-          <td>perRevolution&nbsp; <br>
-            visible,perRevolution</td>
-          <td>a</td>
-          <td>set the number of LEDs per ring<br>
-            if two params then the first is #visible.<br>
-            Regardless of params reports the values.</td>
+          <td><br>
+          </td>
+          <td><br>
+            (space)</td>
+          <td>list much of the state, especially last LED alteration command sent or received.</td>
         </tr>
         <tr>
           <td>station number (0..5)</td>
@@ -421,81 +422,134 @@
           <td>if T then set timebomb to go off at given milliseconds, else number is ignored and state of timer is displayed</td>
         </tr>
         <tr>
-          <td><br>
+          <td>trace number 0..4<br>
           </td>
-          <td>q</td>
+          <td>d</td>
           <td>set diagnostic spew, lower case is off, upper case is on.</td>
+        </tr>
+        <tr>
+          <td>milliseconds? seconds?<br>
+          </td>
+          <td>f</td>
+          <td>frame rate, maximum rate at which LED's are updated.</td>
+        </tr>
+        <tr>
+          <td>[steps], period</td>
+          <td>k</td>
+          <td>background illumination parameters.</td>
         </tr>
         <tr>
           <td><br>
           </td>
-          <td>e</td>
-          <td>set keytroke echo, lower case none, upper case do echo </td>
+          <td>m</td>
+          <td>show MACid, and boss and worker pointers</td>
+        </tr>
+        <tr>
+          <td>0,1,2</td>
+          <td>n</td>
+          <td>debug booleans for BroadcastNode, neiter, errors, both</td>
         </tr>
         <tr>
           <td>(soon) 0:Led, 1..4 a relay</td>
           <td>o</td>
           <td>play with a known output. Doesn't disable program logic just does an immediate set or clear depending upon o vs O.<br>
-            ~: number toggles rather than set to case. (only coded for LED at the moment).</td>
+            ~ board LED</td>
+        </tr>
+        <tr>
+          <td>device pin number</td>
+          <td>i</td>
+          <td>set pin to input, if upper case then pull it up, else whatever 'INPUT' gets you.<br>
+            Reads input, probably should put a bit of a delay in here but that is against company policy.</td>
+        </tr>
+        <tr>
+          <td>device pin number<br>
+          </td>
+          <td>p</td>
+          <td>Dangerous, will be removed soon! turns designated pin into an output which can disrupt the processor if you choose unwisely.<br>
+            p is make low, P is make high</td>
         </tr>
         <tr>
           <td><br>
           </td>
-          <td>p</td>
-          <td>Dangerous, will be removed soon! was debug for LED stuff, can turn any pin into an output which can disrupt the processor if you choose unwisely.</td>
+          <td>q</td>
+          <td>list relay state and associated pin numbers</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>w</td>
+          <td>test LED styles, exactly how keeps on changing, don't be surprised if this does nothing.</td>
+        </tr>
+        <tr>
+          <td>any number</td>
+          <td>x</td>
+          <td>sets unused 'clistate.workerIndex', available for quick attachment for a quick hack</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>z</td>
+          <td>rate at which LED's are refreshed to their expected state<br>
+            ~ or 0 disables refresh</td>
         </tr>
         <tr>
           <td><br>
           </td>
           <td>*</td>
-          <td>list pin assignements</td>
+          <td>list pin assignments</td>
         </tr>
         <tr>
-          <td>milliseconds until restart<br>
+          <td>seconds (or so) until restart<br>
           </td>
           <td>^Z</td>
           <td>restart processor, after a delay in seconds.</td>
         </tr>
         <tr>
-          <td>~0,0,1<br>
+          <td>integer<br>
           </td>
           <td>.<br>
             (period)</td>
           <td>~0: reset puzzle,<br>
-            0: read levers and report, <br>
+            0: update lever to LED state and report, <br>
             1: trigger "puzzle solved" behavior.<br>
             2: act like timeout</td>
         </tr>
         <tr>
           <td>station number</td>
           <td>c</td>
-          <td>select a color to manipulate (color==station), see r,g,b</td>
+          <td>copy tester color to a station, use '.' to apply it.<br>
+            ~ sets background illumination color, apply it.</td>
         </tr>
         <tr>
           <td>0..255 or #00 to #ff</td>
           <td>r,g,b</td>
-          <td>diddle a color, may or may not apply nominal max_brightness, which was set to save battery life.</td>
+          <td>diddle a color, may or may not apply nominal max_brightness, which was set to save battery life.<br>
+            does a "set all" upon each change.</td>
         </tr>
         <tr>
           <td><br>
           </td>
-          <td><br>
+          <td>/-\<br>
           </td>
-          <td><br>
+          <td>modify test pattern<br>
+          </td>
+        </tr>
+        <tr>
+          <td>sequence number, if 0 increment preset one<br>
+          </td>
+          <td>=<br>
+          </td>
+          <td>resend last LED pattern, with given sequence number.&nbsp; <br>
           </td>
         </tr>
         <tr>
           <td><br>
           </td>
-          <td><br>
-          </td>
-          <td><br>
-          </td>
+          <td>!</td>
+          <td>start OTA update, support is incomplete so this really doesn't do anything except may tank the processor.</td>
         </tr>
       </tbody>
     </table>
-    <p><br>
-    </p>
     <ol>
     </ol>
     <br>
