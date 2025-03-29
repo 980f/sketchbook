@@ -72,7 +72,7 @@ SUI dbg(Serial, Serial);
 struct CliState {
   unsigned workerIndex = 0;
   unsigned leverIndex = ~0;//enables diagnostic spew on selected lever
-  unsigned patternIndex = 0; //at the moment we have just one.
+  unsigned patternIndex = 1; //1 rainbow, 0 half ring.
 
   SimpleOutputPin onBoard{BOARD_LED};//Wroom LED
   Ticker pulser;
@@ -358,7 +358,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.print("Background message:\t");
         boss->backgrounder.msg.printTo(Serial);
         Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , REFRESH_RATE_MILLIS);
-        if(boss->echoAck.dataReceived) {
+        if (boss->echoAck.dataReceived) {
           Serial.print("Echoed message:\t");
           boss->echoAck.printTo(Serial);
         }

@@ -31,6 +31,12 @@ struct RelayQuad {
     }
   }
 
+  void all(bool on){
+    for (unsigned ri = numRelays; ri-- > 0;) {
+      channel[ri]<<on;
+    }
+  }
+
 } relay;
 
 
@@ -44,7 +50,7 @@ const unsigned numStations = 6;
 unsigned fuseSeconds = 3 * 60; // 3 minutes
 unsigned REFRESH_RATE_MILLIS = 5 * 1000; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 //time from solution to vortex halt, for when the operator fails to turn it off.
-unsigned resetTicks = 87 * 1000;
+unsigned resetTicks = 37 * 1000;
 unsigned frameRate = 16;
 
 struct ColorSet: Printable {
@@ -90,36 +96,33 @@ struct ColorSet: Printable {
 };
 
 ColorSet foreground;
-//ColorSet background; //need some lights to stay on so the room has some illumination.
-
+unsigned reordered[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined
 ///////////////////////////////////////////////////////////////////////
-LedStringer::Pattern pattern(unsigned si, unsigned style = 0) { //station index
+LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
   LedStringer::Pattern p;
+  si = reordered[si];
   switch (style) {
     case 0: //half ring
       p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
       if (si & 1) {
         p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
       }
-
       //set this many in a row,must be at least 1
       p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
       //every this many, must be greater than or the same as run
       p.period = p.run;
       //this number of times, must be at least 1
       p.sets = 1;
-      //Runner will apply this modulus to its generated numbers
-      p.modulus = VortexFX.perRevolutionActual;
       break;
     case 1: //rainbow
       p.offset = si;
       p.run = 1;
       p.period = numStations;
       p.sets = VortexFX.total / numStations;
-      p.modulus = 0;
       break;
-
   }
+  //defeat broken logic:
+  p.modulus = 0;
   return p;
 }
 
@@ -156,7 +159,7 @@ struct Boss : public VortexCommon {
 
       //config:
       unsigned every = 7; //tunable by debug, chould be const or NV
-      unsigned steps = 1;
+      unsigned steps = 2;
 
       void erase() {
         inProgress = steps;
@@ -168,12 +171,26 @@ struct Boss : public VortexCommon {
       bool check() {
         if (inProgress > 0) {
           ++msg.sequenceNumber;
-          msg.pattern.offset = 3 * inProgress;
-          msg.pattern.run = 1;
-          msg.pattern.period = every;
-          msg.pattern.modulus = 0;
-          msg.pattern.sets = VortexFX.total / msg.pattern.period;
+          if (inProgress == steps) {
+            //first step is all off
+            msg.color = CRGB{0, 0, 0};
+            msg.pattern.offset = 0;
+            msg.pattern.run = VortexFX.total ;
+            msg.pattern.period = VortexFX.total ;
+            msg.pattern.sets = 1; //VortexFX.total / msg.pattern.period;
+          } else {
+            msg.color = CRGB{60, 60, 70};
+            msg.pattern.offset = 100;
+            msg.pattern.run = 3;
+            msg.pattern.period = 100;
+            msg.pattern.sets = 3;
+          }
+          msg.pattern.modulus = 0;//broken, ensur eit is not used
           msg.showem = true;//jam this guy until we find a performance issue
+          if(BUG2){
+            Serial.printf("BGND: step %d\t",inProgress);
+            msg.printTo(Serial);
+          }
           return true;
         }
         return false;
@@ -196,7 +213,7 @@ struct Boss : public VortexCommon {
     //////////////////////////////////
 
     void refreshLeds() {
-      backgrounder.erase();
+      //too much: backgrounder.erase();
       ForStations(si) {
         needsUpdate[si] = lever[si];//only rewrite those that are on, the rest are left in background state.
       }
@@ -215,8 +232,9 @@ struct Boss : public VortexCommon {
     void onSolution() {
       dbg.cout("Yippie!");
       timebomb.stop();
-      relay[DoorRelease] << true;
-      relay[VortexMotor] << true;
+      relay.all(true);
+//      relay[DoorRelease] << true;
+//      relay[VortexMotor] << true;
       //todo: any other bells or whistles?
       //timer for vortex auto off? perhaps one full minute just in case operator gets distracted?
       autoReset.next(resetTicks);
@@ -225,9 +243,11 @@ struct Boss : public VortexCommon {
     void resetPuzzle() {
       autoReset.stop();
       timebomb.stop();
-      relay[DoorRelease] << false;
-      relay[VortexMotor] << false;
+      relay.all(false);
+//      relay[DoorRelease] << false;
+//      relay[VortexMotor] << false;
       lever.restart();//todo: perhaps more thoroughly than for timebomb?
+      backgrounder.erase();
     }
 
     void leverAction(LeverSet::Event event) {
