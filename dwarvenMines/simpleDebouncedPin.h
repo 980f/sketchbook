@@ -5,9 +5,9 @@
 struct DebouncedInput : public Printable {
   SimpleInputPin pin;
   //official state
-  bool stable;
+  bool stable = false;
   //pending state
-  bool bouncy;
+  bool bouncy = false;
   //filter timer
   Ticker bouncing;
   //usually the value is not changed, it is a program constant, we aren't forcing that as we might make it eeprom configurable.

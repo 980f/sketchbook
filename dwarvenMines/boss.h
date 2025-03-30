@@ -11,8 +11,8 @@
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
-  VortexMotor,
   Audio,
+  VortexMotor,
   SpareNC,
   DoorRelease,
   numRelays    // marker, leave in last position.
@@ -52,14 +52,13 @@ DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very 
 const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 // time from first pull to restart
-unsigned fuseSeconds = 3 * 60; // 3 minutes
-MilliTick REFRESH_RATE_MILLIS = 5 * 1000; //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
+MilliTick fuseSeconds = Ticker::PerMinutes(3); // 3 minutes
+MilliTick REFRESH_RATE_MILLIS = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 //time from solution to vortex halt, for when the operator fails to turn it off.
-MilliTick resetTicks = 37 * 1000;
+MilliTick resetTicks = Ticker::PerSeconds(37);
 //time from solution to vortex/door open:
-MilliTick audioLeadinTicks = 2970; //arbitrary number around 3 seconds.
+MilliTick audioLeadinTicks = 7990; //experimental
 unsigned frameRate = 16;
-
 
 struct ColorSet: Printable {
   //to limit power consumption:
@@ -106,7 +105,7 @@ struct ColorSet: Printable {
 ColorSet foreground;
 
 #include "remoteGpio.h"
-unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for GPIO
+unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
 
 #include "leverSet.h"
 
@@ -135,7 +134,7 @@ LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
       p.sets = VortexFX.total / numStations;
       break;
   }
-  //defeat broken logic:
+  //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
   p.modulus = 0;
   return p;
 }
@@ -237,14 +236,14 @@ struct Boss : public VortexCommon {
     void startHoldoff() {
       if (frameRate) {
         updateAllowed = false;
-        holdoff.next(1000 / frameRate);
+        holdoff.next(Ticker::perSecond / frameRate);
       } else {
         updateAllowed = true;
       }
     }
 
     void onSolution() {
-      dbg.cout("Yippie!");
+      Serial.printf("Yippie! at %u, delay is set to %u\n", Ticker::now, audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
@@ -255,10 +254,13 @@ struct Boss : public VortexCommon {
     }
 
     void onAudioCue() {
+      if (EVENT) {
+        Serial.printf("Audio Done at %u\n", Ticker::now);
+      }
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
       relay[SpareNC] << true;
-      relay[Audio] << false; //not urgent, but handy for debug.
+//      relay[Audio] << false; //not urgent, but handy for debug.
     }
 
     void resetPuzzle() {
@@ -354,6 +356,7 @@ struct Boss : public VortexCommon {
       relay.setup();
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
+      audioLeadin.stop();
       refreshLeds(); //include background 'erase'
       spew = true;//bn debug flag
       if (!BroadcastNode::begin(true)) {
