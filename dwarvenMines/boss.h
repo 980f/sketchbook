@@ -52,11 +52,11 @@ DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very 
 const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
 // time from first pull to restart
-MilliTick fuseSeconds = Ticker::PerMinutes(3); // 3 minutes
+MilliTick fuseSeconds = Ticker::Never; //Ticker::PerMinutes(3); 
 MilliTick REFRESH_RATE_MILLIS = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
-//time from solution to vortex halt, for when the operator fails to turn it off.
+//time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
 MilliTick resetTicks = Ticker::PerSeconds(37);
-//time from solution to vortex/door open:
+//time from solution to vortex/door open, so that audio track can fully cue up:
 MilliTick audioLeadinTicks = 7990; //experimental
 unsigned frameRate = 16;
 
