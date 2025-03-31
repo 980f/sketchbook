@@ -102,13 +102,43 @@ struct CliState {
 
 SimpleInputPin IamBoss {15, true}; // pin to determine what this device's role is (Boss or worker) instead of comparing MAC id's and declare the MAC ids of each end.
 
-//23 is a corner pin: SimpleInputPin IamReal  {23,false}; // pin to determine that this is the real system, not the single processor development one.
+
 #include "boss.h"
 Boss *boss = nullptr;
 #include "stripper.h"
 Stripper *worker = nullptr;
 
 VortexCommon *agent = nullptr; //will be one of {boss|worker}
+
+
+void getConfig() {
+  BossConfig temp;
+  EEPROM.begin(sizeof(temp));//note: if worker needed its own config we would add its size here
+  EEPROM.get(0, temp);
+  if (temp.isValid()) {
+    cfg = temp;
+    Serial.println("Loaded configuration from EEPROM:");
+    Serial.print(cfg);
+  } else { //else object has defaults built in
+    EEPROM.put(0, cfg);
+    Serial.println("Initialized configuration in EEPROM:");
+    Serial.print(cfg);
+  }
+}
+
+void saveConfig(unsigned checkcode) {
+  if (boss) {
+    Serial.println("Present state of configuration:");
+    Serial.print(cfg);
+    if (checkcode == cfg.checker) {
+      EEPROM.put(0, cfg);
+      EEPROM.commit();//needed for flash backed paged eeproms to actually save the info.
+      Serial.println("Saved configuration to virtual EEPROM");
+    } else {
+      Serial.println("You must enter the magic number in order to save the configuration.");
+    }
+  }
+}
 
 //test objects
 VortexLighting::Message tester;
@@ -139,6 +169,9 @@ void sendTest() {
 void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
   unsigned param = cli[0]; //clears on read, can only access once!
   switch (key) {
+    case ':':
+      saveConfig(param);
+      break;
     //aehjkvy /;[]\-
     case '/': //send tester
       tester.pattern.offset = param;
@@ -318,7 +351,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'w': //locally test a style via "all on"
       if (boss) {
         ForStations(si) {
-          boss->leds.setPattern(cfg.foreground[si], pattern(si, param));
+          boss->leds.setPattern(cfg.foreground[si], boss->pattern(si, param));
         }
       } else if (worker) {
         worker->leds.all(tester.color);
@@ -396,7 +429,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case '?':
       Serial.printf("Program: %s ", __FILE__);
       Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
-//      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
+      //      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
       Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");
       Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
       Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
@@ -415,6 +448,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
   }
 }
+
 
 // arduino's setup:
 void setup() {
@@ -436,8 +470,8 @@ void setup() {
   if (IamBoss) {
     Serial.println("\n\nSetting up as boss");
     agent = boss = new Boss();
-    //todo: read config from EEProm and if not garbled apply it.
     boss->setup();
+
   } else {
     Serial.println("\n\nSetting up as remote worker");
     agent = worker = new Stripper();

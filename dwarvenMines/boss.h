@@ -94,7 +94,15 @@ struct ColorSet: Printable {
   }
 };
 
-struct BossConfig {
+
+
+#include "remoteGpio.h"
+#include "leverSet.h"
+
+//todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
+///////////////////////////////////////////////////////////////////////
+/** outside the class so that we can configure before instantiating an instance*/
+struct BossConfig: Printable {
   // time from first pull to restart
   MilliTick fuseTicks = Ticker::Never; //Ticker::PerMinutes(3);
   MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
@@ -107,45 +115,22 @@ struct BossConfig {
   unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
   CRGB overheadLights = CRGB{60, 60, 70};
   //and finally to check if EEPROM is valid:
-  const uint16_t checker = 0x980F;
+  uint16_t checker = 0x980F;
+
+  bool isValid() const {
+    return checker == 0x980F; //really simple, someday do CRC and check that.
+  }
+
+  size_t printTo(Print &stream) const override {
+    return stream.printf("F:%d, RF:%d, AR:%d, Aud:%d, Fps:%u, OH:%06X, Colors:\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t())
+           + stream.print(foreground)
+           //  unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
+           //and finally to check if EEPROM is valid:
+           + stream.printf("\nChecker:%u\n", checker );
+  }
 };
 
 BossConfig cfg;
-
-
-#include "remoteGpio.h"
-#include "leverSet.h"
-
-//todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
-///////////////////////////////////////////////////////////////////////
-LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
-  LedStringer::Pattern p;
-  si = cfg.gpioScramble[si];
-  switch (style) {
-    case 0: //half ring
-      p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
-      if (si & 1) {
-        p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
-      }
-      //set this many in a row,must be at least 1
-      p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
-      //every this many, must be greater than or the same as run
-      p.period = p.run;
-      //this number of times, must be at least 1
-      p.sets = 1;
-      break;
-    case 1: //rainbow
-      p.offset = si;
-      p.run = 1;
-      p.period = numStations;
-      p.sets = VortexFX.total / numStations;
-      break;
-  }
-  //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
-  p.modulus = 0;
-  return p;
-}
-
 
 struct Boss : public VortexCommon {
     //puzzle state drive by physical inputs
@@ -230,7 +215,33 @@ struct Boss : public VortexCommon {
 
     // end lighting group
     //////////////////////////////////
-
+    LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
+      LedStringer::Pattern p;
+      si = cfg.gpioScramble[si];
+      switch (style) {
+        case 0: //half ring
+          p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
+          if (si & 1) {
+            p.offset += VortexFX.perRevolutionVisible / 2; //half of the visible
+          }
+          //set this many in a row,must be at least 1
+          p.run = (VortexFX.perRevolutionVisible / 2) + (si & 1); //halfsies, rounded
+          //every this many, must be greater than or the same as run
+          p.period = p.run;
+          //this number of times, must be at least 1
+          p.sets = 1;
+          break;
+        case 1: //rainbow
+          p.offset = si;
+          p.run = 1;
+          p.period = numStations;
+          p.sets = VortexFX.total / numStations;
+          break;
+      }
+      //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
+      p.modulus = 0;
+      return p;
+    }
     // set lever related LED's again, in case update got lost or lighting processor spontaneously restarted.
     void refreshLeds() {
       ForStations(si) {
