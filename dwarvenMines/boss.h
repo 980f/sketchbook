@@ -8,6 +8,7 @@
 #include "block.h"
 #include "vortexLighting.h" //common parts of coordinator and light manager devices
 
+
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
@@ -51,18 +52,9 @@ DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very 
 // Boss config
 const unsigned numStations = 6;
 #define ForStations(si) for(unsigned si=0; si<numStations; ++si)
-// time from first pull to restart
-MilliTick fuseSeconds = Ticker::Never; //Ticker::PerMinutes(3); 
-MilliTick REFRESH_RATE_MILLIS = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
-//time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
-MilliTick resetTicks = Ticker::PerSeconds(37);
-//time from solution to vortex/door open, so that audio track can fully cue up:
-MilliTick audioLeadinTicks = 7990; //experimental
-unsigned frameRate = 16;
+
 
 struct ColorSet: Printable {
-  //to limit power consumption:
-  uint8_t MAX_BRIGHTNESS = 80; // todo: debate whether worker limits received values or trusts the boss.
 
   CRGB Color[numStations] = {
     0xFF0000,
@@ -102,18 +94,33 @@ struct ColorSet: Printable {
   }
 };
 
-ColorSet foreground;
+struct BossConfig {
+  // time from first pull to restart
+  MilliTick fuseTicks = Ticker::Never; //Ticker::PerMinutes(3);
+  MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
+  //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
+  MilliTick resetTicks = Ticker::PerSeconds(37);
+  //time from solution to vortex/door open, so that audio track can fully cue up:
+  MilliTick audioLeadinTicks = 7990; //experimental
+  unsigned frameRate = 16;
+  ColorSet foreground;
+  unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
+  CRGB overheadLights = CRGB{60, 60, 70};
+  //and finally to check if EEPROM is valid:
+  const uint16_t checker = 0x980F;
+};
+
+BossConfig cfg;
+
 
 #include "remoteGpio.h"
-unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
-
 #include "leverSet.h"
 
 //todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
 ///////////////////////////////////////////////////////////////////////
 LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
   LedStringer::Pattern p;
-  si = gpioScramble[si];
+  si = cfg.gpioScramble[si];
   switch (style) {
     case 0: //half ring
       p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
@@ -185,13 +192,13 @@ struct Boss : public VortexCommon {
           ++msg.sequenceNumber;
           if (inProgress == steps) {
             //first step is all off
-            msg.color = CRGB{0, 0, 0};
+            msg.color = LedStringer::Off;
             msg.pattern.offset = 0;
             msg.pattern.run = VortexFX.total ;
             msg.pattern.period = VortexFX.total ;
             msg.pattern.sets = 1; //VortexFX.total / msg.pattern.period;
           } else {
-            msg.color = CRGB{60, 60, 70};
+            msg.color = cfg.overheadLights;
             msg.pattern.offset = 100;
             msg.pattern.run = 3;
             msg.pattern.period = 100;
@@ -229,28 +236,28 @@ struct Boss : public VortexCommon {
       ForStations(si) {
         needsUpdate[si] = lever[si];//only rewrite those that are on, the rest are left in background state.
       }
-      refreshRate.next(REFRESH_RATE_MILLIS);
+      refreshRate.next(cfg.refreshPeriod);
     }
 
     //do not overrun lighting processor, not until it develops an input queue.
     void startHoldoff() {
-      if (frameRate) {
+      if (cfg.frameRate) {
         updateAllowed = false;
-        holdoff.next(Ticker::perSecond / frameRate);
+        holdoff.next(Ticker::perSecond / cfg.frameRate);
       } else {
         updateAllowed = true;
       }
     }
 
     void onSolution() {
-      Serial.printf("Yippie! at %u, delay is set to %u\n", Ticker::now, audioLeadinTicks);
+      Serial.printf("Yippie! at %u, delay is set to %u\n", Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
-      audioLeadin.next(audioLeadinTicks);
+      audioLeadin.next(cfg.audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
       //      relay.all(true);
       //      relay[DoorRelease] << true;
       //      relay[VortexMotor] << true;
-      autoReset.next(resetTicks);
+      autoReset.next(cfg.resetTicks);
     }
 
     void onAudioCue() {
@@ -260,7 +267,7 @@ struct Boss : public VortexCommon {
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
       relay[SpareNC] << true;
-//      relay[Audio] << false; //not urgent, but handy for debug.
+      //      relay[Audio] << false; //not urgent, but handy for debug.
     }
 
     void resetPuzzle() {
@@ -281,7 +288,7 @@ struct Boss : public VortexCommon {
           if (EVENT) {
             Serial.println("First lever pulled");
           }
-          timebomb.next(fuseSeconds * 1000);
+          timebomb.next(cfg.fuseTicks);
           break;
         case LeverSet::Event::SomePulled: // nothing special, but not all off
           break;
@@ -413,7 +420,7 @@ struct Boss : public VortexCommon {
             }
             if (needsUpdate[lastStationSent]) {
               if (leverState[lastStationSent]) {
-                command.color = foreground[lastStationSent];
+                command.color = cfg.foreground[lastStationSent];
                 command.pattern = pattern(lastStationSent, clistate.patternIndex);
               }
               command.showem = true; //todo: only with last one.

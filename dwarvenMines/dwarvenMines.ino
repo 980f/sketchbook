@@ -26,6 +26,8 @@
 
 */
 
+#include "EEPROM.h"
+
 #if defined(ARDUINO_LOLIN32_LITE)
 #warning "Using pin assignments for 26pin w/battery interface"
 #define BOARD_LED 22
@@ -209,11 +211,11 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'c': // set a station color, volatile!
       if (boss) {
         if (cliValidStation(param, key)) {
-          foreground[param] = tester.color;
-          Serial.printf("station[%u] color is now 0x%06X\n", param, foreground[param].as_uint32_t());
+          cfg.foreground[param] = tester.color;
+          Serial.printf("station[%u] color is now 0x%06X\n", param, cfg.foreground[param].as_uint32_t());
         }
         if (param == ~0) {
-          boss->backgrounder.msg.color = tester.color;
+          cfg.overheadLights = tester.color;
           boss->backgrounder.erase();
         }
       }
@@ -236,7 +238,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'f':
       if (boss) {
         /*boss->*/
-        frameRate = param;
+        cfg.frameRate = param;
       }
       break;
     case 'k':
@@ -298,7 +300,8 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 't':
       if (boss) {
         if (wasUpper) {
-          boss->timebomb.next(param);
+          cfg.fuseTicks = param;
+          boss->timebomb.next(cfg.fuseTicks);
         }
         Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", boss->timebomb.due, boss->timebomb.remaining(), Ticker::now);
       }
@@ -315,7 +318,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 'w': //locally test a style via "all on"
       if (boss) {
         ForStations(si) {
-          boss->leds.setPattern(foreground[si], pattern(si, param));
+          boss->leds.setPattern(cfg.foreground[si], pattern(si, param));
         }
       } else if (worker) {
         worker->leds.all(tester.color);
@@ -324,19 +327,19 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'x':
       if (boss) {
-        /*boss->*/ audioLeadinTicks = param;
+        /*boss->*/ cfg.audioLeadinTicks = param;
       }
       break;
     case 'z': //set refresh rate, 0 kills it rather than spams.
       if (boss) {
         if (param = ~0) {
-          REFRESH_RATE_MILLIS = Ticker::Never;
+          cfg.refreshPeriod = Ticker::Never;
           boss->refreshLeds();
         } else {
-          REFRESH_RATE_MILLIS = param ? param : Ticker::Never;
-          boss->refreshRate.next(REFRESH_RATE_MILLIS);
-          if (REFRESH_RATE_MILLIS != Ticker::Never) {
-            Serial.printf("refresh rate set to %u\n", REFRESH_RATE_MILLIS);
+          cfg.refreshPeriod = param ? param : Ticker::Never;
+          boss->refreshRate.next(cfg.refreshPeriod);
+          if (cfg.refreshPeriod != Ticker::Never) {
+            Serial.printf("refresh rate set to %u\n", cfg.refreshPeriod);
           } else {
             Serial.printf("refresh disabled\n");
           }
@@ -367,7 +370,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.printf("Backgrounder countdown: %u\n", boss->backgrounder.inProgress);
         Serial.print("Background message:\t");
         boss->backgrounder.msg.printTo(Serial);
-        Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , REFRESH_RATE_MILLIS);
+        Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , cfg.refreshPeriod);
         if (boss->echoAck.dataReceived) {
           Serial.print("Echoed message:\t");
           boss->echoAck.printTo(Serial);
@@ -393,7 +396,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case '?':
       Serial.printf("Program: %s ", __FILE__);
       Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
-      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
+//      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is bright\n\tl, s, u: \tlever trace / set / unset\n ", foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
       Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");
       Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
       Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
@@ -433,6 +436,7 @@ void setup() {
   if (IamBoss) {
     Serial.println("\n\nSetting up as boss");
     agent = boss = new Boss();
+    //todo: read config from EEProm and if not garbled apply it.
     boss->setup();
   } else {
     Serial.println("\n\nSetting up as remote worker");
