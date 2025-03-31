@@ -780,6 +780,114 @@
       </tbody>
     </table>
     No wire was found for audio trigger<br>
+    <hr>WS2811&nbsp; key specifications, 800kHz configuration<br>
+    <br>
+    12V systems have a resistor that feeds the chip which then regulates that down to around 5V for logic operation.<br>
+    <br>
+    The difference between the WS2811 and WS2812B are likely to be due to language rather than the actual devices. 980F trusts the WS2812B numbers over the WS2811, the largest difference being whether the +/- spec&nbsp; of the latter should also have been cut in half for 800kHz vs 400kHz. It appears that they tune a delay for a monostable to around 600ns, trigger on rising edge, sample bit on trailing edge.<br>
+    <br>
+    <table border="1">
+      <tbody>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td rowspan="1" colspan="2">WS2811</td>
+          <td rowspan="1" colspan="2">WS2812B</td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td>nominal</td>
+          <td>min</td>
+          <td>max</td>
+          <td>min</td>
+          <td>max</td>
+        </tr>
+        <tr>
+          <td>logic high</td>
+          <td>0.7 VDD, VDD is 5V, 10%</td>
+          <td>3.5V</td>
+          <td>VDD+0.5V</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>DO </td>
+          <td>tolerates 12V imposed!</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>Zero High</td>
+          <td>250ns</td>
+          <td>175ns</td>
+          <td>325ns</td>
+          <td>250ns</td>
+          <td>550ns</td>
+        </tr>
+        <tr>
+          <td>Zero Low</td>
+          <td>1000ns</td>
+          <td>925ns</td>
+          <td>1075ns</td>
+          <td>700ns</td>
+          <td>1000ns</td>
+        </tr>
+        <tr>
+          <td>One High</td>
+          <td>600ns</td>
+          <td>525ns</td>
+          <td>675ns</td>
+          <td>650ns</td>
+          <td>950ns</td>
+        </tr>
+        <tr>
+          <td>One Low</td>
+          <td>650ns</td>
+          <td>575ns</td>
+          <td>725ns</td>
+          <td>300ns</td>
+          <td>700ns</td>
+        </tr>
+        <tr>
+          <td>Bit period</td>
+          <td>1250ns</td>
+          <td>1100ns</td>
+          <td>1400ns</td>
+          <td>650ns</td>
+          <td>1850ns</td>
+        </tr>
+        <tr>
+          <td>reset, time without pulses</td>
+          <td>it isn't clear if this is halved<br>
+            like bit times are</td>
+          <td>25us</td>
+          <td>none</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <br>
+    <br>
+    ESP32 output tolerance to pull-up to 5V:<br>
+    only guarantees 0.8 VDD at 40ma, which is 2.64 V.<br>
+    The WS2811 only needs about a microamp.<br>
+    <br>
+    <br>
+    <br>
     <hr>The official git repo for this file is at the moment Andy's 980f/sketchbook/dwarvenMines, it really needs to be in Scare's repos somewhere.
   </body>
 </html>
