@@ -469,6 +469,7 @@ void setup() {
 
   if (IamBoss) {
     Serial.println("\n\nSetting up as boss");
+    getConfig();
     agent = boss = new Boss();
     boss->setup();
 
