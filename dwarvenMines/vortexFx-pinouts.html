@@ -447,13 +447,13 @@
         <tr>
           <td>0,1,2</td>
           <td>n</td>
-          <td>debug booleans for BroadcastNode, neiter, errors, both</td>
+          <td>debug booleans for BroadcastNode, neither, errors, both</td>
         </tr>
         <tr>
-          <td>(soon) 0:Led, 1..4 a relay</td>
+          <td>&nbsp;~:Led, <br>
+            0..3 a relay</td>
           <td>o</td>
-          <td>play with a known output. Doesn't disable program logic just does an immediate set or clear depending upon o vs O.<br>
-            ~ board LED</td>
+          <td>play with a known output. Doesn't disable program logic just does an immediate set or clear depending upon o vs O.</td>
         </tr>
         <tr>
           <td>device pin number</td>
@@ -481,9 +481,9 @@
           <td>test LED styles, exactly how keeps on changing, don't be surprised if this does nothing.</td>
         </tr>
         <tr>
-          <td>any number</td>
+          <td>milliseconds</td>
           <td>x</td>
-          <td>sets unused 'clistate.workerIndex', available for quick attachment for a quick hack</td>
+          <td>delay for vortex turn on and door unlock from audio turn on.</td>
         </tr>
         <tr>
           <td><br>
@@ -543,10 +543,19 @@
           </td>
         </tr>
         <tr>
+          <td>[magic value]<br>
+            0<br>
+            ~</td>
+          <td>:</td>
+          <td>0 or no value yields display of configurable values with cryptic labels.<br>
+            magic value triggers a save of the config.<br>
+            ~restores the configured values, all of them.</td>
+        </tr>
+        <tr>
           <td><br>
           </td>
           <td>!</td>
-          <td>start OTA update, support is incomplete so this really doesn't do anything except may tank the processor.</td>
+          <td>start OTA update, support is incomplete so this really doesn't do anything except maybe tank the processor.</td>
         </tr>
       </tbody>
     </table>

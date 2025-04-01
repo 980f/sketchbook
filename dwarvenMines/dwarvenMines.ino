@@ -130,11 +130,13 @@ void saveConfig(unsigned checkcode) {
   if (boss) {
     Serial.println("Present state of configuration:");
     Serial.print(cfg);
-    if (checkcode == cfg.checker) {
+    if (checkcode == ~0) { //undo all changes
+      getConfig();
+    } else if (checkcode == cfg.checker) {//save config, whether changed or not
       EEPROM.put(0, cfg);
       EEPROM.commit();//needed for flash backed paged eeproms to actually save the info.
       Serial.println("Saved configuration to virtual EEPROM");
-    } else {
+    } else {//annoy user with incomplete information on how to save the config.
       Serial.println("You must enter the magic number in order to save the configuration.");
     }
   }
@@ -276,9 +278,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 'k':
       if (boss) {
-        boss->backgrounder.every = param;
+        cfg.overheadWidth = param;
         if (cli.argc() > 1) {
-          boss->backgrounder.steps = cli[1];
+          cfg.overheadStart = cli[1];
         }
         boss->backgrounder.erase();
       }

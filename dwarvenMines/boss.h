@@ -99,6 +99,33 @@ struct ColorSet: Printable {
 #include "remoteGpio.h"
 #include "leverSet.h"
 
+template <unsigned Size>
+struct PermutationSet: Printable {
+  unsigned scramble[Size];
+  unsigned operator[](unsigned raw) {
+    if (raw < Size) {
+      return scramble[raw];
+    }
+    return raw;//GIGO
+  }
+
+  PermutationSet(const std::initializer_list<unsigned> &list) {
+    unsigned index = 0;
+    for (auto item : list) {
+      scramble[index++] = item;
+    }
+  }
+
+  size_t printTo(Print &stream) const override {
+    unsigned length = 0;
+    for (unsigned index = 0; index < Size; ++index) {
+      length += stream.printf("\t[%d]=%d", index, scramble[index]);
+    }
+    return length;
+  }
+
+};
+
 //todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
 ///////////////////////////////////////////////////////////////////////
 /** outside the class so that we can configure before instantiating an instance*/
@@ -112,8 +139,10 @@ struct BossConfig: Printable {
   MilliTick audioLeadinTicks = 7990; //experimental
   unsigned frameRate = 16;
   ColorSet foreground;
-  unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
+  PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
   CRGB overheadLights = CRGB{60, 60, 70};
+  unsigned overheadStart = VortexFX.perRevolutionActual;
+  unsigned overheadWidth = 3;
   //and finally to check if EEPROM is valid:
   uint16_t checker = 0x980F;
 
@@ -122,11 +151,13 @@ struct BossConfig: Printable {
   }
 
   size_t printTo(Print &stream) const override {
-    return stream.printf("F:%d, RF:%d, AR:%d, Aud:%d, Fps:%u, OH:%06X, Colors:\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t())
+    return stream.printf("F:%d, RF:%d, AR:%d, Aud:%d, Fps:%u, \n\tOH:%06X, OO:%u, OW:%u\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t(), overheadStart , overheadWidth)
            + stream.print(foreground)
-           //  unsigned gpioScramble[numStations] = {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
+           + stream.printf("\nremote gpio order:\n")
+           + stream.print(gpioScramble)
            //and finally to check if EEPROM is valid:
-           + stream.printf("\nChecker:%u\n", checker );
+           + stream.printf("\nChecker:%u\n", checker )
+           ;
   }
 };
 
@@ -160,34 +191,32 @@ struct Boss : public VortexCommon {
     struct BackgroundIlluminator {
       unsigned inProgress = 0; //state machine
       VortexLighting::Message msg;
-
-      //config:
-      unsigned every = 7; //tunable by debug, chould be const or NV
-      unsigned steps = 2;
-
+      //config was moved from here to EEPRom grouping
       void erase() {
-        inProgress = steps;
+        inProgress = 2;
       }
 
-      /* //only call when updateAllowed is true
+      /* only call when updateAllowed is true
           @returns true if its message should be sent.
       */
       bool check() {
         if (inProgress > 0) {
           ++msg.sequenceNumber;
-          if (inProgress == steps) {
-            //first step is all off
-            msg.color = LedStringer::Off;
-            msg.pattern.offset = 0;
-            msg.pattern.run = VortexFX.total ;
-            msg.pattern.period = VortexFX.total ;
-            msg.pattern.sets = 1; //VortexFX.total / msg.pattern.period;
-          } else {
-            msg.color = cfg.overheadLights;
-            msg.pattern.offset = 100;
-            msg.pattern.run = 3;
-            msg.pattern.period = 100;
-            msg.pattern.sets = 3;
+          switch (inProgress) {
+            case 2:         //all off
+              msg.color = LedStringer::Off;
+              msg.pattern.offset = 0;
+              msg.pattern.run = VortexFX.total ;
+              msg.pattern.period = VortexFX.total ;
+              msg.pattern.sets = 1;
+              break;
+            case 1:
+              msg.color = cfg.overheadLights;
+              msg.pattern.offset = cfg.overheadStart;//skip first ring
+              msg.pattern.run = cfg.overheadWidth;
+              msg.pattern.period = VortexFX.perRevolutionActual;//one group per ring
+              msg.pattern.sets = 3;//3 rings.
+              break;
           }
           msg.pattern.modulus = 0;//broken, ensur eit is not used
           msg.showem = true;//jam this guy until we find a performance issue
@@ -195,10 +224,11 @@ struct Boss : public VortexCommon {
             Serial.printf("BGND: step %d\t", inProgress);
             msg.printTo(Serial);
           }
-          return true;
+          return true;//relies upon doneIf being called by send acknowledgment to decrement inProgress
         }
         return false;
       }
+
       bool doneIf(bool succeeded) {
         if (!inProgress) {
           return true;//been done, or never started
