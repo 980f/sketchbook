@@ -28,7 +28,7 @@ CRGB pixel[VortexFX.total];
 
 struct VortexLighting {
   // command to set some lights.
-  struct Message {
+  struct Message: Printable {
     const unsigned char  prefix[4] = {'S', '4', '1', 'L'};
     uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
     //3 spare bytes here if we don't PACK
@@ -45,7 +45,7 @@ struct VortexLighting {
     //local state.
     bool dataReceived = false;
     ///////////////////////////
-    size_t printTo(Print &stream) {
+    size_t printTo(Print &stream) const {
       size_t length = 0;
       length += stream.println(reinterpret_cast<const char *>(prefix));
       length += stream.printf("Sequence#:%u\t", sequenceNumber);
