@@ -35,7 +35,7 @@ struct Stripper : public VortexCommon {
     if (TRACE) {
       Serial.printf("Stripper::onReceive() as %p \n", this);
     }
-    if (command.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
+    if (message.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
       if (TRACE) {
         command.printTo(Serial);
         if (BUG3) {

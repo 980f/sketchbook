@@ -190,8 +190,10 @@ struct Boss : public VortexCommon {
 
     struct BackgroundIlluminator {
       unsigned inProgress = 0; //state machine
-      VortexLighting::Message msg;
-      //config was moved from here to EEPRom grouping
+      VortexLighting::Message wrapper;
+      VortexLighting::Command command=wrapper.m;
+
+      /** start the erasure procedure */
       void erase() {
         inProgress = 2;
       }
@@ -200,33 +202,32 @@ struct Boss : public VortexCommon {
           @returns true if its message should be sent.
       */
       bool check() {
-        if (inProgress > 0) {
-          ++msg.sequenceNumber;
-          switch (inProgress) {
-            case 2:         //all off
-              msg.color = LedStringer::Off;
-              msg.pattern.offset = 0;
-              msg.pattern.run = VortexFX.total ;
-              msg.pattern.period = VortexFX.total ;
-              msg.pattern.sets = 1;
-              break;
-            case 1:
-              msg.color = cfg.overheadLights;
-              msg.pattern.offset = cfg.overheadStart;//skip first ring
-              msg.pattern.run = cfg.overheadWidth;
-              msg.pattern.period = VortexFX.perRevolutionActual;//one group per ring
-              msg.pattern.sets = 3;//3 rings.
-              break;
-          }
-          msg.pattern.modulus = 0;//broken, ensur eit is not used
-          msg.showem = true;//jam this guy until we find a performance issue
-          if (BUG2) {
-            Serial.printf("BGND: step %d\t", inProgress);
-            msg.printTo(Serial);
-          }
-          return true;//relies upon doneIf being called by send acknowledgment to decrement inProgress
+        switch (inProgress) {
+          case 2:         //all off
+            command.color = LedStringer::Off;
+            command.pattern.offset = 0;
+            command.pattern.run = VortexFX.total ;
+            command.pattern.period = VortexFX.total ;
+            command.pattern.sets = 1;
+            break;
+          case 1:
+            command.color = cfg.overheadLights;
+            command.pattern.offset = cfg.overheadStart;//skip first ring
+            command.pattern.run = cfg.overheadWidth;
+            command.pattern.period = VortexFX.perRevolutionActual;//one group per ring
+            command.pattern.sets = 3;//3 rings.
+            break;
+          default:
+            return false;
         }
-        return false;
+        ++command.sequenceNumber;
+        command.pattern.modulus = 0;//broken, ensure it is not used
+        command.showem = true;//jam this guy until we find a performance issue
+        if (BUG2) {
+          Serial.printf("BGND: step %d\t", inProgress);
+          command.printTo(Serial);
+        }
+        return true;//relies upon doneIf being called by send acknowledgment to decrement inProgress
       }
 
       bool doneIf(bool succeeded) {
@@ -243,7 +244,6 @@ struct Boss : public VortexCommon {
     bool needsUpdate[numStations];
     unsigned lastStationSent = 0;//counter for needsUpdate
 
-    // end lighting group
     //////////////////////////////////
     LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
       LedStringer::Pattern p;
@@ -262,10 +262,10 @@ struct Boss : public VortexCommon {
           p.sets = 1;
           break;
         case 1: //rainbow
-          p.offset = si;
+          p.offset = VortexFX.perRevolutionActual + si;//omit first ring, offset others a bit just to see the effect
           p.run = 1;
           p.period = numStations;
-          p.sets = VortexFX.total / numStations;
+          p.sets = (VortexFX.total - VortexFX.perRevolutionActual) / numStations;
           break;
       }
       //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
@@ -452,7 +452,7 @@ struct Boss : public VortexCommon {
 
       if (updateAllowed) { //can't send another until prior is handled, this needs work.
         if (backgrounder.check()) {
-          sendMessage(backgrounder.msg); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+          sendMessage(backgrounder.wrapper); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
           startHoldoff();
         } else if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
           ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
@@ -466,7 +466,7 @@ struct Boss : public VortexCommon {
               }
               command.showem = true; //todo: only with last one.
               ++command.sequenceNumber;//mostly to see if connection is working
-              sendMessage(command); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+              sendMessage(message); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
               startHoldoff();
               break;//onSent gets us to the next station to update
             }

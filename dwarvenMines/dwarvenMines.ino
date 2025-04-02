@@ -143,15 +143,13 @@ void saveConfig(unsigned checkcode) {
 }
 
 //test objects
-VortexLighting::Message tester;
+VortexLighting::Message testwrapper;
+VortexLighting::Command tester;
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
-#define tweakColor(which) \
-  tester.color.which = param; \
-  Serial.printf("color" "= 0x%06X\n",tester.color.as_uint32_t());\
-  sendTest();
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -165,7 +163,13 @@ void sendTest() {
   ++tester.sequenceNumber;
   tester.showem = true;
   tester.printTo(Serial);
-  agent->sendMessage(tester);
+  agent->sendMessage(testwrapper);
+}
+
+void tweakColor(unsigned which, unsigned param) {
+  tester.color[which] = param;
+  Serial.printf("color" "= 0x%06X\n", tester.color.as_uint32_t());
+  sendTest();
 }
 
 void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
@@ -226,21 +230,21 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       if (boss) {
         Serial.printf("Sending sequenceNumber: %u\n", boss->command.sequenceNumber);
-        boss->sendMessage(boss->command);
+        boss->sendMessage(boss->message);
       } else {
         worker->command.showem = true;
-        worker->command.dataReceived = true;
+        worker->message.dataReceived = true;
       }
       break;
 
     case 'b':
-      tweakColor(b);
+      tweakColor(2,param);
       break;
     case 'g':
-      tweakColor(g);
+      tweakColor(1,param);
       break;
     case 'r':
-      tweakColor(r);
+      tweakColor(0,param);
       break;
 
     case 'c': // set a station color, volatile!
@@ -286,9 +290,13 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       break;
     case 'l': // select a lever to monitor
-      if (cliValidStation(param, key)) {
+      if (boss && cliValidStation(param, key)) {
         clistate.leverIndex = param;
-        Serial.printf("Selecting station %u lever for diagnostic tracing", clistate.leverIndex);
+        Serial.printf("Selecting station %u lever for diagnostic tracing\n", clistate.leverIndex);
+      }
+      if (worker) {
+        //todo: list some raw pixel values
+        Serial.printf("raw pixel data is at %p\n", worker->stringer.leds);
       }
       break;
     case 'm':
@@ -352,13 +360,18 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 
     case 'w': //locally test a style via "all on"
       if (boss) {
+        Serial.printf("Setting LEDs via local connection\n");
         ForStations(si) {
-          boss->leds.setPattern(cfg.foreground[si], boss->pattern(si, param));
+          auto rgb = cfg.foreground[si];
+          auto pat = boss->pattern(si, param);
+          Serial.printf("\tstation %u, color %06X ", si, rgb.as_uint32_t());
+          pat.printTo(Serial);
+          boss->stringer.setPattern(rgb, pat);
         }
       } else if (worker) {
-        worker->leds.all(tester.color);
+        worker->stringer.all(tester.color);
       }
-      agent->leds.show();
+      agent->stringer.show();
       break;
     case 'x':
       if (boss) {
@@ -404,7 +417,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 
         Serial.printf("Backgrounder countdown: %u\n", boss->backgrounder.inProgress);
         Serial.print("Background message:\t");
-        boss->backgrounder.msg.printTo(Serial);
+        boss->backgrounder.command.printTo(Serial);
         Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , cfg.refreshPeriod);
         if (boss->echoAck.dataReceived) {
           Serial.print("Echoed message:\t");
@@ -454,7 +467,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 
 // arduino's setup:
 void setup() {
-  Serial.begin(460800);//use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B. 
+  Serial.begin(460800);//use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
   //confirmed existence, todo: choose pins other than default
   //  Serial1.begin(115200);
   //  Serial2.begin(115200);

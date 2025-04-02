@@ -27,7 +27,7 @@ struct LedStringer {
     allOff();
   }
 
-  LedStringer (unsigned quantity): LedStringer(quantity, new CRGB(quantity)) { }
+  LedStringer (unsigned quantity): LedStringer(quantity, new CRGB(quantity+1)) {}//+1 so that we can use pixel 0 if we are given a horrible address.
 
   LedStringer (): LedStringer(0, nullptr) {}
 
@@ -81,7 +81,9 @@ struct LedStringer {
       return run * sets;
     }
 
-    /** we want to wrap the value used as an array index, without altering our logical counter */
+    /** we want to wrap the value used as an array index, without altering our logical counter.
+     *  This did not work as expected as it gets aplied to the offset at times where we wish it did not.
+    */
     unsigned operator()(unsigned rawcomputation) const {
       return modulus ? rawcomputation % modulus : rawcomputation;
     }
@@ -145,7 +147,7 @@ struct LedStringer {
 
       //@returns the value computed by next,
       operator unsigned () const {
-        return pattern(latest);//pattern() just wraps the index by the  modulus
+        return pattern(latest);
       }
 
       Runner(const Pattern &pattern): pattern(pattern) {
@@ -168,24 +170,24 @@ struct LedStringer {
 
   /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
   unsigned setPattern(CRGB color, const Pattern &pattern) {
-    unsigned numberSet = 0; //diagnostic
-    if (spew) {
-      if (color == Off) {
-        color = CRGB(40, 20, 20);//TODO: debug! Must fix before shipping
+    if(quantity==0){
+      if(spew){
+        spew->println("Quantity is zero, not even thinking of computing an address as we have no pixels to address");
       }
+      return 0;//hopefully this is minimal harm.
     }
+    unsigned numberSet = 0; //diagnostic
     if (pattern) {//test if it is valid, will produce at least one pixel address
       if (spew) {
         spew->print("Setting pattern \t");
-        //        spew->print(pattern);
         pattern.printTo(*spew);
         spew->printf("\tto color: %06X\n", color.as_uint32_t());
       }
 
       auto runner = pattern.runner();
-      do {//precheck of pattern lets us know that at least one pixel gets set
-        unsigned pi = ~0u;
-        leds[pi = runner] = color;
+      do {//precheck of pattern lets us know that at least one pixel is to be set
+        unsigned pi = runner;
+        leds[pi % quantity] = color;//wrapping is better than altering unowned memory.
         ++numberSet;
         if (spew) {
           spew->printf(" %u\t", pi);
@@ -205,7 +207,7 @@ struct LedStringer {
     FastLED.addLeds<LEDStringType>(leds, quantity);//FastLED tends to configuring the GPIO, most likely as a pwm/timer output.
   }
 
-  void setup(unsigned quantity, CRGB *leds) {
+  void setup(unsigned quantity, CRGB *leds = nullptr) {
     if (spew) {
       spew->printf("LedStringer setting up %d @ %p\n", quantity, leds);
     }
@@ -231,13 +233,13 @@ struct LedStringer {
     return leds[i];
   }
 
-//  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
-//    return CRGB (
-//             map(phase, 0, cycle, target.r, from.r),
-//             map(phase, 0, cycle, target.g, from.g),
-//             map(phase, 0, cycle, target.b, from.b)
-//           );
-//  }
+  //  static CRGB blend(unsigned phase, unsigned cycle, const CRGB target, const CRGB from) {//todo: CRGB class has a blend method we can use here.
+  //    return CRGB (
+  //             map(phase, 0, cycle, target.r, from.r),
+  //             map(phase, 0, cycle, target.g, from.g),
+  //             map(phase, 0, cycle, target.b, from.b)
+  //           );
+  //  }
 
 };
 
@@ -245,7 +247,7 @@ Print *LedStringer::spew = nullptr;
 
 
 /** @deprecated untested
- * statically allocate the array
+   statically allocate the array
 */
 template <unsigned NUM_LEDS> struct LedString: public LedStringer {
   CRGB leds[NUM_LEDS];

@@ -5,6 +5,7 @@
 */
 #define BroadcastNode_WIFI_CHANNEL 6
 #include "broadcastNode.h"
+#include "scaryMessage.h"
 using Packet = BroadcastNode::Packet;
 using Body = BroadcastNode::Body;
 /////////////////////////////////////////
@@ -27,99 +28,51 @@ constexpr struct StripConfiguration {
 CRGB pixel[VortexFX.total];
 
 struct VortexLighting {
-  // command to set some lights.
-  struct Message: Printable {
-    const unsigned char  prefix[4] = {'S', '4', '1', 'L'};
-    uint8_t startMarker = 0;//simplifies things if same type as endMarker, and as zero is terminating null for prefix
-    //3 spare bytes here if we don't PACK
-    /// body
-    unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
-    CRGB color = 0;
-    LedStringer::Pattern pattern;
-    bool showem = true;
-
-    /// end body
-    /////////////////////////////
-    uint8_t endMarker;//value ignored, not sent
-
-    //local state.
-    bool dataReceived = false;
-    ///////////////////////////
-    size_t printTo(Print &stream) const {
-      size_t length = 0;
-      length += stream.println(reinterpret_cast<const char *>(prefix));
-      length += stream.printf("Sequence#:%u\t", sequenceNumber);
-      length += stream.printf("Show em:%x\t", showem);
-      length += stream.printf("Color:%06X\n", color.as_uint32_t());
-      //    length += stream.print("Pattern:\t") stream.print(pattern);
-      length += pattern.printTo(stream);
-      return length;
-    }
-    /////////////////////////
-    /** format for delivery, content is copied but not immediately so using stack is risky.
-        we check the prefix but skip copying it since we const'd it.
-    */
-
-    Packet outgoing() const {
-      return Packet {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
-    }
-
-    /** expect the whole object including prefix */
-    bool isValidMessage(const Packet& msg) const {
-      auto expect = outgoing();
-      if (TRACE) {
-        Serial.printf("Incoming: %u %s\n", msg.size, &msg.content);
-        Serial.printf("Expectin: %u %s\n", expect.size, &expect.content);
-
+    // command to set some lights.
+    struct Command {
+      unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
+      CRGB color = 0;
+      LedStringer::Pattern pattern;
+      bool showem = true;
+      size_t printTo(Print &stream) const {
+        size_t length = stream.printf("Sequence#:%u\t", sequenceNumber);
+        length += stream.printf("Show em:%x\t", showem);
+        length += stream.printf("Color:%06X\n", color.as_uint32_t());
+        //    length += stream.print("Pattern:\t") stream.print(pattern);
+        length += pattern.printTo(stream);
+        return length;
       }
-      return msg.size >= expect.size && 0 == memcmp(&msg.content, &expect.content, sizeof(prefix));
+    };
+
+    struct Message: public ScaryMessage<Command> {
+      Message(): ScaryMessage {'V', 'O', 'R', '1'} {}
+    };
+
+    Message message;
+    Command & command = message.m;
+    LedStringer stringer;
+
+    void setup() {
+      LedStringer::spew = &Serial;
+      stringer.setup(VortexFX.total, pixel);
     }
 
-    Body incoming()  {
-      return Body {(&endMarker - &startMarker), startMarker};
-    }
-
-    /** for efficiency this presumes you got a true from isValidMessage*/
-    bool parse(const Packet &packet)  {
-      auto buffer = incoming();
-      memcpy(&buffer.content, &packet.content + sizeof(prefix), buffer.size);
-      dataReceived = true;
-      return true;//no further qualification at this time
-    }
-
-    bool accept(const Packet &packet) {
-      if (isValidMessage(packet)) {
-        return parse(packet);
+    void act() {
+      //    command.showem = true; // jammit
+      if (EVENT) {
+        command.printTo(Serial);
       }
-      return false;
+      stringer.setPattern(command.color, command.pattern);
+      if (flagged(command.showem)) {
+        stringer.show();
+      }
     }
 
-  };
-
-  Message command;
-  LedStringer leds;
-
-  void setup() {
-    LedStringer::spew = &Serial;
-    leds.setup(VortexFX.total, pixel);
-  }
-
-  void act() {
-    command.showem = true; // jammit
-    if (EVENT) {
-      command.printTo(Serial);
+    void loop() {
+      if (flagged(message.dataReceived)) { // message received
+        act();
+      }
     }
-    leds.setPattern(command.color, command.pattern);
-    if (flagged(command.showem)) {
-      leds.show();
-    }
-  }
-
-  void loop() {
-    if (flagged(command.dataReceived)) { // message received
-      act();
-    }
-  }
 };
 
 ///////////////////////////////////////////////////////////////////////
