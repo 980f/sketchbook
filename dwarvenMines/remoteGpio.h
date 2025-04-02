@@ -28,8 +28,8 @@ struct RemoteGPIO: BroadcastNode {
 
     bool spew = false;
 
-
-    struct Content: Printable {
+////////////////////
+    struct Content {
       uint8_t padding[3]; //see if we can name the padding!
       unsigned sequenceNumber = 0;//for debug or stutter detection
       bool value[numInputs];
@@ -43,16 +43,16 @@ struct RemoteGPIO: BroadcastNode {
         }
       }
       ///////////////////////////
-      size_t printTo(Print &stream) const override {
+      // while this function has the same signature as that required by Printable, making this class Printable makes it virtual and the virtual table might get copied depending upon the compiler.
+      size_t printTo(Print &stream) const {
         size_t length = stream.printf("\tSequence#:%u\n", sequenceNumber);
         ForPin(index) {
           length += stream.printf("\t[%u]=%x", index, value[index]);
         }
         return length + stream.println();
       }
-
     };
-
+///////////////////
 
     struct Message: public ScaryMessage<Content> {
       Message(): ScaryMessage {'G','P','I','O'} {}
@@ -102,7 +102,7 @@ struct RemoteGPIO: BroadcastNode {
         gpio[index].filter(bouncer);
         gpio[index].setup(true);//true here makes the pin report that it has just changed to whatever its present value is.
       }
-      periodically.next(0);//send immediately with initial values.
+      periodically.next(0);//send ASAP with initial values.
       return BroadcastNode::begin(true);
     }
 
