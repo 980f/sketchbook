@@ -103,12 +103,12 @@ class BroadcastNode : public ESP_NOW_Peer {
       //here is where we could qualify the peer and if its message indicates it is on our network than "add_peer" it and process the message.
       addJustReceived = false;
       onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
-      if (addJustReceived) {
-        AddaPeer noob(info);
-        if (noob.failed) {
-          Serial.printf("Add peer failed with %s \n", esp_err_to_name( noob.failed));
-        }
-      }
+//      if (addJustReceived) {
+//        AddaPeer noob(info);
+//        if (noob.failed) {
+//          Serial.printf("Add peer failed with %s \n", esp_err_to_name( noob.failed));
+//        }
+//      }
     }
   public:
     /** typically called from setup on your sole statically created BroadcastNode with (true)
