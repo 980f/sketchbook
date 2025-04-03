@@ -191,10 +191,12 @@ struct Boss : public VortexCommon {
     struct BackgroundIlluminator {
       unsigned inProgress = 0; //state machine
       VortexLighting::Message wrapper;
-      VortexLighting::Command command=wrapper.m;
+      VortexLighting::Command command = wrapper.m;
 
       /** start the erasure procedure */
       void erase() {
+        wrapper.tag[0] = 'B';
+        wrapper.tag[1] = 0;
         inProgress = 2;
       }
 
@@ -206,14 +208,14 @@ struct Boss : public VortexCommon {
           case 2:         //all off
             command.color = LedStringer::Off;
             command.pattern.offset = 0;
-            command.pattern.run = VortexFX.total ;
+            command.pattern.run = VortexFX.total ;//all, in case the unused ones peek out from hiding.
             command.pattern.period = VortexFX.total ;
             command.pattern.sets = 1;
             break;
-          case 1:
+          case 1:   //configured as one chunk per ring.
             command.color = cfg.overheadLights;
-            command.pattern.offset = cfg.overheadStart;//skip first ring
-            command.pattern.run = cfg.overheadWidth;
+            command.pattern.offset = cfg.overheadStart;
+            command.pattern.run = cfg.overheadWidth ? cfg.overheadWidth : 1; //chasing down erroneous 0's
             command.pattern.period = VortexFX.perRevolutionActual;//one group per ring
             command.pattern.sets = 3;//3 rings.
             break;
@@ -223,7 +225,8 @@ struct Boss : public VortexCommon {
         ++command.sequenceNumber;
         command.pattern.modulus = 0;//broken, ensure it is not used
         command.showem = true;//jam this guy until we find a performance issue
-        if (BUG2) {
+        wrapper.tag[1] = '0' + inProgress;
+        if (BUG3) {
           Serial.printf("BGND: step %d\t", inProgress);
           command.printTo(Serial);
         }
@@ -234,10 +237,10 @@ struct Boss : public VortexCommon {
         if (!inProgress) {
           return true;//been done, or never started
         }
-        if (--inProgress) {
-          return false;//not done yet, expect check() to be called soon
+        if (succeeded) {
+          --inProgress;
         }
-        return true;//just got done
+        return false;
       }
     } backgrounder;
 
@@ -315,8 +318,6 @@ struct Boss : public VortexCommon {
       autoReset.stop();
       timebomb.stop();
       relay.all(false);
-      //      relay[DoorRelease] << false;
-      //      relay[VortexMotor] << false;
       lever.restart();//todo: perhaps more thoroughly than for timebomb?
       backgrounder.erase();
     }
@@ -371,15 +372,11 @@ struct Boss : public VortexCommon {
     VortexLighting::Message echoAck;//not expecting these as of QN2025 first night
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
       if (levers2.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
-        if (TRACE) {
-          Serial.println("Got GPIO message:");
-          levers2.printTo(Serial);
-          if (BUG3) {
-            dumpHex(len, data, Serial);
-          }
-        }
+        addJustReceived = true;
+        //spew here is on a different thread than loop() and messages get interleaved.
       } else if (echoAck.accept(Packet{len, *data})) {//todo: different object to receive incoming lighting requests.
-        //defer to loop, Serial prints are a burden on the onReceive stuff.
+        addJustReceived = true;
+        //defer to loop for echo testing
       } else {
         if (TRACE) {
           Serial.printf("Boss at %p doesn't know what the following does:\n", this);
@@ -389,27 +386,31 @@ struct Boss : public VortexCommon {
     }
 
     void onSent(bool succeeded) override {
-      if (backgrounder.doneIf(succeeded)) {
+      if (backgrounder.doneIf(succeeded)) {//backgrounder will ignore succeeded if it isn't active and will return true.
         needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
       }
     }
-
 
   public:
 
     Boss(): forceSolved(23, false, 1750) {}
 
     void setup() {
+      message.tag[0] = 'L';
+      message.tag[1] = 0;
+
       lever.setup(50); // todo: proper source for lever debounce time
       relay.setup();
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       audioLeadin.stop();
-      refreshLeds(); //include background 'erase'
+      resetPuzzle();
       spew = true;//bn debug flag
       if (!BroadcastNode::begin(true)) {
         Serial.println("Broadcast begin failed");
       }
+      Serial.printf("Background Lighting: %p\n", &backgrounder.wrapper);
+      Serial.printf("Lever Lighting: %p\n", &message);     
       Serial.println("Boss Setup Complete");
     }
 
@@ -418,6 +419,10 @@ struct Boss : public VortexCommon {
       if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
           Serial.println("Processing remote gpio");
+          levers2.printTo(Serial);
+          if (BUG3) {
+            dumpHex(levers2.incoming(), Serial);
+          }
         }
         unsigned prior = lever.numSolved();
         //for levers2 stuff the solved bits in the initial leverStates.
@@ -445,7 +450,7 @@ struct Boss : public VortexCommon {
 
       if (flagged(echoAck.dataReceived)) {
         if (TRACE) {
-          Serial.println("Boss received S41L message");
+          Serial.println("Boss received lighting message");
           echoAck.printTo(Serial);
         }
       }
@@ -465,7 +470,8 @@ struct Boss : public VortexCommon {
                 command.pattern = pattern(lastStationSent, clistate.patternIndex);
               }
               command.showem = true; //todo: only with last one.
-              ++command.sequenceNumber;//mostly to see if connection is working
+              message.tag[1] = '0' + lastStationSent;
+              ++command.sequenceNumber;
               sendMessage(message); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
               startHoldoff();
               break;//onSent gets us to the next station to update

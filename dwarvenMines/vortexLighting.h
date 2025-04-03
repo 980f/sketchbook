@@ -30,8 +30,8 @@ CRGB pixel[VortexFX.total];
 struct VortexLighting {
     // command to set some lights.
     struct Command {
-      unsigned sequenceNumber = 0;//could use start or endmarker, but leaving the latter 0 for systems that send ascii strings.
-      CRGB color = 0;
+      unsigned sequenceNumber = ~0;
+      CRGB color = LedStringer::Off;
       LedStringer::Pattern pattern;
       bool showem = true;
       size_t printTo(Print &stream) const {

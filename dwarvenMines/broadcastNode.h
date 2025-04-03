@@ -20,6 +20,16 @@ class BroadcastNode : public ESP_NOW_Peer {
       reinterpret_cast<BroadcastNode *>(arg)->unknown_node(info, len, data);
     }
 
+    /** this class was added due to documents which appear to be false, that claimed it was a requirement to extend the base class in order to have something useful.
+      Since *we* are only registering peers to shortcur the "unknown" call back we could probably just create a base class entity and call its add() method then discard it.
+      Oh well. */
+    struct AddaPeer: public ESP_NOW_Peer {
+      esp_err_t failed;
+      AddaPeer(const esp_now_recv_info_t *info): ESP_NOW_Peer(info->src_addr, BroadcastNode_Triplet) {
+        failed = add();
+      }
+    };
+
   public:
     using Packet = Block<const uint8_t>;
     using Body = Block<uint8_t>;
@@ -63,6 +73,9 @@ class BroadcastNode : public ESP_NOW_Peer {
       dumpHex(buff.size, &buff.content, stream);
     }
 
+    static void dumpHex(const Body &buff, Print &stream) {
+      dumpHex(buff.size, &buff.content, stream);
+    }
 
     //  protected:
     // Function to print the received messages from the master
@@ -73,6 +86,8 @@ class BroadcastNode : public ESP_NOW_Peer {
         dumpHex(Packet{len, *data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
       }
     }
+
+    bool addJustReceived = false;
 
   private:
     // called (via thunk) when an unknown peer sends a message
@@ -85,7 +100,14 @@ class BroadcastNode : public ESP_NOW_Peer {
         }
       }
       //here is where we could qualify the peer and if its message indicates it is on our network than "add_peer" it and process the message.
+      addJustReceived = false;
       onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
+      if (addJustReceived) {
+        AddaPeer noob(info);
+        if (noob.failed) {
+          Serial.printf("Add peer failed with %s \n", esp_err_to_name( noob.failed));
+        }
+      }
     }
   public:
     /** typically called from setup on your sole statically created BroadcastNode with (true)

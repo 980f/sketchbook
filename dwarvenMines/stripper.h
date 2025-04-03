@@ -32,16 +32,8 @@ struct Stripper : public VortexCommon {
   }
 
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if (TRACE) {
-      Serial.printf("Stripper::onReceive() as %p \n", this);
-    }
     if (message.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
-      if (TRACE) {
-        command.printTo(Serial);
-        if (BUG3) {
-          dumpHex(len, data, Serial);
-        }
-      }
+      //all action is in loop();
     } else {
       Serial.println("Not my type of packet");
       BroadcastNode::onReceive(data, len, broadcast);
@@ -49,7 +41,16 @@ struct Stripper : public VortexCommon {
   }
 
   void loop() {
-    VortexLighting::loop();
+    if (message.dataReceived) {
+      if (TRACE) {
+        if (BUG3) {
+          dumpHex(message.incoming(), Serial);
+        }
+        command.printTo(Serial);
+      }
+      VortexLighting::loop();
+      sendMessage(message);//echo it back.
+    }
   }
 
   // this is called once per millisecond, from the arduino loop().

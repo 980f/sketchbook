@@ -238,13 +238,13 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
 
     case 'b':
-      tweakColor(2,param);
+      tweakColor(2, param);
       break;
     case 'g':
-      tweakColor(1,param);
+      tweakColor(1, param);
       break;
     case 'r':
-      tweakColor(0,param);
+      tweakColor(0, param);
       break;
 
     case 'c': // set a station color, volatile!
@@ -409,17 +409,15 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.println("VortexFX Boss:");
         boss->lever.printTo(Serial);
 
-        Serial.print("Update flags");
+        Serial.printf("lastStation:%d, Bgnd.inProgress:%d \tUpdate flags", boss->lastStationSent, boss->backgrounder.inProgress);
         ForStations(si) {
           Serial.printf("\t[%u]=%x", si, boss->needsUpdate[si]);
         }
         Serial.println();
 
-        Serial.printf("Backgrounder countdown: %u\n", boss->backgrounder.inProgress);
         Serial.print("Background message:\t");
         boss->backgrounder.command.printTo(Serial);
-        Serial.printf("Refresh due in:%u,  period=%d\n", boss->refreshRate.remaining() , cfg.refreshPeriod);
-        if (boss->echoAck.dataReceived) {
+        if (boss->echoAck.m.sequenceNumber!=0) {
           Serial.print("Echoed message:\t");
           boss->echoAck.printTo(Serial);
         }
@@ -449,7 +447,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
       Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
       Serial.printf("\t^Z restarts the program, param is seconds of delay, 4 secs minimum \n");
-      Serial.printf("Undocumented : =w*.o[Enter]dt\n");
+      Serial.printf("Undocumented : *.=/-\\o[Enter]dtsuq\n");
       break;
     case '!':
       flasher.setup();
@@ -471,7 +469,7 @@ void setup() {
   //confirmed existence, todo: choose pins other than default
   //  Serial1.begin(115200);
   //  Serial2.begin(115200);
-
+  
   dbg.cout.stifled = false;//opposite sense of following bug flags
   TRACE = false;
   BUG3 = false;
