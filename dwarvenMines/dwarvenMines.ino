@@ -150,6 +150,15 @@ VortexLighting::Command tester;
 //////////////////////////////////////////////////////////////////////////////////////////////
 //debug aids
 
+void showUpdateStatus() {
+  Serial.printf("Update Allowed:%d\n", boss->updateAllowed);
+  Serial.printf("Holdoff running:%d, Remaining:%d\n", boss->holdoff.isRunning(), boss->holdoff.remaining());
+  Serial.printf("lastStation:%d, Bgnd.inProgress:%d \tUpdate flags", boss->lastStationSent, boss->backgrounder.inProgress);
+  ForStations(si) {
+    Serial.printf("\t[%u]=%x", si, boss->needsUpdate[si]);
+  }
+  Serial.println();
+}
 
 bool cliValidStation(unsigned param, const unsigned char key) {
   if (param < numStations) {
@@ -209,7 +218,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
             ForStations(si) {
               boss->lever[si] = true;
             }
-            boss->onSolution();
+            boss->onSolution("CLI 1.");
             Serial.println("simulated solution");
             break;
           case ~0u:
@@ -280,6 +289,11 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         cfg.frameRate = param;
       }
       break;
+    case 'j':
+      if (boss) {
+        showUpdateStatus();
+      }
+      break;
     case 'k':
       if (boss) {
         cfg.overheadWidth = param;
@@ -290,10 +304,18 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       }
       break;
     case 'l': // select a lever to monitor
-      if (boss && cliValidStation(param, key)) {
-        clistate.leverIndex = param;
-        Serial.printf("Selecting station %u lever for diagnostic tracing\n", clistate.leverIndex);
+      if (boss) {
+        if (param == ~0u) {
+          //available
+        } else if (wasUpper) {
+          Serial.printf("l2DR:%x\n", boss->levers2.dataReceived);
+          BroadcastNode::dumpHex(boss->levers2.outgoing(), Serial);
+        } else if (cliValidStation(param, key)) {
+          clistate.leverIndex = param;
+          Serial.printf("Selecting station %u lever for diagnostic tracing\n", clistate.leverIndex);
+        }
       }
+
       if (worker) {
         //todo: list some raw pixel values
         Serial.printf("raw pixel data is at %p\n", worker->stringer.leds);
@@ -408,12 +430,8 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
         Serial.println("VortexFX Boss:");
         boss->lever.printTo(Serial);
 
-        Serial.printf("lastStation:%d, Bgnd.inProgress:%d \tUpdate flags", boss->lastStationSent, boss->backgrounder.inProgress);
-        ForStations(si) {
-          Serial.printf("\t[%u]=%x", si, boss->needsUpdate[si]);
-        }
-        Serial.println();
-
+        showUpdateStatus();
+        
         Serial.print("Background message:\t");
         boss->backgrounder.command.printTo(Serial);
         if (boss->echoAck.m.sequenceNumber != ~0) {

@@ -190,6 +190,7 @@ struct Boss : public VortexCommon {
     DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
     DebouncedInput forceSolved {23, false, 1750};//pin to declare puzzle solved. Very long debounce to give operator a chance to regret having changed it.
     RemoteGPIO::Message levers2;//'also levers'. //todo: send debounce values to GPIO device.
+    RemoteGPIO::Content &remoteLever{levers2.m};
 
     //timing
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
@@ -304,9 +305,9 @@ struct Boss : public VortexCommon {
       updateAllowed = !holdoff.isRunning();
     }
 
-    void onSolution() {
+    void onSolution(const char *cause) {
       puzzle = Puzzle::StartDrill;
-      Serial.printf("Yippie! at %u, delay is set to %u\n", Ticker::now, cfg.audioLeadinTicks);
+      Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
@@ -365,7 +366,7 @@ struct Boss : public VortexCommon {
           if (EVENT) {
             Serial.println("Last lever pulled");
           }
-          onSolution();
+          onSolution("Lever check");
           break;
       }
     }
@@ -467,22 +468,22 @@ struct Boss : public VortexCommon {
           }
         }
         //for levers2 stuff the solved bits in the initial leverStates.
-        ForStations(each) {
-          if (levers2.m[each]) {//set on true, leave as is on false.
+        ForStations(si) {
+          if (remoteLever[si]) {//set on true, leave as is on false.
             if (TRACE) {
-              Serial.printf("Setting lever %u\n", each);
+              Serial.printf("Setting lever %u\n", si);
             }
-            lever[each] = true;
+            lever[si] = true;
           }
         }
 
-        if (changed(remoteReset, levers2.m[numStations])) {
+        if (changed(remoteReset, remoteLever[numStations])) {
           checkRun(remoteReset);
         }
 
-        if (changed(remoteSolved, levers2.m[numStations + 1])) {
+        if (changed(remoteSolved, remoteLever[numStations + 1])) {
           if (remoteSolved) {
-            onSolution();
+            onSolution("Remote Override");
           }
         }
       }
@@ -494,13 +495,16 @@ struct Boss : public VortexCommon {
         }
       }
 
+      leverAction(computeEvent());
+
       if (updateAllowed) { //can't send another until prior is handled, this needs work.
         if (backgrounder.check()) {
           sendMessage(backgrounder.wrapper); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
           startHoldoff();
-        } else if (refreshColors()) { //updates "needsUpdate" flags, returns whether at least one does.
-          ForStations(justcountem) {//"justcountem" is belt and suspenders, not trusting refreshColors to tell us the truth.
-            if (++lastStationSent >= numStations) {
+        } else {
+          refreshColors(); //updates "needsUpdate" flags, returns whether at least one does.
+          ForStations(justcountem) {//keeping separate flag check loop counter in case we refresh faster than we can service it.
+            if (++lastStationSent >= numStations) {//todo: use the cyclic counter.
               lastStationSent = 0;
             }
             if (needsUpdate[lastStationSent]) {
@@ -519,11 +523,9 @@ struct Boss : public VortexCommon {
             }
           }
         }
-        //else we will eventually get back to loop() and to here to review what needs to be sent
-      }
-      leverAction(computeEvent());
-    }
+      }//end updateAllowed
 
+    }//end loop()
 
     void onTick(MilliTick now) {
       if (holdoff.done()) {
@@ -558,13 +560,13 @@ struct Boss : public VortexCommon {
 
       lever.onTick(now);
 
-      if (Run.onTick()) {
+      if (Run.onTick(now)) {
         checkRun(Run.pin);
       }
 
-      if (forceSolved.onTick()) {
+      if (forceSolved.onTick(now)) {
         if (forceSolved) {
-          onSolution();
+          onSolution("Local override");
         }
       }
     }// end tick
