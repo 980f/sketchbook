@@ -334,10 +334,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       break;
     case 's'://simulate a lever solution
       if (boss && cliValidStation(param, key)) {
-        clistate.leverIndex = param;
-        boss->lever[clistate.leverIndex] = true;
-        Serial.printf("Lever[ %d] latch triggered, reports : % x\n", clistate.leverIndex, boss->lever[clistate.leverIndex]);
-        Serial.printf("There are now %u activated\n", boss->lever.numSolved());
+        boss->lever[param] = true;
+        unsigned after = boss->lever.numSolved();
+        Serial.printf("Lever[ %d] latch triggered, reports: % x, %u now activated\n", param, boss->lever[param], after);
       }
       break;
     case 't':
@@ -398,7 +397,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
     case 26: //ctrl-Z
       Serial.println("Processor restart imminent, pausing long enough for this message to be sent \n");
       //todo: the following doesn't actually get executed before the reset!
-      for (unsigned countdown = max(param, 4u); countdown-- > 0;) {//on 4u: std:max requires identical arguments, should be rewritten to accept convertable arguments, convert second to first.
+      for (unsigned countdown = min(param, 4u); countdown-- > 0;) {//on 4u: std:max/min require identical arguments, should be rewritten to accept convertable arguments, convert second to first.
         delay(666);
         Serial.printf(" %u, \t", countdown);
       }
@@ -417,7 +416,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 
         Serial.print("Background message:\t");
         boss->backgrounder.command.printTo(Serial);
-        if (boss->echoAck.m.sequenceNumber!=0) {
+        if (boss->echoAck.m.sequenceNumber != ~0) {
           Serial.print("Echoed message:\t");
           boss->echoAck.printTo(Serial);
         }
@@ -446,7 +445,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
       Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");
       Serial.printf("\t[gpio number]p: set given gpio number to an output and set it to 0 for lower case, 1 for upper case. VERY RISKY!\n");
       Serial.printf("\t[millis]z sets refresh rate in milliseconds, 0 or ~ get you 'Never'\n");
-      Serial.printf("\t^Z restarts the program, param is seconds of delay, 4 secs minimum \n");
+      Serial.printf("\t^Z restarts the program, param is seconds of delay\n");
       Serial.printf("Undocumented : *.=/-\\o[Enter]dtsuq\n");
       break;
     case '!':
@@ -466,14 +465,15 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<>&cli) {
 // arduino's setup:
 void setup() {
   Serial.begin(460800);//use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
-  //confirmed existence, todo: choose pins other than default
-  //  Serial1.begin(115200);
-  //  Serial2.begin(115200);
-  
-  dbg.cout.stifled = false;//opposite sense of following bug flags
-  TRACE = false;
-  BUG3 = false;
-  BUG2 = false;
+
+  //  SimpleInputPin doDebug(34, false);
+  //  doDebug.setup();
+  bool debugging = false;//couldn't find a reliable unused pin doDebug();
+  dbg.cout.stifled = !debugging;//opposite sense of following bug flags
+  TRACE = debugging;
+  BUG3 = debugging;
+  BUG2 = debugging;
+  //default these on, unless we want to allocate another pin:
   EVENT = true;
   URGENT = true;
 
@@ -485,7 +485,6 @@ void setup() {
     getConfig();
     agent = boss = new Boss();
     boss->setup();
-
   } else {
     Serial.println("\n\nSetting up as remote worker");
     agent = worker = new Stripper();

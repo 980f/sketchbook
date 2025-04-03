@@ -30,7 +30,6 @@ struct RemoteGPIO: BroadcastNode {
 
 ////////////////////
     struct Content {
-      uint8_t padding[3]; //see if we can name the padding!
       unsigned sequenceNumber = 0;//for debug or stutter detection
       bool value[numInputs];
 
@@ -55,16 +54,7 @@ struct RemoteGPIO: BroadcastNode {
 ///////////////////
 
     struct Message: public ScaryMessage<Content> {
-      Message(): ScaryMessage {'G','P','I','O'} {}
-
-      bool &operator[](unsigned index) {
-        static bool trash;
-        if (index < numInputs ) {
-          return m.value[index];
-        } else {
-          return trash;
-        }
-      }
+      Message(): ScaryMessage {'G','P','I','O'} {}     
     };
 
     Message toSend;
@@ -98,6 +88,8 @@ struct RemoteGPIO: BroadcastNode {
     RemoteGPIO(): BroadcastNode(BroadcastNode_Triplet) {}
 
     bool setup(MilliTick bouncer = 50) {
+      toSend.tag[0]='V';//tag is presently purely for debug.
+      toSend.tag[1]='1';
       ForPin(index) {
         gpio[index].filter(bouncer);
         gpio[index].setup(true);//true here makes the pin report that it has just changed to whatever its present value is.
@@ -106,8 +98,8 @@ struct RemoteGPIO: BroadcastNode {
       return BroadcastNode::begin(true);
     }
 
-    void post() {
-      ++toSend.m.sequenceNumber;//for debug
+    void post() {      
+      ++report.sequenceNumber;//for debug
       Serial.print(toSend);
       send_message(toSend.outgoing());
       periodically.next(period);

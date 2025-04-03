@@ -37,7 +37,7 @@ void loop() {
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
     my.onTick();
   }
-  my.loop();//inside ticker as the only time things can change is on the timer
+  my.loop();
 
   if (Serial.available()) {
     auto key = Serial.read();

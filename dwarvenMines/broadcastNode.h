@@ -21,7 +21,8 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
     /** this class was added due to documents which appear to be false, that claimed it was a requirement to extend the base class in order to have something useful.
-      Since *we* are only registering peers to shortcur the "unknown" call back we could probably just create a base class entity and call its add() method then discard it.
+      Since *we* are only registering peers to shortcut the "unknown" call back we could probably just create a base class entity and call its add() method then discard it.
+      Note: the add always fails, perhaps some of the unlisted but "you must implement some functions" do matter. 
       Oh well. */
     struct AddaPeer: public ESP_NOW_Peer {
       esp_err_t failed;

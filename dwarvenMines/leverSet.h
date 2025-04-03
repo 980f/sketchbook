@@ -1,32 +1,10 @@
 //an Arduino fragment, include in your .ino, no matching .cpp exists at present
-//expect dbg.cout ChainPrinter for debug messages.
-//todo: remove dependency on dbg.cout, pass in a debug channel.
+//todo: remove direct dependency on Serial, pass in a debug Printer.
 
 #include "simpleDebouncedPin.h"
 
 struct LeverSet: Printable {
   public:
-    enum class Event {
-      NonePulled,  // none on
-      FirstPulled, // some pulled when none were pulled
-      SomePulled,  // nothing special, but not all off
-      LastPulled,  // all on
-    };
-
-    static Event computeEvent(unsigned prior, unsigned someNow) {
-      if (someNow == prior) { // no substantial change
-        return someNow ? Event::SomePulled : Event::NonePulled;
-      }
-      // something significant changed
-      if (someNow == numStations) {
-        return Event::LastPulled; // takes priority over FirstPulled when simultaneous
-      }
-      if (prior == 0) {
-        return Event::FirstPulled;
-      }
-      return Event::SomePulled; // a different number but nothing special.
-    }
-
     /**
        Each lever
     */
@@ -66,18 +44,14 @@ struct LeverSet: Printable {
 
     std::array<Lever, numStations> lever; // using std::array over traditional array to get initializer syntax that we can type
 
-
-
-    Event onTick(MilliTick now) {
+    void onTick(MilliTick now) {
       // update, and note major events
-      unsigned prior = numSolved();
       for (unsigned index = numStations; index-- > 0;) {
         bool changed = lever[index].onTick(now);
         if (changed && clistate.leverIndex == index) {
           Serial.printf("lever[%u] just became: %x,  latched: %x\n", index, lever[index].presently, lever[index].solved);
         }
       }
-      return computeEvent(prior, numSolved());
     }
 
     bool& operator[](unsigned index) {
@@ -94,9 +68,6 @@ struct LeverSet: Printable {
     unsigned numSolved() const {
       unsigned sum = 0;
       ForStations(index) {
-        //        if (lever[index].solved) {
-        //          ++sum;
-        //        }
         sum += lever[index].solved;
       }
       return sum;

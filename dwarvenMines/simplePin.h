@@ -6,8 +6,7 @@ struct SimplePin {
   bool activeHigh;
   unsigned modeSet = ~0u; // an invalid value
 
-  operator bool () {
-    //    Serial.printf("Read D%u\t", number);
+  operator bool () {    
     if (modeSet == ~0u) {
       setup(activeHigh ? INPUT : INPUT_PULLUP);
     }
@@ -16,11 +15,6 @@ struct SimplePin {
 
   //this confuses the compiler, so we will use shift operators to set values
   void operator = (bool setto) = delete ;  //need to make this work, but until then it is invalid
-  //    const {
-  //      digitalWrite(pin, setto == activeHigh);
-  //    }
-
-  //  SimplePin(SimplePin &&other) = default;
 
   SimplePin(unsigned pinNumber, bool activeHigh = true): number(pinNumber), activeHigh(activeHigh) { }
 

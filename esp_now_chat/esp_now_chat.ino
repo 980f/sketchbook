@@ -16,13 +16,13 @@
 BroadcastNode me(BroadcastNode_Triplet );
 
 void setup() {
-  Serial.begin(921600);//todo: read pins and set baud according to them.
-  Serial.printf("Program: %s\n\n", __FILE__);
+  Serial.begin(115200);//todo: read pins and set baud according to them.
+  Serial.printf("Program: %s\n\n", __FILE__);  
   me.spew = true;
   if (!me.begin(true)) {
     Serial.println("Failed to initialize ESP-NOW");
-    Serial.println("Rebooting in 5 seconds... hoping that magically fixes things");
-    for (unsigned countdown = 5; countdown-- > 0;) {
+    Serial.println("Rebooting hoping that magically fixes things");
+    for (unsigned countdown = 3; countdown-- > 0;) {
       Serial.printf("\t%d", countdown);
       delay(1000);
     }

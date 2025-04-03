@@ -8,7 +8,6 @@
 #include "block.h"
 #include "vortexLighting.h" //common parts of coordinator and light manager devices
 
-
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
@@ -44,9 +43,6 @@ struct RelayQuad {
   }
 
 } relay;
-
-
-DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
 
 ////////////////////////////////////////////////////////
 // Boss config
@@ -99,8 +95,7 @@ struct ColorSet: Printable {
 #include "remoteGpio.h"
 #include "leverSet.h"
 
-template <unsigned Size>
-struct PermutationSet: Printable {
+template <unsigned Size> struct PermutationSet: Printable {
   unsigned scramble[Size];
   unsigned operator[](unsigned raw) {
     if (raw < Size) {
@@ -164,16 +159,38 @@ struct BossConfig: Printable {
 BossConfig cfg;
 
 struct Boss : public VortexCommon {
-    //puzzle state drive by physical inputs
-    bool leverState[numStations];//paces sending
 
+    enum class Puzzle {
+      Idle,
+      Partial,
+      StartDrill,
+      Drilling,
+      Done
+    } puzzle = Puzzle::Idle;
+
+    //puzzle state drive by physical inputs,
+    //state change input trackers, not the actual state itself.
+    bool leverState[numStations];//paces sending
+    //state for sending lighting changes
+    bool needsUpdate[numStations];
+    unsigned lastStationSent = 0;//counter for needsUpdate
     bool remoteSolved = false;
     bool remoteReset = false;
+    unsigned solved = 0;
 
+    enum class Event {
+      NonePulled,  // none on
+      FirstPulled, // some pulled when none were pulled
+      SomePulled,  // nothing special, but not all off
+      LastPulled,  // all on
+    };
+
+    //physical inputs, first local, then remote
     LeverSet lever;
-    RemoteGPIO::Message levers2;//also levers :)  //static for debug convenience, should be member of Boss
+    DebouncedInput Run {4, true, 1250}; //pin to enable else reset the puzzle. Very long debounce to give operator a chance to regret having changed it.
+    DebouncedInput forceSolved {23, false, 1750};//pin to declare puzzle solved. Very long debounce to give operator a chance to regret having changed it.
+    RemoteGPIO::Message levers2;//'also levers'. //todo: send debounce values to GPIO device.
 
-    DebouncedInput forceSolved;//(23, false, 1750); //large delay for dramatic effect, and so button can be dropped before the action occurs.
     //timing
     Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
@@ -188,10 +205,11 @@ struct Boss : public VortexCommon {
     Ticker holdoff; //maximum frame rate, to keep from overrunning worker and maybe losing updates.
     bool updateAllowed = true;//latch for holdoff.done()
 
+    /** using some LED's to light interior of vortex */
     struct BackgroundIlluminator {
       unsigned inProgress = 0; //state machine
-      VortexLighting::Message wrapper;
-      VortexLighting::Command command = wrapper.m;
+      Message wrapper;
+      Command &command {wrapper.m};
 
       /** start the erasure procedure */
       void erase() {
@@ -244,9 +262,6 @@ struct Boss : public VortexCommon {
       }
     } backgrounder;
 
-    bool needsUpdate[numStations];
-    unsigned lastStationSent = 0;//counter for needsUpdate
-
     //////////////////////////////////
     LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
       LedStringer::Pattern p;
@@ -285,22 +300,16 @@ struct Boss : public VortexCommon {
 
     //do not overrun lighting processor, not until it develops an input queue.
     void startHoldoff() {
-      if (cfg.frameRate) {
-        updateAllowed = false;
-        holdoff.next(Ticker::perSecond / cfg.frameRate);
-      } else {
-        updateAllowed = true;
-      }
+      holdoff.next(Ticker::forHertz(cfg.frameRate));//deal with zero frameRate
+      updateAllowed = !holdoff.isRunning();
     }
 
     void onSolution() {
+      puzzle = Puzzle::StartDrill;
       Serial.printf("Yippie! at %u, delay is set to %u\n", Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
-      //      relay.all(true);
-      //      relay[DoorRelease] << true;
-      //      relay[VortexMotor] << true;
       autoReset.next(cfg.resetTicks);
     }
 
@@ -308,33 +317,51 @@ struct Boss : public VortexCommon {
       if (EVENT) {
         Serial.printf("Audio Done at %u\n", Ticker::now);
       }
+      puzzle = Puzzle::Drilling;
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
       relay[SpareNC] << true;
-      //      relay[Audio] << false; //not urgent, but handy for debug.
     }
 
     void resetPuzzle() {
+      puzzle = Puzzle::Idle;
       autoReset.stop();
       timebomb.stop();
       relay.all(false);
-      lever.restart();//todo: perhaps more thoroughly than for timebomb?
+      lever.restart();
+      solved = 0;
       backgrounder.erase();
     }
 
-    void leverAction(LeverSet::Event event) {
+    Event computeEvent() {
+      bool wereNone = solved == 0;
+      if (changed(solved, lever.numSolved())) {
+        if (solved == numStations) {
+          return Event::LastPulled; // takes priority over FirstPulled when simultaneous
+        }
+        if (wereNone) {//was used to trigger timeout that is now disabled by default
+          return Event::FirstPulled;
+        }
+        return Event::SomePulled; // a different number but nothing special.
+      } else { // no substantial change
+        return solved ? Event::SomePulled : Event::NonePulled;
+      }
+    }
+
+
+    void leverAction(Event event) {
       switch (event) {
-        case LeverSet::Event::NonePulled: // none on
+        case Event::NonePulled: // none on
           break;
-        case LeverSet::Event::FirstPulled: // some pulled when none were pulled
+        case Event::FirstPulled: // some pulled when none were pulled
           if (EVENT) {
             Serial.println("First lever pulled");
           }
           timebomb.next(cfg.fuseTicks);
           break;
-        case LeverSet::Event::SomePulled: // nothing special, but not all off
+        case Event::SomePulled: // nothing special, but not all off
           break;
-        case LeverSet::Event::LastPulled:
+        case Event::LastPulled:
           if (EVENT) {
             Serial.println("Last lever pulled");
           }
@@ -362,8 +389,10 @@ struct Boss : public VortexCommon {
       unsigned diffs = 0;
       ForStations(si) {
         if (changed(leverState[si], lever[si])) {
-          needsUpdate[si] = true;
-          ++diffs;
+          if (leverState[si]) {
+            needsUpdate[si] = true;
+            ++diffs;
+          }
         }
       }
       return diffs > 0;
@@ -371,10 +400,15 @@ struct Boss : public VortexCommon {
 
     VortexLighting::Message echoAck;//not expecting these as of QN2025 first night
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-      if (levers2.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
+      Packet incoming {len, *data};
+      if (TRACE) {
+        Serial.printf("Incoming: %u %s\n", incoming.size, &incoming.content);
+      }
+      //in the below the accept sets flags for loop() to inspect.
+      if (levers2.accept(incoming)) { //trusting network to frame packets, and packet to be less than one frame
         addJustReceived = true;
-        //spew here is on a different thread than loop() and messages get interleaved.
-      } else if (echoAck.accept(Packet{len, *data})) {//todo: different object to receive incoming lighting requests.
+        //spew formerly here is on a different thread than loop() and messages got interleaved.
+      } else if (echoAck.accept(incoming)) {
         addJustReceived = true;
         //defer to loop for echo testing
       } else {
@@ -386,6 +420,11 @@ struct Boss : public VortexCommon {
     }
 
     void onSent(bool succeeded) override {
+      if (EVENT) {
+        if (!succeeded) {
+          Serial.printf("Failed send with bg:%d, lSS:%d\n", backgrounder.inProgress, lastStationSent);
+        }
+      }
       if (backgrounder.doneIf(succeeded)) {//backgrounder will ignore succeeded if it isn't active and will return true.
         needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
       }
@@ -393,7 +432,7 @@ struct Boss : public VortexCommon {
 
   public:
 
-    Boss(): forceSolved(23, false, 1750) {}
+    //    Boss() {}
 
     void setup() {
       message.tag[0] = 'L';
@@ -404,13 +443,16 @@ struct Boss : public VortexCommon {
       timebomb.stop(); // in case we call setup from debug interface
       autoReset.stop();
       audioLeadin.stop();
+      ForStations(si) {
+        needsUpdate[si] = true;
+      }
       resetPuzzle();
       spew = true;//bn debug flag
       if (!BroadcastNode::begin(true)) {
         Serial.println("Broadcast begin failed");
       }
       Serial.printf("Background Lighting: %p\n", &backgrounder.wrapper);
-      Serial.printf("Lever Lighting: %p\n", &message);     
+      Serial.printf("Lever Lighting: %p\n", &message);
       Serial.println("Boss Setup Complete");
     }
 
@@ -424,10 +466,9 @@ struct Boss : public VortexCommon {
             dumpHex(levers2.incoming(), Serial);
           }
         }
-        unsigned prior = lever.numSolved();
         //for levers2 stuff the solved bits in the initial leverStates.
         ForStations(each) {
-          if (levers2[each]) {//set on true, leave as is on false.
+          if (levers2.m[each]) {//set on true, leave as is on false.
             if (TRACE) {
               Serial.printf("Setting lever %u\n", each);
             }
@@ -435,13 +476,11 @@ struct Boss : public VortexCommon {
           }
         }
 
-        leverAction(lever.computeEvent(prior, lever.numSolved()));
-
-        if (changed(remoteReset, levers2[numStations])) {
+        if (changed(remoteReset, levers2.m[numStations])) {
           checkRun(remoteReset);
         }
 
-        if (changed(remoteSolved, levers2[numStations + 1])) {
+        if (changed(remoteSolved, levers2.m[numStations + 1])) {
           if (remoteSolved) {
             onSolution();
           }
@@ -450,7 +489,7 @@ struct Boss : public VortexCommon {
 
       if (flagged(echoAck.dataReceived)) {
         if (TRACE) {
-          Serial.println("Boss received lighting message");
+          Serial.printf("Boss received lighting message tagged:%s\n", echoAck.tag);
           echoAck.printTo(Serial);
         }
       }
@@ -467,19 +506,22 @@ struct Boss : public VortexCommon {
             if (needsUpdate[lastStationSent]) {
               if (leverState[lastStationSent]) {
                 command.color = cfg.foreground[lastStationSent];
-                command.pattern = pattern(lastStationSent, clistate.patternIndex);
+              } else {
+                command.color = LedStringer::Off;//will occasionally zilch an overhead light
               }
+              command.pattern = pattern(lastStationSent, clistate.patternIndex);
               command.showem = true; //todo: only with last one.
               message.tag[1] = '0' + lastStationSent;
               ++command.sequenceNumber;
-              sendMessage(message); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
+              sendMessage(message); //the ack from the espnow layer clears the needsUpdate
               startHoldoff();
               break;//onSent gets us to the next station to update
             }
           }
         }
-        //else we will eventually get back to loop() and to here to review what needs to be sent.
+        //else we will eventually get back to loop() and to here to review what needs to be sent
       }
+      leverAction(computeEvent());
     }
 
 
@@ -514,7 +556,7 @@ struct Boss : public VortexCommon {
         onAudioCue();
       }
 
-      leverAction(lever.onTick(now));
+      lever.onTick(now);
 
       if (Run.onTick()) {
         checkRun(Run.pin);

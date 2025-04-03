@@ -5,17 +5,23 @@
 using MilliTick = decltype(millis());
 
 struct Ticker {
-  static constexpr unsigned perSecond = 1000;
-  static constexpr MilliTick PerSeconds(unsigned seconds) {
-    return seconds * perSecond;
-  }
-  static constexpr MilliTick PerMinutes(unsigned minutes) {
-    return PerSeconds(minutes * 60);
-  }
+  static constexpr MilliTick perSecond = 1000;
   ////////////////////////////////
   // constants and snapshot/cache, reading millis more than once per loop is bad form, creates ambiguities.
   static const MilliTick Never = ~0u;
   static MilliTick now; //cached/shared sampling of millis()
+
+  static constexpr MilliTick PerSeconds(unsigned seconds) {
+    return seconds * perSecond;
+  }
+  
+  static constexpr MilliTick PerMinutes(unsigned minutes) {
+    return PerSeconds(minutes * 60);
+  }
+  
+  static constexpr MilliTick forHertz(unsigned perSecond){
+    return perSecond? Ticker::perSecond / perSecond: Never;
+  }
 
   //this is usually called from loop() and if it returns true then call "onTick" routines.
   static bool check() {
@@ -30,7 +36,6 @@ struct Ticker {
   //////////////////////////////////
   // each timer:
   MilliTick due = Never;
-
 
   /** @returns whether the timer was actually running and has stopped, but clears the timer memory so you must act upon this being true when you read it. */
   bool done() {

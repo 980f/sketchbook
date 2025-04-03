@@ -45,11 +45,11 @@ struct VortexLighting {
     };
 
     struct Message: public ScaryMessage<Command> {
-      Message(): ScaryMessage {'V', 'O', 'R', '1'} {}
+      Message(): ScaryMessage {'V', 'O', 'R', '1'} {}//FYI "VOR" is the name of a SciFi story from the 60's about the difficulty in establishing communication with an alien species.
     };
 
     Message message;
-    Command & command = message.m;
+    Command & command {message.m};
     LedStringer stringer;
 
     void setup() {
@@ -58,7 +58,6 @@ struct VortexLighting {
     }
 
     void act() {
-      //    command.showem = true; // jammit
       if (EVENT) {
         command.printTo(Serial);
       }
@@ -76,7 +75,7 @@ struct VortexLighting {
 };
 
 ///////////////////////////////////////////////////////////////////////
-// the guy who receives commands as to which lights should be active.
+// A user of lighting facility. Can move a bit more logic from Boss and Stripper into here.
 
 struct VortexCommon: public VortexLighting, BroadcastNode {
 
