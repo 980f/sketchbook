@@ -1,5 +1,6 @@
 remoteGpio.h
 broadcastNode.h
+scaryMessage.h
 simpleTicker.h
 simpleDebouncedPin.h
 simplePin.h

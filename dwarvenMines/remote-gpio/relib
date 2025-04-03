@@ -1,5 +1,6 @@
 ln -sf ../remoteGpio.h
 ln -sf ../broadcastNode.h
+ln -sf ../scaryMessage.h
 ln -sf ../simpleTicker.h
 ln -sf ../simpleDebouncedPin.h
 ln -sf ../simplePin.h
