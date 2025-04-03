@@ -17,17 +17,17 @@ struct DebouncedInput : public Printable {
   DebouncedInput(unsigned pinNumber, bool activeHigh = false, MilliTick DebounceDelay = ~0u): pin(pinNumber, activeHigh), DebounceDelay(DebounceDelay) {}
 
   /** @returns whether the input has officially changed to a new state */
-  bool onTick(MilliTick ignored = 0) {
+  bool onTick(MilliTick now) {
     //    Serial.printf("some input");
     if (changed(bouncy, bool(pin))) {//explicit cast need to get around a "const" issue with changed.
       bouncing.next(DebounceDelay);
-      Serial.printf("Pin Changed: D%u to %x at %u, will report stable in %u\n", pin.number, bouncy, ignored, bouncing.remaining());
+      Serial.printf("Pin Changed: D%u to %x at %u, will report stable in %u\n", pin.number, bouncy, now, bouncing.remaining());
       return false;
     }
 
-    if (bouncing.done()) {
-      Serial.printf("Stable D%u:%x\n", pin, bouncy);
-      return changed(stable, bouncy);
+    if (bouncing.done() && changed(stable, bouncy)) {
+      Serial.printf("Stable D%u:%x at %u\n", pin.number, stable, now);
+      return true;
     }
     return false;
   }

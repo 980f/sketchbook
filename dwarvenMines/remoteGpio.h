@@ -21,14 +21,17 @@ struct RemoteGPIO: BroadcastNode {
     static constexpr unsigned numInputs = 8;
 #define ForPin(index) for(unsigned index = RemoteGPIO::numInputs ;index-->0;)
 
-    //  unsigned pinNumber[numRemoteGPIO];
-    DebouncedInput gpio[numInputs] {{18}, {19}, {23}, {25}, {26}, {27}, {32}, {33}};
+    DebouncedInput gpio[numInputs] {{18, false}, {19, false}, {23, false}, {25, false}, {26, false}, {27, false}, {32, false}, {33, false}};
     Ticker periodically;
-    MilliTick period = 100;
 
     bool spew = false;
 
-////////////////////
+    struct Config {
+      MilliTick period = Ticker::PerSeconds(1);
+      //todo: mode, pin, polarity, debounce time for inputs, pulse width for outputs
+    } cfg;
+
+    ////////////////////
     struct Content {
       unsigned sequenceNumber = 0;//for debug or stutter detection
       bool value[numInputs];
@@ -51,10 +54,10 @@ struct RemoteGPIO: BroadcastNode {
         return length + stream.println();
       }
     };
-///////////////////
+    ///////////////////
 
     struct Message: public ScaryMessage<Content> {
-      Message(): ScaryMessage {'G','P','I','O'} {}     
+      Message(): ScaryMessage {'G', 'P', 'I', 'O'} {}
     };
 
     Message toSend;
@@ -62,10 +65,10 @@ struct RemoteGPIO: BroadcastNode {
 
     bool shouldSend = false;//todo: add this to ScaryMessage as most implementations will find it useful.
 
-    void onTick() {
+    void onTick(MilliTick now) {
       unsigned numChanges = 0;
       ForPin(index) {
-        if (gpio[index].onTick()) {
+        if (gpio[index].onTick(now)) {
           ++numChanges;
         }
         report[index] = bool(gpio[index]);
@@ -88,8 +91,8 @@ struct RemoteGPIO: BroadcastNode {
     RemoteGPIO(): BroadcastNode(BroadcastNode_Triplet) {}
 
     bool setup(MilliTick bouncer = 50) {
-      toSend.tag[0]='V';//tag is presently purely for debug.
-      toSend.tag[1]='1';
+      toSend.tag[0] = 'V'; //tag is presently purely for debug.
+      toSend.tag[1] = '1';
       ForPin(index) {
         gpio[index].filter(bouncer);
         gpio[index].setup(true);//true here makes the pin report that it has just changed to whatever its present value is.
@@ -98,11 +101,11 @@ struct RemoteGPIO: BroadcastNode {
       return BroadcastNode::begin(true);
     }
 
-    void post() {      
+    void post() {
       ++report.sequenceNumber;//for debug
       Serial.print(toSend);
       send_message(toSend.outgoing());
-      periodically.next(period);
+      periodically.next(cfg.period);
     }
 
     void loop() {

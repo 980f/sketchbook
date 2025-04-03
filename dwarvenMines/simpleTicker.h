@@ -3,34 +3,30 @@
 //minimal version of ticker service, will add full one later:
 
 using MilliTick = decltype(millis());
-
+#include "cheaptricks.h" //changed()
 struct Ticker {
   static constexpr MilliTick perSecond = 1000;
   ////////////////////////////////
   // constants and snapshot/cache, reading millis more than once per loop is bad form, creates ambiguities.
   static const MilliTick Never = ~0u;
-  static MilliTick now; //cached/shared sampling of millis()
+  //cached/shared sampling of millis()
+  static MilliTick now;
 
   static constexpr MilliTick PerSeconds(unsigned seconds) {
     return seconds * perSecond;
   }
-  
+
   static constexpr MilliTick PerMinutes(unsigned minutes) {
     return PerSeconds(minutes * 60);
   }
-  
-  static constexpr MilliTick forHertz(unsigned perSecond){
-    return perSecond? Ticker::perSecond / perSecond: Never;
+
+  static constexpr MilliTick forHertz(unsigned perSecond) {
+    return perSecond ? Ticker::perSecond / perSecond : Never;
   }
 
   //this is usually called from loop() and if it returns true then call "onTick" routines.
   static bool check() {
-    auto sample = millis();
-    if (now != sample) {
-      now = sample;
-      return true;
-    }
-    return false;
+    return changed(now , millis());
   }
 
   //////////////////////////////////

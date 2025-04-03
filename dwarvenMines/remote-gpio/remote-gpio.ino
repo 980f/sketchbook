@@ -22,7 +22,7 @@ void setup() {
   Serial.begin(460800);
   Serial.printf("Program: %s  Running on WiFi channel %u\n\n", __FILE__ , BroadcastNode_WIFI_CHANNEL);
   my.spew = true;
-  my.period = Ticker::Never;
+  my.cfg.period = Ticker::Never;
 
   if (!my.setup(55)) {
     Serial.println("Failed to initialize ESP-NOW");
@@ -35,7 +35,7 @@ void setup() {
 
 void loop() {
   if (Ticker::check()) { // read once per loop so that each user doesn't have to, and also so they all see the same tick even if the clock ticks while we are iterating over those users.
-    my.onTick();
+    my.onTick(Ticker::now);
   }
   my.loop();
 
