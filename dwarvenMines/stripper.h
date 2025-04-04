@@ -41,15 +41,14 @@ struct Stripper : public VortexCommon {
   }
 
   void loop() {
-    if (message.dataReceived) {
+    if (flagged(message.dataReceived)) { // message received
       if (TRACE) {
         if (BUG3) {
           dumpHex(message.incoming(), Serial);
         }
         command.printTo(Serial);
       }
-      VortexLighting::loop();
-      sendMessage(message);//echo it back.
+      apply(message);//send it back out as well as sending to local lights
     }
   }
 

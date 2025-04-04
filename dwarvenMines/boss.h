@@ -456,6 +456,11 @@ struct Boss : public VortexCommon {
       Serial.println("Boss Setup Complete");
     }
 
+    void applyLights(Message &light) {//not const so that tags can be diddled
+      apply(light);//sends to remote while setting locally
+      startHoldoff();
+    }
+    
     void loop() {
       // local levers are tested on timer tick, since they are debounced by it.
       if (flagged(levers2.dataReceived)) { // message received
@@ -498,8 +503,7 @@ struct Boss : public VortexCommon {
 
       if (updateAllowed) { //can't send another until prior is handled, this needs work.
         if (backgrounder.check()) {
-          sendMessage(backgrounder.wrapper); //the ack from the espnow layer clears the needsUpdate at the same time as 'messageOnWire' is set.
-          startHoldoff();
+          applyLights(backgrounder.wrapper);
         } else {
           refreshColors(); //updates "needsUpdate" flags, returns whether at least one does.
           ForStations(justcountem) {//keeping separate flag check loop counter in case we refresh faster than we can service it.
@@ -516,13 +520,12 @@ struct Boss : public VortexCommon {
               command.showem = true; //todo: only with last one.
               message.tag[1] = '0' + lastStationSent;
               ++command.sequenceNumber;
-              sendMessage(message); //the ack from the espnow layer clears the needsUpdate
-              startHoldoff();
+              applyLights(message); //the ack from the espnow layer clears the needsUpdate
               break;//onSent gets us to the next station to update
             }
           }
           //no stations needed an update so ...
-//spammed levers          backgrounder.nightlight();//hack to keep some lights on at all times.
+          //spammed lever 1          backgrounder.nightlight();//hack to keep some lights on at all times.
         }
       }//end updateAllowed
 

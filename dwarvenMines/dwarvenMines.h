@@ -165,7 +165,12 @@ void sendTest() {
   ++tester.sequenceNumber;
   tester.showem = true;
   tester.printTo(Serial);
-  agent->sendMessage(testwrapper);
+  if (boss) {
+    boss->applyLights(testwrapper);
+  }
+  if (worker) {
+    worker->apply(testwrapper);
+  }
 }
 
 void tweakColor(unsigned which, unsigned param) {
@@ -232,7 +237,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       }
       if (boss) {
         Serial.printf("Sending sequenceNumber: %u\n", boss->command.sequenceNumber);
-        boss->sendMessage(boss->message);
+        boss->applyLights(boss->message);
       } else {
         worker->command.showem = true;
         worker->message.dataReceived = true;
@@ -383,14 +388,15 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
             tester.setAll(tester.color);
             if (wasUpper) {
               auto numPixels = boss->stringer.setPattern(tester.color, tester.pattern);
+boss->stringer.show();
               Serial.printf("Setting colors on local strand, %d pixels\n", numPixels);
             } else {
               testwrapper.tag[0] = 'D';
               testwrapper.tag[1] = 'W';
-              boss->sendMessage(testwrapper);
-              return;
+              boss->applyLights(testwrapper);
             }
-            break;
+            return;
+          //            break;
           case 1:  //set all locally to "solved"
             Serial.printf("Setting LEDs via local connection\n");
             ForStations(si) {
@@ -400,6 +406,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
               pat.printTo(Serial);
               boss->stringer.setPattern(rgb, pat);
             }
+            boss->stringer.show();
             break;
           default:
             Serial.printf(" uppercase to set all locally, lowercase sends command to worker\n");
@@ -428,7 +435,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
           cfg.refreshPeriod = param ? param : Ticker::Never;
           boss->refreshRate.next(cfg.refreshPeriod);
           if (cfg.refreshPeriod != Ticker::Never) {
-                Serial.printf("refresh rate set to %u\n", cfg.refreshPeriod);
+            Serial.printf("refresh rate set to %u\n", cfg.refreshPeriod);
           } else {
             Serial.printf("refresh disabled\n");
           }
@@ -441,13 +448,13 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       // todo: the following doesn't actually get executed before the reset!
       for (unsigned countdown = min(param, 4u); countdown-- > 0;) { // on 4u: std:max/min require identical arguments, should be rewritten to accept convertable arguments, convert second to first.
         delay(666);
-            Serial.printf(" %u, \t", countdown);
+        Serial.printf(" %u, \t", countdown);
       }
       ESP.restart();
       break;
     case ' ':
       if (boss) {
-            Serial.println("VortexFX Boss:");
+        Serial.println("\nVortexFX Boss:");
         boss->lever.printTo(Serial);
 
         showUpdateStatus();

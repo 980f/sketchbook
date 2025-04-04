@@ -60,26 +60,30 @@ struct VortexLighting {
     Command & command {message.m};
     LedStringer stringer;
 
+    void apply(Command &cmd) {
+      stringer.setPattern(cmd.color, cmd.pattern);
+      if (cmd.showem) {
+        stringer.show();
+      }
+    }
+
     void setup() {
       LedStringer::spew = &Serial;
       stringer.setup(VortexFX.total, pixel);
     }
 
-    void act() {
-      if (EVENT) {
-        command.printTo(Serial);
-      }
-      stringer.setPattern(command.color, command.pattern);
-      if (flagged(command.showem)) {
-        stringer.show();
-      }
-    }
+    //    void act() {
+    //      if (EVENT) {
+    //        command.printTo(Serial);
+    //      }
+    //      apply(command);
+    //    }
 
-    void loop() {
-      if (flagged(message.dataReceived)) { // message received
-        act();
-      }
-    }
+    //    void loop() {
+    //      if (flagged(message.dataReceived)) { // message received
+    //        apply(message);//send it back out as well as sending to local lights
+    //      }
+    //    }
 };
 
 ///////////////////////////////////////////////////////////////////////
@@ -89,7 +93,8 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
 
   VortexCommon(): BroadcastNode(BroadcastNode_Triplet) {  }
 
-  void sendMessage(const Message &msg) {
+  //broadcast a vortex lighting message, used as both command and acknowledgment
+  void sendMessage(Message &msg) {
     auto block = msg.outgoing();
     if (TRACE) {
       Serial.printf("sendMessage: %u, %.*s  (%p)\n", block.size, sizeof(Message::prefix), &block.content, &block.content);
@@ -99,4 +104,13 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
     }
     send_message(block);
   }
+
+
+  /* while this makes most sense on the boss, on the worker it serves as acknowledgment */
+  void apply(Message &vor) {
+    VortexLighting::apply(vor.m);
+    vor.tag[1] |= 0x20; //debug ack bit, change to lower presuming char is alpha.
+    sendMessage(vor); //an ack
+  }
+
 };
