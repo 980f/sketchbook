@@ -17,10 +17,9 @@ using Body = BroadcastNode::Body;
 constexpr struct StripConfiguration {
   unsigned perRevolutionActual = 100;//no longer a guess
   unsigned perRevolutionVisible = 89;//from 2024 haunt code
-//  unsigned perStation = perRevolutionVisible / 2;
   unsigned numStrips = 4;
   unsigned total = perRevolutionActual * numStrips;
-} VortexFX; 
+} VortexFX;
 
 
 #include "ledString.h" //FastLED stuff, uses LEDStringType
@@ -41,6 +40,15 @@ struct VortexLighting {
         //    length += stream.print("Pattern:\t") stream.print(pattern);
         length += pattern.printTo(stream);
         return length;
+      }
+
+      //formats command, you still need to call sendMessage() if you are the boss or act() if worker
+      void setAll(CRGB color) {
+        color = color;
+        pattern.offset = 0;
+        pattern.run = VortexFX.total ;//all, in case the unused ones peek out from hiding.
+        pattern.period = VortexFX.total ;
+        pattern.sets = 1;
       }
     };
 

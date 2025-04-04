@@ -219,17 +219,16 @@ struct Boss : public VortexCommon {
         inProgress = 2;
       }
 
+      void nightlight() {
+        inProgress = 1;
+      }
       /* only call when updateAllowed is true
           @returns true if its message should be sent.
       */
       bool check() {
         switch (inProgress) {
-          case 2:         //all off
-            command.color = LedStringer::Off;
-            command.pattern.offset = 0;
-            command.pattern.run = VortexFX.total ;//all, in case the unused ones peek out from hiding.
-            command.pattern.period = VortexFX.total ;
-            command.pattern.sets = 1;
+          case 2:     //all off
+            command.setAll(LedStringer::Off);
             break;
           case 1:   //configured as one chunk per ring.
             command.color = cfg.overheadLights;
@@ -522,6 +521,8 @@ struct Boss : public VortexCommon {
               break;//onSent gets us to the next station to update
             }
           }
+          //no stations needed an update so ...
+//spammed levers          backgrounder.nightlight();//hack to keep some lights on at all times.
         }
       }//end updateAllowed
 

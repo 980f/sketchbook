@@ -95,7 +95,7 @@ class BroadcastNode : public ESP_NOW_Peer {
     void unknown_node(const esp_now_recv_info_t *info, unsigned len, const uint8_t *data) {
       if (spew) {
         if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {//todo: apply our MAC class
-          Serial.printf("In unknownNode: " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+          Serial.printf("Broadcast received from: " MACSTR "\n", MAC2STR(info->src_addr));
         } else {
           Serial.printf("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
         }
@@ -103,7 +103,7 @@ class BroadcastNode : public ESP_NOW_Peer {
       //here is where we could qualify the peer and if its message indicates it is on our network than "add_peer" it and process the message.
       addJustReceived = false;
       onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
-//      if (addJustReceived) {
+//      if (addJustReceived) { //stifled incoming message in the rare case that it succeeded.
 //        AddaPeer noob(info);
 //        if (noob.failed) {
 //          Serial.printf("Add peer failed with %s \n", esp_err_to_name( noob.failed));
