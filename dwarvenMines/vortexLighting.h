@@ -17,14 +17,14 @@ using Body = BroadcastNode::Body;
 constexpr struct StripConfiguration {
   unsigned perRevolutionActual = 100;//no longer a guess
   unsigned perRevolutionVisible = 89;//from 2024 haunt code
-  unsigned perStation = perRevolutionVisible / 2;
+//  unsigned perStation = perRevolutionVisible / 2;
   unsigned numStrips = 4;
   unsigned total = perRevolutionActual * numStrips;
-} VortexFX; // not const until wiring is confirmed, so that we can play with config to confirm wiring.
+} VortexFX; 
 
 
 #include "ledString.h" //FastLED stuff, uses LEDStringType
-//the pixel memory: //todo: go back to dynamically allocated to see if that was fine.
+//the pixel memory: //todo: go back to dynamically allocated to see if that was fine. Did this, got a reboot loop for my trouble.
 CRGB pixel[VortexFX.total];
 
 struct VortexLighting {
@@ -84,9 +84,9 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
   void sendMessage(const Message &msg) {
     auto block = msg.outgoing();
     if (TRACE) {
-      Serial.printf("sendMessage: %u, %.4s  (%p)\n", block.size, &block.content, &block.content);
+      Serial.printf("sendMessage: %u, %.*s  (%p)\n", block.size, sizeof(Message::prefix), &block.content, &block.content);
       if (BUG3) {
-        dumpHex(block, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
+        dumpHex(block, Serial);
       }
     }
     send_message(block);
