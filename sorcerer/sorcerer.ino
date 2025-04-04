@@ -5,6 +5,9 @@
 
 #if defined(ARDUINO_ARCH_ESP8266)
 #define DoWakeup 1
+#define NeoMethod NeoEsp8266Uart1800KbpsMethod
+#else
+#define NeoMethod NeoEsp32Rmt1800KbpsMethod
 #endif
 
 #include <NeoPixelSegmentBus.h>
@@ -25,7 +28,7 @@ const unsigned LED_GPIO = 2; //esp8266 uart 1 tx
 
 
 WS2812FX ws2812fx = WS2812FX(LED_COUNT, LED_GPIO, NEO_GRB + NEO_KHZ800);
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(LED_COUNT, LED_GPIO); //NB: LED_GPIO is ignored for some methods but always tolerated
+NeoPixelBus<NeoGrbFeature, NeoMethod> strip(LED_COUNT, LED_GPIO); //NB: LED_GPIO is ignored for some methods but always tolerated
 
 
 #include "millievent.h"
@@ -268,52 +271,52 @@ class WifiSerial {
         errorMsg("Will reboot...");
       }
     }
-}
 
-////////////////////////////////////////
 
-bool isConnected() const {
-  return (WiFi.status() == WL_CONNECTED);
-}
+    ////////////////////////////////////////
 
-bool tryConnect() {
-  if (changed(connected, isConnected())) {
-    if (connected) { //then just connected
-      WiFi.setAutoReconnect(true);
-      WiFi.persistent(true);
-      return true;
-    } else {
-      //lost connection, do we need to do anything?
+    bool isConnected() const {
+      return (WiFi.status() == WL_CONNECTED);
     }
-  }
 
-  WiFi.mode(WIFI_STA);
+    bool tryConnect() {
+      if (changed(connected, isConnected())) {
+        if (connected) { //then just connected
+          WiFi.setAutoReconnect(true);
+          WiFi.persistent(true);
+          return true;
+        } else {
+          //lost connection, do we need to do anything?
+        }
+      }
+
+      WiFi.mode(WIFI_STA);
 #if DoWakeup
-  if (waking.done()) { //the 'true once' function
-    woke = true;
-  } else if (waking) {
-    return false;
-  }
-  if (!woke) {
-    WiFi.forceSleepWake();
-    waking = 200;
-    return false;
-  }
+      if (waking.done()) { //the 'true once' function
+        woke = true;
+      } else if (waking) {
+        return false;
+      }
+      if (!woke) {
+        WiFi.forceSleepWake();
+        waking = 200;
+        return false;
+      }
 #endif
 
-  WiFi.begin(ssid, password);
+      WiFi.begin(ssid, password);
 
-  return isConnected();
-}
+      return isConnected();
+    }
 
 
 
-void onTick() {
-  tryConnect();
-  if (connected) {
+    void onTick() {
+      tryConnect();
+      if (connected) {
 
-  }
-}
+      }
+    }
 
 };
 
