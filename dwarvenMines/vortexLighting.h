@@ -61,6 +61,7 @@ struct VortexLighting {
     LedStringer stringer;
 
     void apply(Command &cmd) {
+      Serial.printf("VL::apply run %d set %d showem:%x\n", cmd.pattern.run, cmd.pattern.sets, cmd.showem);
       stringer.setPattern(cmd.color, cmd.pattern);
       if (cmd.showem) {
         stringer.show();
@@ -72,18 +73,6 @@ struct VortexLighting {
       stringer.setup(VortexFX.total, pixel);
     }
 
-    //    void act() {
-    //      if (EVENT) {
-    //        command.printTo(Serial);
-    //      }
-    //      apply(command);
-    //    }
-
-    //    void loop() {
-    //      if (flagged(message.dataReceived)) { // message received
-    //        apply(message);//send it back out as well as sending to local lights
-    //      }
-    //    }
 };
 
 ///////////////////////////////////////////////////////////////////////
@@ -93,7 +82,7 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
 
   VortexCommon(): BroadcastNode(BroadcastNode_Triplet) {  }
 
-  //broadcast a vortex lighting message, used as both command and acknowledgment
+  //broadcast a vortex lighting message, used as both command and acknowledgement
   void sendMessage(Message &msg) {
     auto block = msg.outgoing();
     if (TRACE) {
@@ -108,9 +97,12 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
 
   /* while this makes most sense on the boss, on the worker it serves as acknowledgment */
   void apply(Message &vor) {
+    Serial.printf("VC::apply Message %s tag %s\n", vor.prefix, vor.tag);
     VortexLighting::apply(vor.m);
-    vor.tag[1] |= 0x20; //debug ack bit, change to lower presuming char is alpha.
-    sendMessage(vor); //an ack
+  }
+
+  void setup() {
+    VortexLighting::setup();
   }
 
 };

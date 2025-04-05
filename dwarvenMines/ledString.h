@@ -125,6 +125,7 @@ struct LedStringer {
       */
       bool next() {
         if (!run || run == ~0) { // ~0 case for guard against ~ entered in debug UI.
+          if(spew) spew->println("Trivial run, ignoring it. \n");
           return false; //we are done or have been done
         }
         if (--run) {

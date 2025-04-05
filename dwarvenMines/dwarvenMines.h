@@ -164,12 +164,17 @@ bool cliValidStation(unsigned param, const unsigned char key) {
 void sendTest() {
   ++tester.sequenceNumber;
   tester.showem = true;
+  if(tester.pattern.run==0){
+    tester.setAll(tester.color);
+  }
   tester.printTo(Serial);
   if (boss) {
     boss->applyLights(testwrapper);
   }
   if (worker) {
-    worker->apply(testwrapper);
+    tester.showem = true;
+//    worker->VortexLIghting::apply(tester);//just do lights, don't send to host
+    worker->apply(testwrapper);//do lights and send notice to host 
   }
 }
 
@@ -386,11 +391,14 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
         switch (param) {
           case 0: //set all remote
             tester.setAll(tester.color);
-            if (wasUpper) {
-              auto numPixels = boss->stringer.setPattern(tester.color, tester.pattern);
-boss->stringer.show();
-              Serial.printf("Setting colors on local strand, %d pixels\n", numPixels);
-            } else {
+            if (wasUpper) {//just local
+              tester.showem = true;
+              if(tester.pattern.run==0){
+                tester.setAll(tester.color);
+              }
+              boss->VortexLighting::apply(tester);
+              Serial.printf("Setting colors on local strand\n");
+            } else {//remote and local
               testwrapper.tag[0] = 'D';
               testwrapper.tag[1] = 'W';
               boss->applyLights(testwrapper);

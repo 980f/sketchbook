@@ -290,6 +290,7 @@ struct Boss : public VortexCommon {
       p.modulus = 0;
       return p;
     }
+    
     // set lever related LED's again, in case update got lost or lighting processor spontaneously restarted.
     void refreshLeds() {
       ForStations(si) {
@@ -309,7 +310,8 @@ struct Boss : public VortexCommon {
       Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);
-      relay[Audio] << true; //audio needs time to get to where motor sounds start
+      relay[Audio] << true; //audio needs time to get to where motor sounds start      
+      relay[SpareNC] << true; //JIC
       autoReset.next(cfg.resetTicks);
     }
 
@@ -320,7 +322,6 @@ struct Boss : public VortexCommon {
       puzzle = Puzzle::Drilling;
       relay[DoorRelease] << true;
       relay[VortexMotor] << true;
-      relay[SpareNC] << true;
     }
 
     void resetPuzzle() {
@@ -435,6 +436,7 @@ struct Boss : public VortexCommon {
     //    Boss() {}
 
     void setup() {
+      VortexCommon::setup();
       message.tag[0] = 'L';
       message.tag[1] = 0;
 
@@ -457,7 +459,9 @@ struct Boss : public VortexCommon {
     }
 
     void applyLights(Message &light) {//not const so that tags can be diddled
-      apply(light);//sends to remote while setting locally
+      apply(light);//sends to remote
+      VortexLighting::apply(light.m);//apply locally as well, for spare strands not on rotating drum.
+      //somehow the above doesn't get the lights to set!
       startHoldoff();
     }
     
