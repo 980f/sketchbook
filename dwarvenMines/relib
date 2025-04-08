@@ -1,14 +1,11 @@
 ## recreate links to library sources
 ln -sf links/ezcpp/block.h
-ln -sf links/ezcpp/block.h
 ln -sf links/chainprinter.h
 ln -sf links/ezcpp/char.h
-ln -sf links/ezcpp/cheaptricks.h
 ln -sf links/ezcpp/cheaptricks.h
 ln -sf links/clirp.h
 ln -sf links/ezcpp/cstr.h
 ln -sf links/ezOTA.h
-ln -sf links/ezcpp/eztypes.h
 ln -sf links/ezcpp/eztypes.h
 ln -sf links/ezcpp/index.h
 ln -sf links/macAddress.h

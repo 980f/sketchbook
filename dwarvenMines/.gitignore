@@ -1,6 +1,5 @@
 arduous
 block.h
-broadcastNode.h
 build
 chainprinter.h
 char.cpp
@@ -17,11 +16,6 @@ lardls
 lib
 macAddress.h
 minimath.h
-remoteGpio.h
-scaryMessage.h
-simpleDebouncedPin.h
-simplePin.h
-simpleTicker.h
 sui.h
 textkey.cpp
 textkey.h
