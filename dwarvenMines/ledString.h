@@ -16,6 +16,7 @@
 //
 struct LedStringer {
   static Print *spew;//diagnostics control
+  static bool debugPattern;// = false;
   unsigned quantity;
   CRGB *leds;
 
@@ -244,8 +245,8 @@ struct LedStringer {
 
 };
 
-Print *LedStringer::spew = nullptr;
-
+static Print *spew;//diagnostics control
+static bool LedStringer::debugPattern = false;
 
 /** @deprecated untested
    statically allocate the array
