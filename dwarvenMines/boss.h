@@ -128,10 +128,12 @@ struct BossConfig: Printable {
   // time from first pull to restart
   MilliTick fuseTicks = Ticker::Never; //Ticker::PerMinutes(3);
   MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
+  
   //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
-  MilliTick resetTicks = Ticker::PerSeconds(37);
+  MilliTick resetTicks = Ticker::PerSeconds(61);
   //time from solution to vortex/door open, so that audio track can fully cue up:
   MilliTick audioLeadinTicks = 7990; //experimental
+  
   unsigned frameRate = 16;
   ColorSet foreground;
   PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
@@ -146,7 +148,7 @@ struct BossConfig: Printable {
   }
 
   size_t printTo(Print &stream) const override {
-    return stream.printf("F:%d, RF:%d, AR:%d, Aud:%d, Fps:%u, \n\tOH:%06X, OO:%u, OW:%u\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t(), overheadStart , overheadWidth)
+    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n\t~c:%06X, k:[%u,]%u\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t(), overheadStart , overheadWidth)
            + stream.print(foreground)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
@@ -284,6 +286,11 @@ struct Boss : public VortexCommon {
           p.run = 1;
           p.period = numStations;
           p.sets = (VortexFX.total - VortexFX.perRevolutionActual) / numStations;
+          //try to preserve the nightlights:
+          if(si<cfg.overheadWidth){//then there is an overlap
+            p.offset += p.period;
+            --p.sets;
+          }
           break;
       }
       //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
@@ -460,8 +467,6 @@ struct Boss : public VortexCommon {
 
     void applyLights(Message &light) {//not const so that tags can be diddled
       apply(light);//sends to remote
-      VortexLighting::apply(light.m);//apply locally as well, for spare strands not on rotating drum.
-      //somehow the above doesn't get the lights to set!
       startHoldoff();
     }
     
@@ -475,7 +480,7 @@ struct Boss : public VortexCommon {
             dumpHex(levers2.incoming(), Serial);
           }
         }
-        //for levers2 stuff the solved bits in the initial leverStates.
+        //for levers2 stuff the solved bits of the local lever trackers
         ForStations(si) {
           if (remoteLever[si]) {//set on true, leave as is on false.
             if (TRACE) {

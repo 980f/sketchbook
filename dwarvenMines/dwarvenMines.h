@@ -172,8 +172,6 @@ void sendTest() {
     boss->applyLights(testwrapper);
   }
   if (worker) {
-    tester.showem = true;
-//    worker->VortexLIghting::apply(tester);//just do lights, don't send to host
     worker->apply(testwrapper);//do lights and send notice to host 
   }
 }
@@ -187,11 +185,11 @@ void tweakColor(unsigned which, unsigned param) {
 void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
   Serial.print(": ");
   unsigned param = cli[0]; // clears on read, can only access once!
-  switch (key) {
+  switch (key) {//still available: aehvy;[]
     case ':':
       saveConfig(param);
       break;
-    // aehjkvy /;[]\-
+    
     case '/': // send tester
       tester.pattern.offset = param;
       sendTest();
@@ -431,6 +429,11 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case 'x':
       if (boss) {
         /*boss->*/ cfg.audioLeadinTicks = param;
+      }
+      break;
+    case 'y':
+      if (boss) {
+        /*boss->*/ cfg.resetTicks = param;
       }
       break;
     case 'z': // set refresh rate, 0 kills it rather than spams.

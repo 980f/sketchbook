@@ -2,6 +2,7 @@
 
 /**
     vortex lights interface
+    todo: array of rings, that they are in one strand should be buried deeper.
 */
 #define BroadcastNode_WIFI_CHANNEL 6
 #include "broadcastNode.h"
@@ -42,7 +43,7 @@ struct VortexLighting {
         return length;
       }
 
-      //formats command, you still need to call sendMessage() if you are the boss or act() if worker
+      //formats command, you still need to call apply()
       void setAll(CRGB color) {
         color = color;
         pattern.offset = 0;
@@ -61,7 +62,7 @@ struct VortexLighting {
     LedStringer stringer;
 
     void apply(Command &cmd) {
-      Serial.printf("VL::apply run %d set %d showem:%x\n", cmd.pattern.run, cmd.pattern.sets, cmd.showem);
+      Serial.printf("VL::apply run %d set %d showem:%x seq:%u\n", cmd.pattern.run, cmd.pattern.sets, cmd.showem, cmd.sequenceNumber);
       stringer.setPattern(cmd.color, cmd.pattern);
       if (cmd.showem) {
         stringer.show();
@@ -98,7 +99,8 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
   /* while this makes most sense on the boss, on the worker it serves as acknowledgment */
   void apply(Message &vor) {
     Serial.printf("VC::apply Message %s tag %s\n", vor.prefix, vor.tag);
-    VortexLighting::apply(vor.m);
+    sendMessage(vor);//Boss sends command, worker reflects as acknowledgement
+    VortexLighting::apply(vor.m);//actually update lights.
   }
 
   void setup() {

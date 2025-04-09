@@ -48,7 +48,8 @@ struct Stripper : public VortexCommon {
         }
         command.printTo(Serial);
       }
-      apply(message);//send it back out as well as sending to local lights
+      message.tag[1]|=0x20 ; //lower case the tag 2nd char for debug.
+      apply(message);//which sends it back out as well as sending to local lights
     }
   }
 
