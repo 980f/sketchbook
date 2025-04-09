@@ -11,13 +11,14 @@
 
   done: vortex off: wait for run/reset change of state?
   done: mac diagnostic printout byte order
-  dont: phase per ring of leds, an array of offsets
+  don't: phase per ring of leds, an array of offsets => VortexLighting needs to implement 4 rings rather than one strand.
   done: and it was! [check whether a "wait for init" is actually needed in esp_now init]
 
   Note: 800 kbaud led update rate, 24 bits per LED, 33+k leds/second @400 LEDS 83 fps. 12 ms per update plus a little for the reset. 10Hz is enough for special FX work, 24Hz is movie theater rate.
 
   Node Messages:
-  S41L to send lighting desires, was a pedagogic choice, should be more like VXLX GPIO to send lever/other input physical state
+  VOR1 to send lighting desires (@see vortexLighting.h)
+  GPIO to send lever/other input physical state (@see remoteGPIO)
 
 */
 
