@@ -28,7 +28,7 @@ struct LedStringer {
     allOff();
   }
 
-  LedStringer (unsigned quantity): LedStringer(quantity, new CRGB(quantity+1)) {}//+1 so that we can use pixel 0 if we are given a horrible address.
+  LedStringer (unsigned quantity): LedStringer(quantity, new CRGB(quantity + 1)) {} //+1 so that we can use pixel 0 if we are given a horrible address.
 
   LedStringer (): LedStringer(0, nullptr) {}
 
@@ -83,7 +83,7 @@ struct LedStringer {
     }
 
     /** we want to wrap the value used as an array index, without altering our logical counter.
-     *  This did not work as expected as it gets aplied to the offset at times where we wish it did not.
+        This did not work as expected as it gets aplied to the offset at times where we wish it did not.
     */
     unsigned operator()(unsigned rawcomputation) const {
       return modulus ? rawcomputation % modulus : rawcomputation;
@@ -126,7 +126,7 @@ struct LedStringer {
       */
       bool next() {
         if (!run || run == ~0) { // ~0 case for guard against ~ entered in debug UI.
-          if(spew) spew->println("Trivial run, ignoring it. \n");
+          if (spew) spew->println("Trivial run, ignoring it. \n");
           return false; //we are done or have been done
         }
         if (--run) {
@@ -172,8 +172,8 @@ struct LedStringer {
 
   /** set the pixels defined by @param pattern to @param color, other pixels are not modified */
   unsigned setPattern(CRGB color, const Pattern &pattern) {
-    if(quantity==0){
-      if(spew){
+    if (quantity == 0) {
+      if (spew) {
         spew->println("Quantity is zero, not even thinking of computing an address as we have no pixels to address");
       }
       return 0;//hopefully this is minimal harm.
@@ -191,7 +191,7 @@ struct LedStringer {
         unsigned pi = runner;
         leds[pi % quantity] = color;//wrapping is better than altering unowned memory.
         ++numberSet;
-        if (spew) {
+        if (debugPattern && spew) {
           spew->printf(" %u\t", pi);
         }
       } while (runner.next());
@@ -245,8 +245,8 @@ struct LedStringer {
 
 };
 
-static Print *spew;//diagnostics control
-static bool LedStringer::debugPattern = false;
+Print *LedStringer::spew;//diagnostics control
+bool LedStringer::debugPattern = false;
 
 /** @deprecated untested
    statically allocate the array
