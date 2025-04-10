@@ -29,7 +29,7 @@ CRGB pixel[VortexFX.total];
 
 struct VortexLighting {
     // command to set some lights.
-    struct Command {
+    struct Command: Printable {
       unsigned sequenceNumber = ~0;
       CRGB color = LedStringer::Off;
       LedStringer::Pattern pattern;
@@ -45,7 +45,7 @@ struct VortexLighting {
 
       //formats command, you still need to call apply()
       void setAll(CRGB color) {
-        color = color;
+        this->color = color;
         pattern.offset = 0;
         pattern.run = VortexFX.total ;//all, in case the unused ones peek out from hiding.
         pattern.period = VortexFX.total ;
