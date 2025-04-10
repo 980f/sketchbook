@@ -68,7 +68,7 @@ struct Ticker {
     due = Never;
   }
 
-  unsigned remaining() const {
+  MilliTick remaining() const {
     if (due != Never) {
       return due - now;
     }

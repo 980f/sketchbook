@@ -165,7 +165,7 @@ bool cliValidStation(unsigned param, const unsigned char key) {
 void sendTest() {
   ++tester.sequenceNumber;
   tester.showem = true;
-  if(tester.pattern.run==0){
+  if (tester.pattern.run == 0) {
     tester.setAll(tester.color);
   }
   tester.printTo(Serial);
@@ -173,7 +173,7 @@ void sendTest() {
     boss->applyLights(testwrapper);
   }
   if (worker) {
-    worker->apply(testwrapper);//do lights and send notice to host 
+    worker->apply(testwrapper);//do lights and send notice to host
   }
 }
 
@@ -190,7 +190,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case ':':
       saveConfig(param);
       break;
-    
+
     case '/': // send tester
       tester.pattern.offset = param;
       sendTest();
@@ -247,7 +247,12 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
         worker->message.dataReceived = true;
       }
       break;
-
+    case 'a':      
+      cfg.sweep.Step = param ? param : 150; //how far to move stripe during drilling
+      if (cli.argc() > 1) {
+        cfg.sweep.Complete = cli[1];
+      };
+      break;
     case 'b':
       tweakColor(2, param);
       break;
@@ -265,7 +270,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
           Serial.printf("station[%u] color is now 0x%06X\n", param, cfg.foreground[param].as_uint32_t());
         }
         if (param == ~0) {
-          cfg.overheadLights = tester.color;
+          cfg.overhead.Lights = tester.color;
           boss->backgrounder.erase();
         }
       }
@@ -301,9 +306,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       break;
     case 'k':
       if (boss) {
-        cfg.overheadWidth = param;
+        cfg.overhead.Width = param;
         if (cli.argc() > 1) {
-          cfg.overheadStart = cli[1];
+          cfg.overhead.Start = cli[1];
         }
         boss->backgrounder.erase();
       }
@@ -392,7 +397,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
             tester.setAll(tester.color);
             if (wasUpper) {//just local
               tester.showem = true;
-              if(tester.pattern.run==0){
+              if (tester.pattern.run == 0) {
                 tester.setAll(tester.color);
               }
               boss->VortexLighting::apply(tester);
@@ -471,16 +476,16 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
 
         showUpdateStatus();
 
-            Serial.print("Background message:\t");
+        Serial.print("Background message:\t");
         boss->backgrounder.command.printTo(Serial);
         if (boss->echoAck.m.sequenceNumber != ~0) {
-              Serial.print("Echoed message:\t");
+          Serial.print("Echoed message:\t");
           boss->echoAck.printTo(Serial);
         }
-            Serial.print("Last Request: \t");
+        Serial.print("Last Request: \t");
       } else {
-            Serial.println("VortexFX Worker");
-            Serial.print("Last Action: \t");
+        Serial.println("VortexFX Worker");
+        Serial.print("Last Action: \t");
       }
       agent->command.printTo(Serial);
       break;
@@ -496,9 +501,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       }
       break;
     case '?':
-          Serial.printf("Program: %s ", __FILE__);
-          Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
-          //      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is
+      Serial.printf("Program: %s ", __FILE__);
+      Serial.printf("Wifi channel: %u\n", BroadcastNode_WIFI_CHANNEL);
+      //      Serial.printf("usage : \n\tr, g, b: \talter pigment, %u(0x%2X) is
       //      bright\n\tl, s, u: \tlever trace / set / unset\n ",
       //      foreground.MAX_BRIGHTNESS , foreground.MAX_BRIGHTNESS );
       Serial.printf("\t [station]c: set color for a station from the one diddled by r,g,b\n");

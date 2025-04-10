@@ -121,25 +121,39 @@ template <unsigned Size> struct PermutationSet: Printable {
 
 };
 
-//todo: the local lever inputs need their own, move this into leverset once that is a base class, or pushed io instead of polled.
 ///////////////////////////////////////////////////////////////////////
 /** outside the class so that we can configure before instantiating an instance*/
 struct BossConfig: Printable {
   // time from first pull to restart
   MilliTick fuseTicks = Ticker::Never; //Ticker::PerMinutes(3);
   MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
-  
+
   //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
   MilliTick resetTicks = Ticker::PerSeconds(61);
   //time from solution to vortex/door open, so that audio track can fully cue up:
   MilliTick audioLeadinTicks = 7990; //experimental
   
+  struct DrillConfg: Printable {
+    MilliTick Step = 150; //how far to move stripe during drilling
+    MilliTick Complete = Ticker::PerSeconds(10); //how long to run animation.
+    size_t printTo(Print &stream) const override {
+      return stream.printf("Sweep(a): step %u for %u ms\n", Step, Complete);
+    }
+  } sweep;
+
   unsigned frameRate = 16;
   ColorSet foreground;
   PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
-  CRGB overheadLights = CRGB{60, 60, 70};
-  unsigned overheadStart = VortexFX.perRevolutionActual;
-  unsigned overheadWidth = 3;
+  
+  struct Oh: Printable {
+    CRGB Lights = CRGB{60, 60, 70};
+    unsigned Start = VortexFX.perRevolutionActual;
+    unsigned Width = 3;
+    size_t printTo(Print &stream) const override {
+      return stream.printf("\t~c:%06X, k:[%u,]%u\n", Lights.as_uint32_t(), Start , Width);
+    }
+
+  } overhead;
   //and finally to check if EEPROM is valid:
   uint16_t checker = 0x980F;
 
@@ -148,8 +162,10 @@ struct BossConfig: Printable {
   }
 
   size_t printTo(Print &stream) const override {
-    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n\t~c:%06X, k:[%u,]%u\n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate, overheadLights.as_uint32_t(), overheadStart , overheadWidth)
+    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
            + stream.print(foreground)
+           + stream.print(overhead)
+           + stream.print(sweep)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
            //and finally to check if EEPROM is valid:
@@ -233,9 +249,9 @@ struct Boss : public VortexCommon {
             command.setAll(LedStringer::Off);
             break;
           case 1:   //configured as one chunk per ring.
-            command.color = cfg.overheadLights;
-            command.pattern.offset = cfg.overheadStart;
-            command.pattern.run = cfg.overheadWidth ? cfg.overheadWidth : 1; //chasing down erroneous 0's
+            command.color = cfg.overhead.Lights;
+            command.pattern.offset = cfg.overhead.Start;
+            command.pattern.run = cfg.overhead.Width ? cfg.overhead.Width : 1; //chasing down erroneous 0's
             command.pattern.period = VortexFX.perRevolutionActual;//one group per ring
             command.pattern.sets = 3;//3 rings.
             break;
@@ -265,7 +281,7 @@ struct Boss : public VortexCommon {
     } backgrounder;
 
     //////////////////////////////////
-    LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
+    static LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
       LedStringer::Pattern p;
       si = cfg.gpioScramble[si];
       switch (style) {
@@ -287,7 +303,7 @@ struct Boss : public VortexCommon {
           p.period = numStations;
           p.sets = (VortexFX.total - VortexFX.perRevolutionActual) / numStations;
           //try to preserve the nightlights:
-          if(si<cfg.overheadWidth){//then there is an overlap
+          if (si < cfg.overhead.Width) { //then there is an overlap
             p.offset += p.period;
             --p.sets;
           }
@@ -297,7 +313,43 @@ struct Boss : public VortexCommon {
       p.modulus = 0;
       return p;
     }
-    
+
+
+    /* sweep a blanking along the pattern */
+    struct DrillingMotion {
+      MilliTick started = Ticker::Never;
+      Message wrapper;
+      Command &command {wrapper.m};
+      /* this expects to be called when a command can be sent */
+      bool check() {
+        if (started < Ticker::Never) {
+          MilliTick elapsed = Ticker::now - started;
+          auto step = elapsed / cfg.sweep.Step;
+          auto group = (step >> 1) % numStations;
+          if (step & 1) {
+            command.color = cfg.foreground[group];
+          } else {
+            command.color = LedStringer::Off;
+          }
+          command.pattern = pattern(group, 1);
+          return true;
+        }
+        return false;
+      }
+
+      bool doneIf(bool succeeded) {
+        MilliTick elapsed = Ticker::now - started;
+        if (elapsed > cfg.sweep.Complete) {
+          started = Ticker::Never;
+          return true;
+        }
+        return false;
+      }
+
+    };
+
+    DrillingMotion driller;
+
     // set lever related LED's again, in case update got lost or lighting processor spontaneously restarted.
     void refreshLeds() {
       ForStations(si) {
@@ -317,7 +369,7 @@ struct Boss : public VortexCommon {
       Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);
-      relay[Audio] << true; //audio needs time to get to where motor sounds start      
+      relay[Audio] << true; //audio needs time to get to where motor sounds start
       relay[SpareNC] << true; //JIC
       autoReset.next(cfg.resetTicks);
     }
@@ -469,7 +521,7 @@ struct Boss : public VortexCommon {
       apply(light);//sends to remote
       startHoldoff();
     }
-    
+
     void loop() {
       // local levers are tested on timer tick, since they are debounced by it.
       if (flagged(levers2.dataReceived)) { // message received
