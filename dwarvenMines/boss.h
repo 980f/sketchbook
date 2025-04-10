@@ -132,19 +132,19 @@ struct BossConfig: Printable {
   MilliTick resetTicks = Ticker::PerSeconds(61);
   //time from solution to vortex/door open, so that audio track can fully cue up:
   MilliTick audioLeadinTicks = 7990; //experimental
-  
+
   struct DrillConfg: Printable {
     MilliTick Step = 150; //how far to move stripe during drilling
     MilliTick Complete = Ticker::PerSeconds(10); //how long to run animation.
     size_t printTo(Print &stream) const override {
-      return stream.printf("Sweep(a): step %u for %u ms\n", Step, Complete);
+      return stream.printf("Sweep: step %u for %u ms\n", Step, Complete);
     }
   } sweep;
 
   unsigned frameRate = 16;
   ColorSet foreground;
   PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
-  
+
   struct Oh: Printable {
     CRGB Lights = CRGB{60, 60, 70};
     unsigned Start = VortexFX.perRevolutionActual;
@@ -164,8 +164,6 @@ struct BossConfig: Printable {
   size_t printTo(Print &stream) const override {
     return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
            + stream.print(foreground)
-           + stream.print(overhead)
-           + stream.print(sweep)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
            //and finally to check if EEPROM is valid:
@@ -241,7 +239,7 @@ struct Boss : public VortexCommon {
         inProgress = 1;
       }
       /* only call when updateAllowed is true
-          @returns true if its message should be sent.
+          @returns whether its message should be sent.
       */
       bool check() {
         switch (inProgress) {
@@ -269,12 +267,14 @@ struct Boss : public VortexCommon {
         return true;//relies upon doneIf being called by send acknowledgment to decrement inProgress
       }
 
+      /* @returns whether someone else can send a lighting command */
       bool doneIf(bool succeeded) {
         if (!inProgress) {
           return true;//been done, or never started
         }
         if (succeeded) {
           --inProgress;
+          //returns false as this guy was the one for whom a message was sent.
         }
         return false;
       }
@@ -320,30 +320,50 @@ struct Boss : public VortexCommon {
       MilliTick started = Ticker::Never;
       Message wrapper;
       Command &command {wrapper.m};
-      /* this expects to be called when a command can be sent */
+      unsigned step = ~0;
+
+      void beRunning(bool bee) {
+        wrapper.tag[0] = 'R';
+        wrapper.tag[1] = 0;
+        started = bee ? Ticker::now : Ticker::Never;// :) "now or never"
+      }
+
+      bool isRunning() const {
+        return started && started < Ticker::Never;
+      }
+
+      /* this expects to be called when a command can be sent
+        @returns whether it has something to send to the lighting controllers */
       bool check() {
-        if (started < Ticker::Never) {
+        if (isRunning()) {
           MilliTick elapsed = Ticker::now - started;
-          auto step = elapsed / cfg.sweep.Step;
-          auto group = (step >> 1) % numStations;
-          if (step & 1) {
-            command.color = cfg.foreground[group];
-          } else {
-            command.color = LedStringer::Off;
+          if (changed(step , elapsed / cfg.sweep.Step)) {
+            auto group = (step >> 1) % numStations;
+            wrapper.tag[1] = group + '0';
+            if (step & 1) {
+              command.color = cfg.foreground[group];
+            } else {
+              command.color = LedStringer::Off;
+            }
+            command.pattern = pattern(group, 1);
+            return true;
           }
-          command.pattern = pattern(group, 1);
-          return true;
         }
         return false;
       }
 
+      /* @returns whether someone else can send a lighting command.
+        @param succeeded is ignored as we go strictly by time and if a message is dropped we skip to the next.*/
       bool doneIf(bool succeeded) {
-        MilliTick elapsed = Ticker::now - started;
-        if (elapsed > cfg.sweep.Complete) {
-          started = Ticker::Never;
+        if (isRunning()) {
+          MilliTick elapsed = Ticker::now - started;
+          if (elapsed > cfg.sweep.Complete) {
+            beRunning(false);
+          }
+          return false;//not done until next check.
+        } else {
           return true;
         }
-        return false;
       }
 
     };
@@ -366,11 +386,13 @@ struct Boss : public VortexCommon {
 
     void onSolution(const char *cause) {
       puzzle = Puzzle::StartDrill;
+      driller.beRunning(true);
       Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
       timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
       relay[SpareNC] << true; //JIC
+      
       autoReset.next(cfg.resetTicks);
     }
 
@@ -390,6 +412,8 @@ struct Boss : public VortexCommon {
       relay.all(false);
       lever.restart();
       solved = 0;
+      puzzle = Puzzle::Idle;
+      driller.beRunning(false);
       backgrounder.erase();
     }
 
@@ -485,8 +509,10 @@ struct Boss : public VortexCommon {
           Serial.printf("Failed send with bg:%d, lSS:%d\n", backgrounder.inProgress, lastStationSent);
         }
       }
-      if (backgrounder.doneIf(succeeded)) {//backgrounder will ignore succeeded if it isn't active and will return true.
-        needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
+      if (driller.doneIf(succeeded)) {
+        if (backgrounder.doneIf(succeeded)) {//backgrounder will ignore succeeded if it isn't active and will return true.
+          needsUpdate[lastStationSent] = !succeeded;//if failed still needs to be updated, else it has been updated.
+        }
       }
     }
 
@@ -563,7 +589,9 @@ struct Boss : public VortexCommon {
       leverAction(computeEvent());
 
       if (updateAllowed) { //can't send another until prior is handled, this needs work.
-        if (backgrounder.check()) {
+        if (driller.check()) {
+          applyLights(driller.wrapper);
+        } else if (backgrounder.check()) {
           applyLights(backgrounder.wrapper);
         } else {
           refreshColors(); //updates "needsUpdate" flags, returns whether at least one does.
@@ -589,7 +617,6 @@ struct Boss : public VortexCommon {
           //spammed lever 1          backgrounder.nightlight();//hack to keep some lights on at all times.
         }
       }//end updateAllowed
-
     }//end loop()
 
     void onTick(MilliTick now) {
