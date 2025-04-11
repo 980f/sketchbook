@@ -113,7 +113,7 @@ struct LedStringer {
       unsigned latest;
 
       void restart() {
-        if (spew) {
+        if (debugPattern && spew) {
           spew->println("(Re)starting pattern");
         }
         latest = pattern.offset;
@@ -126,18 +126,22 @@ struct LedStringer {
       */
       bool next() {
         if (!run || run == ~0) { // ~0 case for guard against ~ entered in debug UI.
-          if (spew) spew->println("Trivial run, ignoring it. \n");
+          if (spew){
+            spew->println("Trivial run, ignoring it. \n");
+          }
           return false; //we are done or have been done
         }
         if (--run) {
           ++latest;
           return true;
         }
-        if (spew) {
+        if (debugPattern && spew) {
           spew->println("\nOne run completed. \t");
         }
         if (set != ~0 && --set > 0) {
-          spew->printf("Remaining sets %u\n", set);
+          if(debugPattern && spew) {
+            spew->printf("Remaining sets %u\n", set);
+          }
           run = pattern.run;
           latest += pattern.period - pattern.run + 1; //run of 1 period of 1 skip 0? check;run of 1 period 2 skip 1?check;
           return true;
@@ -220,7 +224,7 @@ struct LedStringer {
 
   void show() {
     auto elapsed = -micros();
-    if (spew) {
+    if (debugPattern && spew) {
       spew->printf("Calling FastLED.show() at %u\n", millis());
     }
     FastLED.show();
