@@ -186,7 +186,7 @@ void tweakColor(unsigned which, unsigned param) {
 void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
   Serial.print(": ");
   unsigned param = cli[0]; // clears on read, can only access once!
-  switch (key) {//still available: aehvy;[]
+  switch (key) {//still available: aeh;[]
     case ':':
       saveConfig(param);
       break;
@@ -388,7 +388,11 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
         Serial.printf("There are now %u activated\n", boss->lever.numSolved());
       }
       break;
-
+      case 'v': //pattern options
+      cfg.pattern.clumping = param;
+      if (cli.argc() > 1) {
+        cfg.pattern.Index= cli[1];
+      }
     case 'w': // locally test a style via "all on"
       ++tester.sequenceNumber;
       if (boss) {
@@ -413,7 +417,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
             Serial.printf("Setting LEDs via local connection\n");
             ForStations(si) {
               auto rgb = cfg.foreground[si];
-              auto pat = boss->pattern(si, param);
+              auto pat = boss->pattern(si);
               Serial.printf("\tstation %u, color %06X ", si, rgb.as_uint32_t());
               pat.printTo(Serial);
               boss->stringer.setPattern(rgb, pat);

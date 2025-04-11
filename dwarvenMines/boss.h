@@ -145,10 +145,18 @@ struct BossConfig: Printable {
   ColorSet foreground;
   PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
 
+  struct  PatternOpts : Printable {
+    unsigned Index = 1;
+    unsigned clumping = 3;
+    size_t printTo(Print &stream) const override {
+      return stream.printf("\ty:[%u,]%u\n", clumping, Index);
+    }
+  } pattern;
+
   struct Oh: Printable {
     CRGB Lights = CRGB{60, 60, 70};
     unsigned Start = VortexFX.perRevolutionActual;
-    unsigned Width = 3;
+    unsigned Width = 100;//defeat the feature
     size_t printTo(Print &stream) const override {
       return stream.printf("\t~c:%06X, k:[%u,]%u\n", Lights.as_uint32_t(), Start , Width);
     }
@@ -166,6 +174,7 @@ struct BossConfig: Printable {
            + stream.print(foreground)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
+           + stream.print(pattern)
            //and finally to check if EEPROM is valid:
            + stream.printf("\nChecker:%u\n", checker )
            ;
@@ -281,10 +290,10 @@ struct Boss : public VortexCommon {
     } backgrounder;
 
     //////////////////////////////////
-    static LedStringer::Pattern pattern(unsigned si, unsigned style = 1) { //station index
+    static LedStringer::Pattern pattern(unsigned si) { //station index
       LedStringer::Pattern p;
       si = cfg.gpioScramble[si];
-      switch (style) {
+      switch (cfg.pattern.Index) {
         case 0: //half ring
           p.offset = ((si / 2) + 1) * VortexFX.perRevolutionActual; //which ring, skipping first
           if (si & 1) {
@@ -298,15 +307,15 @@ struct Boss : public VortexCommon {
           p.sets = 1;
           break;
         case 1: //rainbow
-          p.offset = VortexFX.perRevolutionActual + si;//omit first ring, offset others a bit just to see the effect
-          p.run = 1;
-          p.period = numStations;
-          p.sets = (VortexFX.total - VortexFX.perRevolutionActual) / numStations;
-          //try to preserve the nightlights:
-          if (si < cfg.overhead.Width) { //then there is an overlap
-            p.offset += p.period;
-            --p.sets;
-          }
+          p.offset = cfg.pattern.clumping * si;//hand rails version
+          p.run = cfg.pattern.clumping;
+          p.period = cfg.pattern.clumping * numStations;
+          p.sets = (VortexFX.total - p.offset) / p.period;
+          //          //try to preserve the nightlights:
+          //          if (si < cfg.overhead.Width) { //then there is an overlap
+          //            p.offset += p.period;
+          //            --p.sets;
+          //          }
           break;
       }
       //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
@@ -345,7 +354,7 @@ struct Boss : public VortexCommon {
             } else {
               command.color = LedStringer::Off;
             }
-            command.pattern = pattern(group, 1);
+            command.pattern = pattern(group);
             return true;
           }
         }
@@ -392,7 +401,8 @@ struct Boss : public VortexCommon {
       audioLeadin.next(cfg.audioLeadinTicks);
       relay[Audio] << true; //audio needs time to get to where motor sounds start
       relay[SpareNC] << true; //JIC
-      
+
+      relay[VortexMotor] << true;
       autoReset.next(cfg.resetTicks);
     }
 
@@ -402,7 +412,6 @@ struct Boss : public VortexCommon {
       }
       puzzle = Puzzle::Drilling;
       relay[DoorRelease] << true;
-      relay[VortexMotor] << true;
     }
 
     void resetPuzzle() {
@@ -549,6 +558,11 @@ struct Boss : public VortexCommon {
     }
 
     void loop() {
+      if((driller.step%12)==0){
+        if(puzzle == Puzzle::Drilling){
+          driller.beRunning(false);
+        }
+      }
       // local levers are tested on timer tick, since they are debounced by it.
       if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
@@ -605,7 +619,7 @@ struct Boss : public VortexCommon {
               } else {
                 command.color = LedStringer::Off;//will occasionally zilch an overhead light
               }
-              command.pattern = pattern(lastStationSent, clistate.patternIndex);
+              command.pattern = pattern(lastStationSent);
               command.showem = true; //todo: only with last one.
               message.tag[1] = '0' + lastStationSent;
               ++command.sequenceNumber;
