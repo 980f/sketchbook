@@ -7,7 +7,7 @@
 
 #include "block.h"
 #include "vortexLighting.h" //common parts of coordinator and light manager devices
-
+#include "minimath.h" // integer 'ceil' functionality
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
@@ -145,7 +145,7 @@ struct BossConfig: Printable {
   ColorSet foreground;
   PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
 
-  struct  PatternOpts : Printable {
+  struct PatternOpts : Printable {
     unsigned Index = 1;
     unsigned clumping = 3;
     size_t printTo(Print &stream) const override {
@@ -260,13 +260,13 @@ struct Boss : public VortexCommon {
             command.pattern.offset = cfg.overhead.Start;
             command.pattern.run = cfg.overhead.Width ? cfg.overhead.Width : 1; //chasing down erroneous 0's
             command.pattern.period = VortexFX.perRevolutionActual;//one group per ring
-            command.pattern.sets = 3;//3 rings.
+            command.pattern.sets = quanta(VortexFX.total - command.pattern.offset, command.pattern.period);//round up, wrap writes to just 0.
             break;
           default:
             return false;
         }
         ++command.sequenceNumber;
-        command.pattern.modulus = 0;//broken, ensure it is not used
+        command.pattern.max = VortexFX.total;//COA, this is done internal to pixel writer as well
         command.showem = true;//jam this guy until we find a performance issue
         wrapper.tag[1] = '0' + inProgress;
         if (BUG3) {
@@ -292,6 +292,7 @@ struct Boss : public VortexCommon {
     //////////////////////////////////
     static LedStringer::Pattern pattern(unsigned si) { //station index
       LedStringer::Pattern p;
+      p.max = VortexFX.total;//COA
       si = cfg.gpioScramble[si];
       switch (cfg.pattern.Index) {
         case 0: //half ring
@@ -318,8 +319,6 @@ struct Boss : public VortexCommon {
           //          }
           break;
       }
-      //defeat broken logic: was getting applied to offset as well as the rest of the pattern computation and that is just useless.
-      p.modulus = 0;
       return p;
     }
 

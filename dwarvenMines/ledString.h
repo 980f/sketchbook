@@ -61,7 +61,7 @@ struct LedStringer {
   }
 
   struct Pattern {//being printable precludes {} init : Printable {
-    //first one to set, note that modulus does get applied to this.
+    //first one to set
     unsigned offset = 0;
     //set this many in a row,must be at least 1
     unsigned run = 0;
@@ -69,12 +69,12 @@ struct LedStringer {
     unsigned period = 0;
     //this number of times, must be at least 1
     unsigned sets = 0;
-    //Runner will apply this modulus to its generated numbers
-    unsigned modulus = 0;
+    //length of strand, to ensure we don't go off end of pixels
+    unsigned max = 0;
 
     //making the class directly Printable loses us brace init, so we mimic that until we have the time to write some constructors
     size_t printTo(Print &dbg) const {
-      return dbg.printf("Offset: %u\tRun: %u\tPeriod: %u\tSets: %u\tMod: %u\n", offset, run, period, sets, modulus);
+      return dbg.printf("Offset: %u\tRun: %u\tPeriod: %u\tSets: %u\tMax: %u\n", offset, run, period, sets, max);
     }
 
     /** @returns number of LEDS in the pattern, an idiot checker for setPattern() */
@@ -82,15 +82,14 @@ struct LedStringer {
       return run * sets;
     }
 
-    /** we want to wrap the value used as an array index, without altering our logical counter.
-        This did not work as expected as it gets aplied to the offset at times where we wish it did not.
+    /** functionality dropped, but may wish to restore so we keep this function as a no-op.
     */
     unsigned operator()(unsigned rawcomputation) const {
-      return modulus ? rawcomputation % modulus : rawcomputation;
+      return rawcomputation;
     }
 
     bool isViable() const {
-      return sets != ~0 && sets > 0 && run != ~0 && run > 0 && period >= run;
+      return sets != ~0 && sets > 0 && run != ~0 && run > 0 && period >= run && offset < max;
     }
 
     /** @returns whether this pattern is usable*/
@@ -126,20 +125,20 @@ struct LedStringer {
       */
       bool next() {
         if (!run || run == ~0) { // ~0 case for guard against ~ entered in debug UI.
-          if (spew){
+          if (spew) {
             spew->println("Trivial run, ignoring it. \n");
           }
           return false; //we are done or have been done
         }
         if (--run) {
           ++latest;
-          return true;
+          return latest < pattern.max;
         }
         if (debugPattern && spew) {
           spew->println("\nOne run completed. \t");
         }
         if (set != ~0 && --set > 0) {
-          if(debugPattern && spew) {
+          if (debugPattern && spew) {
             spew->printf("Remaining sets %u\n", set);
           }
           run = pattern.run;
@@ -193,7 +192,7 @@ struct LedStringer {
       auto runner = pattern.runner();
       do {//precheck of pattern lets us know that at least one pixel is to be set
         unsigned pi = runner;
-        leds[pi % quantity] = color;//wrapping is better than altering unowned memory.
+        leds[pi < quantity ? pi : 0] = color; //wrapping is better than altering unowned memory.
         ++numberSet;
         if (debugPattern && spew) {
           spew->printf(" %u\t", pi);

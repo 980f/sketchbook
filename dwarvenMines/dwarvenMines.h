@@ -195,7 +195,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       tester.pattern.offset = param;
       sendTest();
       break;
-    case '-': // run,period- sets,modulus/ offset k
+    case '-': // run,period- sets,max/ offset k
       tester.pattern.run = param;
       if (cli.argc() > 1) {
         tester.pattern.period = cli[1];
@@ -206,7 +206,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case '\\':
       tester.pattern.sets = param;
       if (cli.argc() > 1) {
-        tester.pattern.modulus = cli[1];
+        tester.pattern.max = cli[1];
       }
       sendTest();
       break;
