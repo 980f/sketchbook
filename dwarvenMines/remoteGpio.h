@@ -21,7 +21,7 @@ struct RemoteGPIO: BroadcastNode {
     static constexpr unsigned numInputs = 8;
 #define ForPin(index) for(unsigned index = RemoteGPIO::numInputs ;index-->0;)
 
-    DebouncedInput gpio[numInputs] {{18, false}, {19, false}, {23, false}, {25, false}, {26, false}, {27, false}, {32, false}, {33, false}};
+    DebouncedInput gpio[numInputs] {{18, false}, {19, false}, {22, false}, {25, false}, {26, false}, {27, false}, {32, false}, {33, false}};
     Ticker periodically;
 
     bool spew = false;
