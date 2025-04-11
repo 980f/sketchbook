@@ -374,10 +374,10 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case 't':
       if (boss) {
         if (wasUpper) {
-          cfg.fuseTicks = param;
-          boss->timebomb.next(cfg.fuseTicks);
+          cfg.punchThroughTime = param;
+          boss->punchThrough.next(cfg.punchThroughTime);
         }
-        Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", boss->timebomb.due, boss->timebomb.remaining(), Ticker::now);
+        Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", boss->punchThrough.due, boss->punchThrough.remaining(), Ticker::now);
       }
       break;
     case 'u': // unsolve

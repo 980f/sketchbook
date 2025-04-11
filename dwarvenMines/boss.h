@@ -125,17 +125,17 @@ template <unsigned Size> struct PermutationSet: Printable {
 /** outside the class so that we can configure before instantiating an instance*/
 struct BossConfig: Printable {
   // time from first pull to restart
-  MilliTick fuseTicks = Ticker::Never; //Ticker::PerMinutes(3);
+  MilliTick punchThroughTime = 20000;
   MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 
   //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
   MilliTick resetTicks = Ticker::PerSeconds(61);
   //time from solution to vortex/door open, so that audio track can fully cue up:
-  MilliTick audioLeadinTicks = 7990; //experimental
+  MilliTick audioLeadinTicks = 7990;
 
   struct DrillConfg: Printable {
     MilliTick Step = 150; //how far to move stripe during drilling
-    MilliTick Complete = Ticker::PerSeconds(10); //how long to run animation.
+    MilliTick Complete = Ticker::Never; //how long to run animation.
     size_t printTo(Print &stream) const override {
       return stream.printf("Sweep: step %u for %u ms\n", Step, Complete);
     }
@@ -170,7 +170,7 @@ struct BossConfig: Printable {
   }
 
   size_t printTo(Print &stream) const override {
-    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", fuseTicks, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
+    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", punchThroughTime, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
            + stream.print(foreground)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
@@ -187,8 +187,7 @@ struct Boss : public VortexCommon {
 
     enum class Puzzle {
       Idle,
-      Partial,
-      StartDrill,
+      AudioDelay,
       Drilling,
       Done
     } puzzle = Puzzle::Idle;
@@ -218,7 +217,7 @@ struct Boss : public VortexCommon {
     RemoteGPIO::Content &remoteLever{levers2.m};
 
     //timing
-    Ticker timebomb; // if they haven't solved the puzzle by this amount they have to partially start over.
+    Ticker punchThrough; // if they haven't solved the puzzle by this amount they have to partially start over.
     Ticker autoReset; //ensure things shut down if the operator gets distracted
     Ticker audioLeadin; //give time for audio to start and run to machine moving noises.
     Ticker refreshRate; //sendall occasionally to deal with any intermittency in LED connection
@@ -392,17 +391,21 @@ struct Boss : public VortexCommon {
       updateAllowed = !holdoff.isRunning();
     }
 
-    void onSolution(const char *cause) {
-      puzzle = Puzzle::StartDrill;
-      driller.beRunning(true);
+    void onSolution(const char *cause) {     
+      puzzle = Puzzle::AudioDelay;
+      driller.beRunning(true);//this is just lights
       Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
-      timebomb.stop();
-      audioLeadin.next(cfg.audioLeadinTicks);
+//      timebomb.stop();
+      audioLeadin.next(cfg.audioLeadinTicks);//time until vortex starts
       relay[Audio] << true; //audio needs time to get to where motor sounds start
       relay[SpareNC] << true; //JIC
+      autoReset.next(cfg.resetTicks);//total time from solution to ready for next group
+    }
 
-      relay[VortexMotor] << true;
-      autoReset.next(cfg.resetTicks);
+    void onPunchThrough(){
+      puzzle= Puzzle::Done;     
+      relay[DoorRelease] << true;
+      relay[VortexMotor] << false; //start drilling      
     }
 
     void onAudioCue() {
@@ -410,13 +413,15 @@ struct Boss : public VortexCommon {
         Serial.printf("Audio Done at %u\n", Ticker::now);
       }
       puzzle = Puzzle::Drilling;
-      relay[DoorRelease] << true;
+      relay[VortexMotor] << true; //start drilling      
+      punchThrough.next(cfg.punchThroughTime);
     }
 
     void resetPuzzle() {
       puzzle = Puzzle::Idle;
       autoReset.stop();
-      timebomb.stop();
+      punchThrough.stop();
+      audioLeadin.stop();      
       relay.all(false);
       lever.restart();
       solved = 0;
@@ -449,7 +454,6 @@ struct Boss : public VortexCommon {
           if (EVENT) {
             Serial.println("First lever pulled");
           }
-          timebomb.next(cfg.fuseTicks);
           break;
         case Event::SomePulled: // nothing special, but not all off
           break;
@@ -535,19 +539,14 @@ struct Boss : public VortexCommon {
 
       lever.setup(50); // todo: proper source for lever debounce time
       relay.setup();
-      timebomb.stop(); // in case we call setup from debug interface
-      autoReset.stop();
-      audioLeadin.stop();
       ForStations(si) {
         needsUpdate[si] = true;
       }
-      resetPuzzle();
+      resetPuzzle();//addresses all timers and relays
       spew = true;//bn debug flag
       if (!BroadcastNode::begin(true)) {
         Serial.println("Broadcast begin failed");
       }
-      Serial.printf("Background Lighting: %p\n", &backgrounder.wrapper);
-      Serial.printf("Lever Lighting: %p\n", &message);
       Serial.println("Boss Setup Complete");
     }
 
@@ -557,12 +556,14 @@ struct Boss : public VortexCommon {
     }
 
     void loop() {
-      if((driller.step%12)==0){
-        if(puzzle == Puzzle::Drilling){
+      
+      if((driller.step%12)==0){//only turn lights off at top of cycle, else random bits are either blank or same as neighbor
+        if(puzzle == Puzzle::Done){
           driller.beRunning(false);
         }
       }
-      // local levers are tested on timer tick, since they are debounced by it.
+      
+      // FYI: local levers are tested on timer tick, since they are debounced by it, only remotes are checked in loop()
       if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
           Serial.println("Processing remote gpio");
@@ -587,7 +588,7 @@ struct Boss : public VortexCommon {
 
         if (changed(remoteSolved, remoteLever[numStations + 1])) {
           if (remoteSolved) {
-            onSolution("Remote Override");
+            onSolution("Remote Trigger");
           }
         }
       }
@@ -644,11 +645,11 @@ struct Boss : public VortexCommon {
         resetPuzzle();
       }
 
-      if (timebomb.done()) {
+      if (punchThrough.done()) {
         if (EVENT) {
-          Serial.println("Timed out solving puzzle, resetting lever state");
+          Serial.println("Finished drilling phase");
         }
-        lever.restart();
+        onPunchThrough();
         return;
       }
 
