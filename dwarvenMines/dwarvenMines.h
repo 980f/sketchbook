@@ -123,7 +123,7 @@ void getConfig() {
 
 void saveConfig(unsigned checkcode) {
   if (boss) {
-    Serial.println("Present state of configuration:");
+    Serial.printf("Present state of configuration: (%d)\n",   checkcode);
     Serial.print(cfg);
     if (checkcode == ~0) { // undo all changes
       getConfig();
@@ -131,6 +131,12 @@ void saveConfig(unsigned checkcode) {
       EEPROM.put(0, cfg);
       EEPROM.commit(); // needed for flash backed paged eeproms to actually save the info.
       Serial.println("Saved configuration to virtual EEPROM");
+    } else if (checkcode == 1984){
+      BossConfig defconfig;//default construct gets default config      
+      EEPROM.put(0, defconfig);
+      EEPROM.commit(); // needed for flash backed paged eeproms to actually save the info.
+      Serial.println("Saved defaults to virtual EEPROM");
+      getConfig();
     } else { // annoy user with incomplete information on how to save the config.
       Serial.println("You must enter the magic number in order to save the configuration.");
     }
@@ -186,7 +192,7 @@ void tweakColor(unsigned which, unsigned param) {
 void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
   Serial.print(": ");
   unsigned param = cli[0]; // clears on read, can only access once!
-  switch (key) {//still available: aeh;[]
+  switch (key) {//still available:aeh;[]
     case ':':
       saveConfig(param);
       break;

@@ -53,12 +53,12 @@ const unsigned numStations = 6;
 struct ColorSet: Printable {
 
   CRGB Color[numStations] = {
-    0xFF0000,
-    0x00FF00,
-    0x0000FF,
-    0xFF00FF,
-    0xFFFF00,
-    0x00FFFF,
+    0x3E0000,
+    0x3C2C00,
+    0x003C00,
+    0x2C002C,
+    0x002B42,
+    0x000042,
   };
 
   /** @returns reference to a color, using #0 for invalid indexes */
@@ -125,13 +125,13 @@ template <unsigned Size> struct PermutationSet: Printable {
 /** outside the class so that we can configure before instantiating an instance*/
 struct BossConfig: Printable {
   // time from first pull to restart
-  MilliTick punchThroughTime = 20000;
+  MilliTick punchThroughTime = Ticker::PerSeconds(43);//end of audio delay to door open
   MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 
   //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
-  MilliTick resetTicks = Ticker::PerSeconds(61);
+  MilliTick resetTicks = Ticker::PerSeconds(55+60);
   //time from solution to vortex/door open, so that audio track can fully cue up:
-  MilliTick audioLeadinTicks = 7990;
+  MilliTick audioLeadinTicks = 6580;
 
   struct DrillConfg: Printable {
     MilliTick Step = 150; //how far to move stripe during drilling
@@ -154,7 +154,7 @@ struct BossConfig: Printable {
   } pattern;
 
   struct Oh: Printable {
-    CRGB Lights = CRGB{60, 60, 70};
+    CRGB Lights = CRGB{0X20, 0X20, 0X38};
     unsigned Start = VortexFX.perRevolutionActual;
     unsigned Width = 100;//defeat the feature
     size_t printTo(Print &stream) const override {
@@ -174,6 +174,7 @@ struct BossConfig: Printable {
            + stream.print(foreground)
            + stream.printf("\nremote gpio order:\n")
            + stream.print(gpioScramble)
+           + stream.println()
            + stream.print(pattern)
            //and finally to check if EEPROM is valid:
            + stream.printf("\nChecker:%u\n", checker )
@@ -257,7 +258,7 @@ struct Boss : public VortexCommon {
           case 1:   //configured as one chunk per ring.
             command.color = cfg.overhead.Lights;
             command.pattern.offset = cfg.overhead.Start;
-            command.pattern.run = cfg.overhead.Width ? cfg.overhead.Width : 1; //chasing down erroneous 0's
+            command.pattern.run = cfg.overhead.Width ? cfg.overhead.Width : 1;
             command.pattern.period = VortexFX.perRevolutionActual;//one group per ring
             command.pattern.sets = quanta(VortexFX.total - command.pattern.offset, command.pattern.period);//round up, wrap writes to just 0.
             break;
@@ -404,6 +405,7 @@ struct Boss : public VortexCommon {
 
     void onPunchThrough(){
       puzzle= Puzzle::Done;     
+      driller.beRunning(false);
       relay[DoorRelease] << true;
       relay[VortexMotor] << false; //start drilling      
     }
@@ -555,14 +557,7 @@ struct Boss : public VortexCommon {
       startHoldoff();
     }
 
-    void loop() {
-      
-      if((driller.step%12)==0){//only turn lights off at top of cycle, else random bits are either blank or same as neighbor
-        if(puzzle == Puzzle::Done){
-          driller.beRunning(false);
-        }
-      }
-      
+    void loop() {      
       // FYI: local levers are tested on timer tick, since they are debounced by it, only remotes are checked in loop()
       if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
