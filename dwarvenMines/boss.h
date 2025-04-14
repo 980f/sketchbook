@@ -8,6 +8,10 @@
 #include "block.h"
 #include "vortexLighting.h" //common parts of coordinator and light manager devices
 #include "minimath.h" // integer 'ceil' functionality
+
+//eeprom based configuration support
+#include "configurateer.h"
+
 ////////////////////////////////////////////
 //enumerate your names, with numRelays as the last entry
 enum RelayChannel { // index into relay array.
@@ -123,68 +127,62 @@ template <unsigned Size> struct PermutationSet: Printable {
 
 ///////////////////////////////////////////////////////////////////////
 /** outside the class so that we can configure before instantiating an instance*/
-struct BossConfig: Printable {
-  // time from first pull to restart
-  MilliTick punchThroughTime = Ticker::PerSeconds(43);//end of audio delay to door open
-  MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
 
-  //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
-  MilliTick resetTicks = Ticker::PerSeconds(55+60);
-  //time from solution to vortex/door open, so that audio track can fully cue up:
-  MilliTick audioLeadinTicks = 6580;
-
-  struct DrillConfg: Printable {
-    MilliTick Step = 150; //how far to move stripe during drilling
-    MilliTick Complete = Ticker::Never; //how long to run animation.
-    size_t printTo(Print &stream) const override {
-      return stream.printf("Sweep: step %u for %u ms\n", Step, Complete);
-    }
-  } sweep;
-
-  unsigned frameRate = 16;
-  ColorSet foreground;
-  PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
-
-  struct PatternOpts : Printable {
-    unsigned Index = 1;
-    unsigned clumping = 3;
-    size_t printTo(Print &stream) const override {
-      return stream.printf("\ty:[%u,]%u\n", clumping, Index);
-    }
-  } pattern;
-
-  struct Oh: Printable {
-    CRGB Lights = CRGB{0X20, 0X20, 0X38};
-    unsigned Start = VortexFX.perRevolutionActual;
-    unsigned Width = 100;//defeat the feature
-    size_t printTo(Print &stream) const override {
-      return stream.printf("\t~c:%06X, k:[%u,]%u\n", Lights.as_uint32_t(), Start , Width);
-    }
-
-  } overhead;
-  //and finally to check if EEPROM is valid:
-  uint16_t checker = 0x980F;
-
-  bool isValid() const {
-    return checker == 0x980F; //really simple, someday do CRC and check that.
-  }
-
-  size_t printTo(Print &stream) const override {
-    return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", punchThroughTime, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
-           + stream.print(foreground)
-           + stream.printf("\nremote gpio order:\n")
-           + stream.print(gpioScramble)
-           + stream.println()
-           + stream.print(pattern)
-           //and finally to check if EEPROM is valid:
-           + stream.printf("\nChecker:%u\n", checker )
-           ;
-  }
-};
-
-BossConfig cfg;
 
 struct Boss : public VortexCommon {
+
+    struct Config: Printable {
+      // time from first pull to restart
+      MilliTick punchThroughTime = Ticker::PerSeconds(43);//end of audio delay to door open
+      MilliTick refreshPeriod = Ticker::PerSeconds(5); //100 is 10 Hz, for 400 LEDs 83Hz is pushing your luck.
+
+      //time from solution to vortex halt (and audio off, and door reenable), for when the operator fails to turn it off.
+      MilliTick resetTicks = Ticker::PerSeconds(55 + 60);
+      //time from solution to vortex/door open, so that audio track can fully cue up:
+      MilliTick audioLeadinTicks = 6580;
+
+      struct DrillConfg: Printable {
+        MilliTick Step = 150; //how far to move stripe during drilling
+        MilliTick Complete = Ticker::Never; //how long to run animation.
+        size_t printTo(Print &stream) const override {
+          return stream.printf("Sweep: step %u for %u ms\n", Step, Complete);
+        }
+      } sweep;
+
+      unsigned frameRate = 16;
+      ColorSet foreground;
+      PermutationSet<numStations> gpioScramble {0, 2, 3, 5, 4, 1};//empirically determined for remote GPIO
+
+      struct PatternOpts : Printable {
+        unsigned Index = 1;
+        unsigned clumping = 3;
+        size_t printTo(Print &stream) const override {
+          return stream.printf("\ty:[%u,]%u\n", clumping, Index);
+        }
+      } pattern;
+
+      struct Oh: Printable {
+        CRGB Lights = CRGB{0X20, 0X20, 0X38};
+        unsigned Start = VortexFX.perRevolutionActual;
+        unsigned Width = 100;//defeat the feature
+        size_t printTo(Print &stream) const override {
+          return stream.printf("\t~c:%06X, k:[%u,]%u\n", Lights.as_uint32_t(), Start , Width);
+        }
+      } overhead;
+
+      size_t printTo(Print &stream) const override {
+        return stream.printf("t:%d, z:%d, y:%d, x:%d, f:%u, \n", punchThroughTime, refreshPeriod, resetTicks, audioLeadinTicks, frameRate)
+               + stream.print(foreground)
+               + stream.printf("\nremote gpio order:\n")
+               + stream.print(gpioScramble)
+               + stream.println()
+               + stream.print(pattern)
+               ;
+      }
+    };
+
+
+    static Configurable<Config> cfg;
 
     enum class Puzzle {
       Idle,
@@ -392,22 +390,22 @@ struct Boss : public VortexCommon {
       updateAllowed = !holdoff.isRunning();
     }
 
-    void onSolution(const char *cause) {     
+    void onSolution(const char *cause) {
       puzzle = Puzzle::AudioDelay;
       driller.beRunning(true);//this is just lights
       Serial.printf("Solved due to %s:\t at %u, delay is set to %u\n", cause, Ticker::now, cfg.audioLeadinTicks);
-//      timebomb.stop();
+      //      timebomb.stop();
       audioLeadin.next(cfg.audioLeadinTicks);//time until vortex starts
       relay[Audio] << true; //audio needs time to get to where motor sounds start
       relay[SpareNC] << true; //JIC
       autoReset.next(cfg.resetTicks);//total time from solution to ready for next group
     }
 
-    void onPunchThrough(){
-      puzzle= Puzzle::Done;     
+    void onPunchThrough() {
+      puzzle = Puzzle::Done;
       driller.beRunning(false);
       relay[DoorRelease] << true;
-      relay[VortexMotor] << false; //start drilling      
+      relay[VortexMotor] << false; //start drilling
     }
 
     void onAudioCue() {
@@ -415,7 +413,7 @@ struct Boss : public VortexCommon {
         Serial.printf("Audio Done at %u\n", Ticker::now);
       }
       puzzle = Puzzle::Drilling;
-      relay[VortexMotor] << true; //start drilling      
+      relay[VortexMotor] << true; //start drilling
       punchThrough.next(cfg.punchThroughTime);
     }
 
@@ -423,7 +421,7 @@ struct Boss : public VortexCommon {
       puzzle = Puzzle::Idle;
       autoReset.stop();
       punchThrough.stop();
-      audioLeadin.stop();      
+      audioLeadin.stop();
       relay.all(false);
       lever.restart();
       solved = 0;
@@ -557,7 +555,7 @@ struct Boss : public VortexCommon {
       startHoldoff();
     }
 
-    void loop() {      
+    void loop() {
       // FYI: local levers are tested on timer tick, since they are debounced by it, only remotes are checked in loop()
       if (flagged(levers2.dataReceived)) { // message received
         if (TRACE) {
@@ -673,3 +671,5 @@ struct Boss : public VortexCommon {
     }// end tick
 
 };
+
+Configurable<Boss::Config> Boss::cfg;

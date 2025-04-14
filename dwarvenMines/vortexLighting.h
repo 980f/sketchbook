@@ -95,12 +95,13 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
     send_message(block);
   }
 
-
+  using VortexLighting::apply;//for reasons only known to the authors of C++ function signatures for lookup only check name ignoring parameters, unless they are in the same local scope
+  
   /* while this makes most sense on the boss, on the worker it serves as acknowledgment */
   void apply(Message &vor) {
     Serial.printf("VC::apply Message %s tag %s\n", vor.prefix, vor.tag);
     sendMessage(vor);//Boss sends command, worker reflects as acknowledgement
-    VortexLighting::apply(vor.m);//actually update lights.
+    /*VortexLighting::*/apply(vor.m);//actually update lights.
   }
 
   void setup() {

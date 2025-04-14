@@ -106,40 +106,26 @@ Boss *boss = nullptr;
 Stripper *worker = nullptr;
 VortexCommon *agent = nullptr; // will be one of {boss|worker}
 
-void getConfig() {
-  BossConfig temp;
-  EEPROM.begin(sizeof(temp)); // note: if worker needed its own config we would add its size here
-  EEPROM.get(0, temp);
-  if (temp.isValid()) {
-    cfg = temp;
-    Serial.println("Loaded configuration from EEPROM:");
-    Serial.print(cfg);
-  } else { // else object has defaults built in
-    EEPROM.put(0, cfg);
-    Serial.println("Initialized configuration in EEPROM:");
-    Serial.print(cfg);
-  }
+bool getConfig() {
+  return Boss::cfg.get();
 }
 
 void saveConfig(unsigned checkcode) {
-  if (boss) {
-    Serial.printf("Present state of configuration: (%d)\n",   checkcode);
-    Serial.print(cfg);
-    if (checkcode == ~0) { // undo all changes
-      getConfig();
-    } else if (checkcode == cfg.checker) { // save config, whether changed or not
-      EEPROM.put(0, cfg);
-      EEPROM.commit(); // needed for flash backed paged eeproms to actually save the info.
-      Serial.println("Saved configuration to virtual EEPROM");
-    } else if (checkcode == 1984){
-      BossConfig defconfig;//default construct gets default config      
-      EEPROM.put(0, defconfig);
-      EEPROM.commit(); // needed for flash backed paged eeproms to actually save the info.
-      Serial.println("Saved defaults to virtual EEPROM");
-      getConfig();
-    } else { // annoy user with incomplete information on how to save the config.
-      Serial.println("You must enter the magic number in order to save the configuration.");
-    }
+  Serial.printf("Present state of configuration: (%d)\n",   checkcode);
+  Serial.print(Boss::cfg);
+  Serial.printf("\nChecker:%u\n", Boss::cfg.checker);
+  
+  if (checkcode == ~0) { // undo all changes
+    getConfig();
+  } else if (checkcode == Boss::cfg.checker) { // save config, whether changed or not
+    Boss::cfg.put();
+    Serial.println("Saved configuration to virtual EEPROM");
+  } else if (checkcode == 1984) {
+    Boss::cfg.factoryReset();
+    Serial.println("Saved defaults to virtual EEPROM");
+    getConfig();
+  } else { // annoy user with incomplete information on how to save the config.
+    Serial.println("You must enter the magic number in order to save the configuration.");
   }
 }
 
@@ -253,10 +239,10 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
         worker->message.dataReceived = true;
       }
       break;
-    case 'a':      
-      cfg.sweep.Step = param ? param : 150; //how far to move stripe during drilling
+    case 'a':
+      Boss::cfg.sweep.Step = param ? param : 150; //how far to move stripe during drilling
       if (cli.argc() > 1) {
-        cfg.sweep.Complete = cli[1];
+        Boss::cfg.sweep.Complete = cli[1];
       };
       break;
     case 'b':
@@ -272,11 +258,11 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case 'c': // set a station color, volatile!
       if (boss) {
         if (cliValidStation(param, key)) {
-          cfg.foreground[param] = tester.color;
-          Serial.printf("station[%u] color is now 0x%06X\n", param, cfg.foreground[param].as_uint32_t());
+          Boss::cfg.foreground[param] = tester.color;
+          Serial.printf("station[%u] color is now 0x%06X\n", param, Boss::cfg.foreground[param].as_uint32_t());
         }
         if (param == ~0) {
-          cfg.overhead.Lights = tester.color;
+          Boss::cfg.overhead.Lights = tester.color;
           boss->backgrounder.erase();
         }
       }
@@ -302,7 +288,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case 'f':
       if (boss) {
         /*boss->*/
-        cfg.frameRate = param;
+        Boss::cfg.frameRate = param;
       }
       break;
     case 'j':
@@ -312,9 +298,9 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       break;
     case 'k':
       if (boss) {
-        cfg.overhead.Width = param;
+        Boss::cfg.overhead.Width = param;
         if (cli.argc() > 1) {
-          cfg.overhead.Start = cli[1];
+          Boss::cfg.overhead.Start = cli[1];
         }
         boss->backgrounder.erase();
       }
@@ -380,8 +366,8 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
     case 't':
       if (boss) {
         if (wasUpper) {
-          cfg.punchThroughTime = param;
-          boss->punchThrough.next(cfg.punchThroughTime);
+          Boss::cfg.punchThroughTime = param;
+          boss->punchThrough.next(Boss::cfg.punchThroughTime);
         }
         Serial.printf("Timebomb due: %u, in : %d, Now : %u\n", boss->punchThrough.due, boss->punchThrough.remaining(), Ticker::now);
       }
@@ -394,10 +380,10 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
         Serial.printf("There are now %u activated\n", boss->lever.numSolved());
       }
       break;
-      case 'v': //pattern options
-      cfg.pattern.clumping = param;
+    case 'v': //pattern options
+      Boss::cfg.pattern.clumping = param;
       if (cli.argc() > 1) {
-        cfg.pattern.Index= cli[1];
+        Boss::cfg.pattern.Index = cli[1];
       }
     case 'w': // locally test a style via "all on"
       ++tester.sequenceNumber;
@@ -410,7 +396,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
               if (tester.pattern.run == 0) {
                 tester.setAll(tester.color);
               }
-              boss->VortexLighting::apply(tester);
+              boss->/*VortexLighting::*/apply(tester);
               Serial.printf("Setting colors on local strand\n");
             } else {//remote and local
               testwrapper.tag[0] = 'D';
@@ -422,7 +408,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
           case 1:  //set all locally to "solved"
             Serial.printf("Setting LEDs via local connection\n");
             ForStations(si) {
-              auto rgb = cfg.foreground[si];
+              auto rgb = Boss::cfg.foreground[si];
               auto pat = boss->pattern(si);
               Serial.printf("\tstation %u, color %06X ", si, rgb.as_uint32_t());
               pat.printTo(Serial);
@@ -444,25 +430,25 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       break;
     case 'x':
       if (boss) {
-        /*boss->*/ cfg.audioLeadinTicks = param;
+        /*boss->*/ Boss::cfg.audioLeadinTicks = param;
       }
       break;
     case 'y':
       if (boss) {
-        /*boss->*/ cfg.resetTicks = param;
+        /*boss->*/ Boss::cfg.resetTicks = param;
       }
       break;
     case 'z': // set refresh rate, 0 kills it rather than spams.
       if (boss) {
         if (param == ~0) {
-          cfg.refreshPeriod = Ticker::Never;
+          Boss::cfg.refreshPeriod = Ticker::Never;
           boss->refreshLeds();
           Serial.printf("Refresh disabled but being invoked now\n");
         } else {
-          cfg.refreshPeriod = param ? param : Ticker::Never;
-          boss->refreshRate.next(cfg.refreshPeriod);
-          if (cfg.refreshPeriod != Ticker::Never) {
-            Serial.printf("refresh rate set to %u\n", cfg.refreshPeriod);
+          Boss::cfg.refreshPeriod = param ? param : Ticker::Never;
+          boss->refreshRate.next(Boss::cfg.refreshPeriod);
+          if (Boss::cfg.refreshPeriod != Ticker::Never) {
+            Serial.printf("refresh rate set to %u\n", Boss::cfg.refreshPeriod);
           } else {
             Serial.printf("refresh disabled\n");
           }
