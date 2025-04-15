@@ -524,7 +524,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
 
 // arduino's setup:
 void setup() {
-  Serial.begin(460800); // use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
+  Serial.begin(460800); //maydo: use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
 
   //  SimpleInputPin doDebug(34, false);
   //  doDebug.setup();

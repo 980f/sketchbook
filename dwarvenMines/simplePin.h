@@ -15,6 +15,10 @@ struct SimplePin {
 
   //this confuses the compiler, so we will use shift operators to set values
   void operator = (bool setto) = delete ;  //need to make this work, but until then it is invalid
+  /** until operator = doesn't spew gratuitous and unsuppressable compiler warnings: */
+  void operator <<(bool setto) {
+    digitalWrite(number, setto == activeHigh);
+  }
 
   SimplePin(unsigned pinNumber, bool activeHigh = true): number(pinNumber), activeHigh(activeHigh) { }
 

@@ -2,7 +2,10 @@
 #include "simplePin.h"
 #include "simpleTicker.h"
 #include "cheaptricks.h"
+
 struct DebouncedInput : public Printable {
+  bool trace = false;
+
   SimpleInputPin pin;
   //official state
   bool stable = false;
@@ -18,15 +21,18 @@ struct DebouncedInput : public Printable {
 
   /** @returns whether the input has officially changed to a new state */
   bool onTick(MilliTick now) {
-    //    Serial.printf("some input");
     if (changed(bouncy, bool(pin))) {//explicit cast need to get around a "const" issue with changed.
       bouncing.next(DebounceDelay);
-      Serial.printf("Pin Changed: D%u to %x at %u, will report stable in %u\n", pin.number, bouncy, now, bouncing.remaining());
+      if (TRACE && trace) {
+        Serial.printf("Pin Changed: D%u to %x at %u, will report stable in %u\n", pin.number, bouncy, now, bouncing.remaining());
+      }
       return false;
     }
 
     if (bouncing.done() && changed(stable, bouncy)) {
-      Serial.printf("Stable D%u:%x at %u\n", pin.number, stable, now);
+      if (TRACE && trace) {
+        Serial.printf("Stable D%u:%x at %u\n", pin.number, stable, now);
+      }
       return true;
     }
     return false;

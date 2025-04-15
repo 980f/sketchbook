@@ -18,6 +18,7 @@ template <class Stuff, unsigned IdLength = 4> struct ScaryMessage: public Printa
   ////////////////////////////
   //local state.
   bool dataReceived = false;
+  bool shouldSend = false;
   ///////////////////////////
   //init with {'x','x','x','x'}, only some compilers accept "xxxx" here and so we do the tedious thing.
   ScaryMessage(std::initializer_list<const unsigned char> idchunk) {
@@ -58,6 +59,14 @@ template <class Stuff, unsigned IdLength = 4> struct ScaryMessage: public Printa
     } else {
       return false;
     }
+  }
+
+  bool hot(){
+    return flagged(dataReceived);
+  }
+
+  bool dirty(){
+    return flagged(shouldSend); 
   }
 
   size_t printTo(Print &stream) const override {

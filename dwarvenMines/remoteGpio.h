@@ -14,22 +14,94 @@
 #include "simpleTicker.h" //send periodically even if no change, but also on change
 #include "broadcastNode.h"
 #include "scaryMessage.h"
+#include "configurateer.h"
 
+//initial verison hard coded 8 low active inputs
+unsigned lolin32_lite[] = {18, 19, 22, 25, 26, 27, 32, 33, ~0, ~0, ~0 };
+unsigned c3_super_mini[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}; //they made this simple :) fyi: 20,21 are uart
 
 struct RemoteGPIO: BroadcastNode {
-
-    static constexpr unsigned numInputs = 8;
-#define ForPin(index) for(unsigned index = RemoteGPIO::numInputs ;index-->0;)
-
-    DebouncedInput gpio[numInputs] {{18, false}, {19, false}, {22, false}, {25, false}, {26, false}, {27, false}, {32, false}, {33, false}};
-    Ticker periodically;
-
     bool spew = false;
 
+    static constexpr unsigned numPins = 11;//todo: make this device specific, 11 is for C3-mini reserving uart0 lines
+#define ForPin(index) for(unsigned index = RemoteGPIO::numInputs ;index-->0;)
+
+    /** pin conifguration. defaults match first user (QN2025 dwarevenMines), and are reasonable for arcade switches */
+    struct PinFig {
+      uint8_t number;
+      byte mode = INPUT_PULLUP;
+      bool highActive = false;
+      //byte padding;
+      MilliTick ticks = 50; //debounce for input, pulsewidth for output, 0 is stay on, Never is don't ever go on.
+      bool isOutput() const {
+        return mode == OUTPUT;
+      }
+      bool isInput() const {
+        return !isOutput();
+      }
+    };
+    //////////////////////////////
+    /** "pin dingus", dynamically configurable input with debounce or output that is a pulse, possible a perpetual pulse. */
+    struct Pingus {
+      DebouncedInput io;
+      //will abuse io debouncer for pulse output
+      void apply(const PinFig &fig) {
+        pinMode(fig.number, mode);
+        io.pin.activeHigh = fig.highActive;
+        io.DebounceDelay = fig.ticks;
+      }
+
+      void onTick() {
+        if (isOutput()) {
+          if (io.bouncing.done() ) {
+            io.pin << false;
+            io.stable = false;
+          }
+        } else {
+          io.onTick();
+        }
+      }
+
+      void trigger(bool bee) {
+        if (bee) {
+          io.pin << true;
+          io.bouncing.next(io.DebounceDelay);
+        } else {
+          io.pin << false;
+          io.bouncing.stop();
+        }
+        io.stable = bee;
+      }
+    };
+
+    Pingus pingus[numPins];
+    Ticker periodically;
+    ////////////////////////////////////////
     struct Config {
-      MilliTick period = Ticker::PerSeconds(1);
-      //todo: mode, pin, polarity, debounce time for inputs, pulse width for outputs
-    } cfg;
+      MilliTicks refreshInterval = Ticker::Never;
+      PinFig pin[numPins];
+    };
+
+    struct ConfigMessage: public ScaryMessage<Config, 7 /* strlen("GPIOCFG") */> {
+      ConfigMessage(): ScaryMessage {'G', 'P', 'I', 'O', 'C', 'F', 'G'} {}
+    } confMessage;
+
+    Config &cfg{confMessage.m};
+
+    void setupPins() {
+      ForPin(pi) {
+        pingus[pi].apply(cfg.pin[pi]);
+      }
+    }
+
+    void applyOutputs() {
+      //update output pins
+      ForPin(pi) {
+        if (cfg.pin[pi].isOutput()) {
+          pingus[pi].trigger(value[pi]);
+        }
+      }
+    }
 
     ////////////////////
     struct Content {
@@ -60,10 +132,24 @@ struct RemoteGPIO: BroadcastNode {
       Message(): ScaryMessage {'G', 'P', 'I', 'O'} {}
     };
 
+    /** to report inputs, and also output state since we have pulsers, we use this guy */
     Message toSend;
     Content &report{toSend.m};
+    /** to set outputs we receive this */
+    Message command;
+    Content &commanded{command.m};
 
-    bool shouldSend = false;//todo: add this to ScaryMessage as most implementations will find it useful.
+    void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
+      auto packet = Packet{len, *data};
+      if (confMessage.accept(packet)) {
+        //all action is in loop();
+      } else if (command.accept(packet)) {
+        //all action is in loop();
+      } else {
+        //perhaps restore reporting on other traffic
+      }
+    }
+
 
     void onTick(MilliTick now) {
       unsigned numChanges = 0;
@@ -74,10 +160,10 @@ struct RemoteGPIO: BroadcastNode {
         report[index] = bool(gpio[index]);
       }
       if (numChanges > 0) {
-        shouldSend = true;
+        toSend.shouldSend = true;
       }
       if (periodically.done()) {
-        shouldSend = true;
+        toSend.shouldSend = true;
       }
     }
 
@@ -92,11 +178,10 @@ struct RemoteGPIO: BroadcastNode {
 
     bool setup(MilliTick bouncer = 50) {
       toSend.tag[0] = 'V'; //tag is presently purely for debug.
-      toSend.tag[1] = '1';
-      ForPin(index) {
-        gpio[index].filter(bouncer);
-        gpio[index].setup(true);//true here makes the pin report that it has just changed to whatever its present value is.
-      }
+      toSend.tag[1] = '2';
+      //for C3 super-mini:
+
+
       periodically.next(0);//send ASAP with initial values.
       return BroadcastNode::begin(true);
     }
@@ -109,8 +194,15 @@ struct RemoteGPIO: BroadcastNode {
     }
 
     void loop() {
-      if (flagged(shouldSend)) {
+      if (toSend.dirty()) {
         post();
+      }
+      if (confMessage.hot()) {
+        //update pin configurations
+        setupPins();
+      }
+      if (command.hot()) {
+        applyOutputs();
       }
     }
 

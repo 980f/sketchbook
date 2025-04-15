@@ -83,7 +83,7 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
 
   VortexCommon(): BroadcastNode(BroadcastNode_Triplet) {  }
 
-  //broadcast a vortex lighting message, used as both command and acknowledgement
+  //broadcast a vortex lighting message, used as both command and acknowledgment
   void sendMessage(Message &msg) {
     auto block = msg.outgoing();
     if (TRACE) {
@@ -100,8 +100,8 @@ struct VortexCommon: public VortexLighting, BroadcastNode {
   /* while this makes most sense on the boss, on the worker it serves as acknowledgment */
   void apply(Message &vor) {
     Serial.printf("VC::apply Message %s tag %s\n", vor.prefix, vor.tag);
-    sendMessage(vor);//Boss sends command, worker reflects as acknowledgement
-    /*VortexLighting::*/apply(vor.m);//actually update lights.
+    sendMessage(vor);//Boss sends command, worker reflects as acknowledgment
+    apply(vor.m);//actually update lights.
   }
 
   void setup() {
