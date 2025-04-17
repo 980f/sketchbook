@@ -1,0 +1,9 @@
+## recreate links to library sources
+ln -sf ../block.h
+ln -sf ../broadcastNode.h
+ln -sf ../cheaptricks.h
+ln -sf ../eztypes.h
+ln -sf ../ledString.h
+ln -sf ../scaryMessage.h
+ln -sf ../simpleTicker.h
+ln -sf ../vortexLighting.h
