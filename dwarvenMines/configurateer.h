@@ -1,4 +1,5 @@
 #pragma once
+#include "EEPROM.h"
 /** a base class for a binary configuration object.
   First implementation will be a one-and-only instance */
 template <class UserConfig> struct Configurable : public UserConfig {
@@ -38,4 +39,3 @@ template <class UserConfig> struct Configurable : public UserConfig {
   }
 
 };
-

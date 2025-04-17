@@ -4,7 +4,7 @@ bool TRACE = false; //must preceded remoteGPIO for it to use it
 #include "remoteGpio.h"
 RemoteGPIO my;
 
-#include "simpleTicker.h"
+//#include "simpleTicker.h"
 
 void explode() {
   Serial.println("Rebooting in a few seconds... hoping that magically fixes things");
@@ -20,30 +20,31 @@ void setup() {
   Serial.begin(460800);
   Serial.printf("Program: %s  Running on WiFi channel %u\n\n", __FILE__ , BroadcastNode_WIFI_CHANNEL);
   my.spew = true;
-  my.cfg.period = Ticker::Never;
 
   if (!my.setup(55)) {
     Serial.println("Failed to initialize ESP-NOW");
     explode();
   }
-  my.forceMode(INPUT_PULLUP);//GP25 seems to become a low output at random, likely during wifi setup.
+//  my.forceMode(INPUT_PULLUP);//GP25 seems to become a low output at random, likely during wifi setup.
   Serial.println("Setup complete.");
 }
 
+//espressif defines this in global namespace:
+#undef cli
 #include "sui.h"
 
-SUI dbg(Serial, Serial);
+SUI<unsigned,true,3> dbg(Serial, Serial);
 
-RemoteGpio::PinFig fig;
+RemoteGPIO::PinFig fig;
 // uint8_t number;
 // byte mode;
 // bool highActive;
 // MilliTick ticks;//debounce for input, pulsewidth for output, 0 is stay on, Never is don't ever go on.
 unsigned pinOfInterest = ~0;
 
-void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
+void clido(const unsigned char key, bool wasUpper) {
   Serial.print(": ");
-  unsigned param = cli[0]; // clears on read, can only access once!
+  unsigned param = dbg.cli[0];//many options take this hard to type expression
   switch (key) {
     case '!':
       pinOfInterest = param < RemoteGPIO::numPins ? param : ~0;
@@ -66,19 +67,18 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       break;
     case ' ':
       ForPin(index) {
-        Serial.printf("\tD%u=%x", my.gpio[index].pin.number, bool(my.gpio[index]));
+        Serial.printf("\tD%u=%x", my.pingus[index].pin.number, my.pingus[index].bouncy);
       }
       Serial.println();
       ForPin(index) {
         Serial.printf("\t[%u]", index);
-        my.gpio[index].printTo(Serial);
+        my.pingus[index].printTo(Serial);
       }
       Serial.println();
       break;
     case 26:
       explode();
       break;
-
   }
 }
 
@@ -90,27 +90,27 @@ void loop() {
   }
   my.loop();
 
-  if (Serial.available()) {
-    auto key = Serial.read();
-    Serial.printf("Command %c [%d]\n", char(key), int(key) );
-    switch (key) {
-      case 13:
-        Serial.printf("posting %u\n", my.report.sequenceNumber);
-        my.post();
-        break;
-     
-      case '.':
-        my.shouldSend = true;
-        break;
-      case '=':
-        my.dumpHex(my.toSend.outgoing(), Serial);
-        break;
-      case '!':
-        TRACE = true;
-        break;
-      case '?':
-        my.forceMode(INPUT_PULLUP);
-        break;
-    }
-  }
+//  if (Serial.available()) {
+//    auto key = Serial.read();
+//    Serial.printf("Command %c [%d]\n", char(key), int(key) );
+//    switch (key) {
+//      case 13:
+//        Serial.printf("posting %u\n", my.report.sequenceNumber);
+//        my.post();
+//        break;
+//     
+//      case '.':
+//        my.shouldSend = true;
+//        break;
+//      case '=':
+//        my.dumpHex(my.toSend.outgoing(), Serial);
+//        break;
+//      case '!':
+//        TRACE = true;
+//        break;
+//      case '?':
+//        my.forceMode(INPUT_PULLUP);
+//        break;
+//    }
+//  }
 }

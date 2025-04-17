@@ -22,8 +22,6 @@
 
 */
 
-#include "EEPROM.h"
-
 #if defined(ARDUINO_LOLIN32_LITE)
 #warning "Using pin assignments for 26pin w/battery interface"
 #define BOARD_LED 22
@@ -69,11 +67,10 @@ bool spam[numSpams]; // 5 ranges, can add more and they are not actually priorit
 
 // debug state
 struct CliState {
-  //  unsigned workerIndex = 0;
   unsigned leverIndex = ~0;  // enables diagnostic spew on selected lever
-  unsigned patternIndex = 1; // 1 rainbow, 0 half ring.
+  //unsigned patternIndex = 1; // 1 rainbow, 0 half ring.
 
-  SimpleOutputPin onBoard{BOARD_LED}; // Wroom LED
+  SimpleOutputPin onBoard{BOARD_LED}; 
   Ticker pulser;
   bool onTick() {
     if (pulser.done()) {
@@ -96,7 +93,7 @@ struct CliState {
 #include "boss.h"
 #include "stripper.h"
 
-//class DwarvenMiner {
+struct DwarvenMiner {
 
 SUI dbg(Serial, Serial);
 
@@ -521,25 +518,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
       break;
   }
 }
-
-// arduino's setup:
-void setup() {
-  Serial.begin(460800); //maydo: use bootup baud rate, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
-
-  //  SimpleInputPin doDebug(34, false);
-  //  doDebug.setup();
-  bool debugging = false; // couldn't find a reliable unused pin doDebug();
-  dbg.cout.stifled = !debugging; // opposite sense of following bug flags
-  TRACE = debugging;
-  BUG3 = debugging;
-  BUG2 = debugging;
-  // default these on, unless we want to allocate another pin:
-  EVENT = true;
-  URGENT = true;
-
-  //  flasher.setup();
-  //  dbg.cout("OTA emabled for download but not yet for monitoring." );
-
+  void setup(){
   if (IamBoss) {
     Serial.println("\n\nSetting up as boss");
     getConfig();
@@ -551,6 +530,25 @@ void setup() {
     worker->setup();
   }
 
+} dm;
+
+// arduino's setup:
+void setup() {
+  Serial.begin(460800); //maydo: use bootup baud rate of 115200, so we get ascii garbage when our code connects rather than binary garbage. Also 921600 was too fast for the raspberry pi 3B.
+
+  bool debugging = false; // couldn't find a reliable unused pin doDebug();
+  dbg.cout.stifled = !debugging; // opposite sense of following bug flags
+  TRACE = debugging;
+  BUG3 = debugging;
+  BUG2 = debugging;
+  // default these on, unless we want to allocate another pin:
+  EVENT = true;
+  URGENT = true;
+
+  //  flasher.setup();
+  //  dbg.cout("OTA emabled for download but not yet for monitoring." );
+  dm.setup();
+  
   Serial.println("Entering forever loop.");
 }
 

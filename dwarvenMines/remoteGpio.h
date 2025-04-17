@@ -17,17 +17,17 @@
 #include "configurateer.h"
 
 //initial verison hard coded 8 low active inputs
-unsigned lolin32_lite[] = {18, 19, 22, 25, 26, 27, 32, 33, ~0, ~0, ~0 };
+unsigned lolin32_lite[] = {18, 19, 22, 25, 26, 27, 32, 33, 23, 16, 17 };
 unsigned c3_super_mini[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}; //they made this simple :) fyi: 20,21 are uart
 
 struct RemoteGPIO: BroadcastNode {
     bool spew = false;
 
     static constexpr unsigned numPins = 11;//todo: make this device specific, 11 is for C3-mini reserving uart0 lines
-#define ForPin(index) for(unsigned index = RemoteGPIO::numInputs ;index-->0;)
+#define ForPin(index) for(unsigned index = RemoteGPIO::numPins;index-->0;)
 
     /** pin conifguration. defaults match first user (QN2025 dwarevenMines), and are reasonable for arcade switches */
-    struct PinFig {
+    struct PinFig: Printable {
       uint8_t number;
       byte mode = INPUT_PULLUP;
       bool highActive = false;
@@ -39,47 +39,71 @@ struct RemoteGPIO: BroadcastNode {
       bool isInput() const {
         return !isOutput();
       }
+
+      size_t printTo(Print& p) const override {
+        return p.printf("\t%u %c%c %u ms", number, highActive ? ' ' : '~', isOutput() ? 'O' : 'I', ticks);
+      }
     };
     //////////////////////////////
     /** "pin dingus", dynamically configurable input with debounce or output that is a pulse, possible a perpetual pulse. */
-    struct Pingus {
-      DebouncedInput io;
+    struct Pingus: public DebouncedInput {
+      Pingus():DebouncedInput(~0){}
+
+      
+      bool amOutput = false;
+      
       //will abuse io debouncer for pulse output
       void apply(const PinFig &fig) {
-        pinMode(fig.number, mode);
-        io.pin.activeHigh = fig.highActive;
-        io.DebounceDelay = fig.ticks;
+        amOutput = fig.isOutput();
+        pinMode(fig.number, fig.mode);
+        pin.activeHigh = fig.highActive;
+        DebounceDelay = fig.ticks;
       }
 
-      void onTick() {
-        if (isOutput()) {
-          if (io.bouncing.done() ) {
-            io.pin << false;
-            io.stable = false;
+      bool onTick(MilliTick now) {
+        if (amOutput) {
+          if (bouncing.done() ) {
+            pin << false;
+            stable = false;
+            return true;
+          } else {
+            return false;
           }
         } else {
-          io.onTick();
+          return DebouncedInput::onTick(now);
         }
       }
 
       void trigger(bool bee) {
         if (bee) {
-          io.pin << true;
-          io.bouncing.next(io.DebounceDelay);
+          pin << true;
+          bouncing.next(DebounceDelay);
         } else {
-          io.pin << false;
-          io.bouncing.stop();
+          pin << false;
+          bouncing.stop();
         }
-        io.stable = bee;
+        stable = bee;
       }
+
+      //      size_t printTo(Print& p) const override {
+      //        //todo: different if output
+      //        return p.print(io);
+      //      }
     };
 
     Pingus pingus[numPins];
     Ticker periodically;
     ////////////////////////////////////////
-    struct Config {
-      MilliTicks refreshInterval = Ticker::Never;
+    struct Config: Printable {
+      MilliTick refreshInterval = Ticker::Never;
       PinFig pin[numPins];
+      size_t printTo(Print& p) const override {
+        auto length = p.printf("Refresh: %d\n", refreshInterval);
+        ForPin(pi) {
+          length += p.print(pin[pi]);
+        }
+        return length + p.println();
+      }
     };
 
     struct ConfigMessage: public ScaryMessage<Config, 7 /* strlen("GPIOCFG") */> {
@@ -94,23 +118,15 @@ struct RemoteGPIO: BroadcastNode {
       }
     }
 
-    void applyOutputs() {
-      //update output pins
-      ForPin(pi) {
-        if (cfg.pin[pi].isOutput()) {
-          pingus[pi].trigger(value[pi]);
-        }
-      }
-    }
 
     ////////////////////
     struct Content {
       unsigned sequenceNumber = 0;//for debug or stutter detection
-      bool value[numInputs];
+      bool value[numPins];
 
       bool &operator[](unsigned index) {
         static bool trash;
-        if (index < numInputs ) {
+        if (index < numPins ) {
           return value[index];
         } else {
           return trash;
@@ -139,6 +155,16 @@ struct RemoteGPIO: BroadcastNode {
     Message command;
     Content &commanded{command.m};
 
+    void applyOutputs() {
+      //update output pins from command message
+      ForPin(pi) {
+        if (cfg.pin[pi].isOutput()) {
+          pingus[pi].trigger(commanded.value[pi]);
+        }
+      }
+    }
+
+
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
       auto packet = Packet{len, *data};
       if (confMessage.accept(packet)) {
@@ -154,10 +180,10 @@ struct RemoteGPIO: BroadcastNode {
     void onTick(MilliTick now) {
       unsigned numChanges = 0;
       ForPin(index) {
-        if (gpio[index].onTick(now)) {
+        if (pingus[index].onTick(now)) {
           ++numChanges;
         }
-        report[index] = bool(gpio[index]);
+        report[index] = pingus[index].stable;
       }
       if (numChanges > 0) {
         toSend.shouldSend = true;
@@ -167,12 +193,13 @@ struct RemoteGPIO: BroadcastNode {
       }
     }
 
-    /** this method was written to deal with "D25 stuck low" esp32 wifi bug */
-    void forceMode(unsigned mode = INPUT_PULLUP) {
-      ForPin(index) {
-        SimplePin(gpio[index].pin).setup(mode);
-      }
-    }
+    // fix only pin 25 only on those devices with the problem. Mostly just avoid it.
+    //    /** this method was written to deal with "D25 stuck low" esp32 wifi bug */
+    //    void forceMode(unsigned mode = INPUT_PULLUP) {
+    //      ForPin(index) {
+    //        SimplePin(gpio[index].pin).setup(mode);
+    //      }
+    //    }
 
     RemoteGPIO(): BroadcastNode(BroadcastNode_Triplet) {}
 
@@ -190,7 +217,7 @@ struct RemoteGPIO: BroadcastNode {
       ++report.sequenceNumber;//for debug
       Serial.print(toSend);
       send_message(toSend.outgoing());
-      periodically.next(cfg.period);
+      periodically.next(cfg.refreshInterval);
     }
 
     void loop() {
