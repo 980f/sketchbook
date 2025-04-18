@@ -56,15 +56,15 @@ struct DebouncedInput : public Printable {
     DebounceDelay = filter;
   }
 
-  operator bool() {
+  operator bool() const {
     return stable;
   }
 
-  bool isStable() {
+  bool isStable() const {
     return !bouncing.isRunning();
   }
 
   size_t printTo(Print& p) const override {
-    return p.print(stable ? "ON" : "off") + p.print(bouncy != stable ? "~" : "." );
+    return p.print(' ')+p.print(stable ? "ON" : "off") + p.print(bouncy != stable ? '~' : '.' );
   }
 };

@@ -14,11 +14,7 @@
 #include "simpleTicker.h" //send periodically even if no change, but also on change
 #include "broadcastNode.h"
 #include "scaryMessage.h"
-#include "configurateer.h"
-
-//initial verison hard coded 8 low active inputs
-unsigned lolin32_lite[] = {18, 19, 22, 25, 26, 27, 32, 33, 23, 16, 17 };
-unsigned c3_super_mini[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}; //they made this simple :) fyi: 20,21 are uart
+//#include "configurateer.h"
 
 struct RemoteGPIO: BroadcastNode {
     bool spew = false;
@@ -47,12 +43,10 @@ struct RemoteGPIO: BroadcastNode {
     //////////////////////////////
     /** "pin dingus", dynamically configurable input with debounce or output that is a pulse, possible a perpetual pulse. */
     struct Pingus: public DebouncedInput {
-      Pingus():DebouncedInput(~0){}
-
-      
+      Pingus(): DebouncedInput(~0) {}
+      //cache essential configuration value. Arduino really should let you enquire what pinMode setting is.
       bool amOutput = false;
-      
-      //will abuse io debouncer for pulse output
+
       void apply(const PinFig &fig) {
         amOutput = fig.isOutput();
         pinMode(fig.number, fig.mode);
@@ -60,9 +54,10 @@ struct RemoteGPIO: BroadcastNode {
         DebounceDelay = fig.ticks;
       }
 
+      /** @returns whether debounce check indicates that the input really has change. */
       bool onTick(MilliTick now) {
         if (amOutput) {
-          if (bouncing.done() ) {
+          if (bouncing.done()) {
             pin << false;
             stable = false;
             return true;
@@ -74,6 +69,7 @@ struct RemoteGPIO: BroadcastNode {
         }
       }
 
+      /** write to what we presume is an output, starting timer to turn it off without further command to do so. */
       void trigger(bool bee) {
         if (bee) {
           pin << true;
@@ -85,10 +81,17 @@ struct RemoteGPIO: BroadcastNode {
         stable = bee;
       }
 
-      //      size_t printTo(Print& p) const override {
-      //        //todo: different if output
-      //        return p.print(io);
-      //      }
+      size_t printTo(Print& p) const override {
+        if (amOutput) {
+          if (isStable()) {
+            return p.printf("0");//remaining returns ~0 when there is none.
+          } else {
+            return p.printf("%d", bouncing.remaining());
+          }
+        } else {
+          return DebouncedInput::printTo(p);
+        }
+      }
     };
 
     Pingus pingus[numPins];
@@ -164,9 +167,8 @@ struct RemoteGPIO: BroadcastNode {
       }
     }
 
-
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-      auto packet = Packet{len, *data};
+      auto packet = Packet{len, data};
       if (confMessage.accept(packet)) {
         //all action is in loop();
       } else if (command.accept(packet)) {

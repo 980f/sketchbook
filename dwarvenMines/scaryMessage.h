@@ -29,7 +29,7 @@ template <class Stuff, unsigned IdLength = 4> struct ScaryMessage: public Printa
   }
 
   Packet outgoing() const {
-    return Packet {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), *reinterpret_cast<const uint8_t *>(prefix)};
+    return Packet {(&endMarker - reinterpret_cast<const uint8_t *>(prefix)), reinterpret_cast<const uint8_t *>(prefix)};
   }
 
   /** expect the whole object including prefix */
@@ -42,7 +42,7 @@ template <class Stuff, unsigned IdLength = 4> struct ScaryMessage: public Printa
   }
 
   Body incoming()  {
-    return Body {(&endMarker - &startMarker), startMarker};
+    return Body {(&endMarker - &startMarker), &startMarker};
   }
 
   /** for efficiency this presumes you got a true from isValidMessage*/

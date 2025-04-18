@@ -49,7 +49,7 @@ class BroadcastNode : public ESP_NOW_Peer {
         return true; //vacuous messages are instantly sent successfully
       }
       esp_log_level_set("*", ESP_LOG_WARN);
-      if (send(&msg.content, msg.size)) {
+      if (send(msg.content, msg.size)) {
         return true;
       }
       if (errors) {
@@ -71,11 +71,11 @@ class BroadcastNode : public ESP_NOW_Peer {
     }
 
     static void dumpHex(const Packet &buff, Print &stream) {
-      dumpHex(buff.size, &buff.content, stream);
+      dumpHex(buff.size, buff.content, stream);
     }
 
     static void dumpHex(const Body &buff, Print &stream) {
-      dumpHex(buff.size, &buff.content, stream);
+      dumpHex(buff.size, buff.content, stream);
     }
 
     //  protected:
@@ -84,7 +84,7 @@ class BroadcastNode : public ESP_NOW_Peer {
       if (spew) {
         Serial.printf("onReceive called on (%p)\n", this);
         Serial.printf("  Message: %s\n", reinterpret_cast<const char * > (data));
-        dumpHex(Packet{len, *data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
+        dumpHex(Packet{len, data}, Serial);//#yes, making a Packet just to tear it apart seems like extra work, but it provides an example of use and a compile time test of source integrity.
       }
     }
 

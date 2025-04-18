@@ -70,7 +70,7 @@ struct CliState {
   unsigned leverIndex = ~0;  // enables diagnostic spew on selected lever
   //unsigned patternIndex = 1; // 1 rainbow, 0 half ring.
 
-  SimpleOutputPin onBoard{BOARD_LED}; 
+  SimpleOutputPin onBoard{BOARD_LED};
   Ticker pulser;
   bool onTick() {
     if (pulser.done()) {
@@ -111,7 +111,7 @@ void saveConfig(unsigned checkcode) {
   Serial.printf("Present state of configuration: (%d)\n",   checkcode);
   Serial.print(Boss::cfg);
   Serial.printf("\nChecker:%u\n", Boss::cfg.checker);
-  
+
   if (checkcode == ~0) { // undo all changes
     getConfig();
   } else if (checkcode == Boss::cfg.checker) { // save config, whether changed or not
@@ -393,7 +393,7 @@ void clido(const unsigned char key, bool wasUpper, CLIRP<> &cli) {
               if (tester.pattern.run == 0) {
                 tester.setAll(tester.color);
               }
-              boss->/*VortexLighting::*/apply(tester);
+              boss->apply(tester);
               Serial.printf("Setting colors on local strand\n");
             } else {//remote and local
               testwrapper.tag[0] = 'D';
@@ -548,7 +548,7 @@ void setup() {
   //  flasher.setup();
   //  dbg.cout("OTA emabled for download but not yet for monitoring." );
   dm.setup();
-  
+
   Serial.println("Entering forever loop.");
 }
 
