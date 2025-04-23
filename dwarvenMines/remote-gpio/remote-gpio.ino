@@ -54,7 +54,7 @@ void canned(Block<const unsigned> set) {
     fig.highActive = false;
     fig.ticks = 57;//tracer value
     fig.mode = INPUT_PULLUP;
-    Serial.printf("\tchannel[%d] ", pi);
+    Serial.printf("\nchannel[%d] ", pi);
     Serial.print(fig);
     my.cfg.pin[pi] = fig;
     Serial.print(my.cfg.pin[pi]);
