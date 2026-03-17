@@ -496,7 +496,7 @@ struct Boss : public VortexCommon {
 
     VortexLighting::Message echoAck;//not expecting these as of QN2025 first night
     void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-      Packet incoming {len, *data};
+      Packet incoming {len, data};
       if (TRACE) {
         Serial.printf("Incoming: %u %s\n", incoming.size, &incoming.content);
       }

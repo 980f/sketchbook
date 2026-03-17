@@ -32,7 +32,7 @@ struct Stripper : public VortexCommon {
   }
 
   void onReceive(const uint8_t *data, size_t len, bool broadcast = true) override {
-    if (message.accept(Packet{len, *data})) { //trusting network to frame packets, and packet to be less than one frame
+    if (message.accept(Packet{len, data})) { //trusting network to frame packets, and packet to be less than one frame
       //all action is in loop();
     } else {
       Serial.println("Not my type of packet");
