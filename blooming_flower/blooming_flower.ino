@@ -58,22 +58,20 @@ struct Sensor {
   MilliTick readInterval;  //how often to read the sensor, so that diagnostics don't swamp us.
   unsigned reading ;   //raw analog value
   MilliTick read ;      //time sensor was last read
-  bool spew ;
+  
+  bool operator > (unsigned threshold){
+    return reading > threshold;
+  }
 
-bool operator > (unsigned threshold){
-  return reading > threshold;
-}
-
-bool operator <(unsigned threshold){
-  return ! operator > (threshold);
-}
+  bool operator <(unsigned threshold){
+    return ! operator > (threshold);
+  }
 
   Sensor(int ainPin)
     : ain(ainPin),
       readInterval(puzzle.sensorSamplingRate),
       reading(~0),  //init to something wildly impossible
-      read(0),
-      spew(true) {
+      read(0){        
     //nothing needed here
   }
 
@@ -85,22 +83,23 @@ bool operator <(unsigned threshold){
   void onTick(MilliTick now) {
     if (now > read + readInterval) {
       read = now;
-      reading = analogRead(ain);
-      if (spew) {
-        Serial.print("Moisture Reading: ");
-        Serial.print(reading);
-        Serial.print(" at ");
-        Serial.println(read);
-      }
+      reading = analogRead(ain);    
     }
   }
 };
 
 struct BloomingFlower {
-  // stepper motor:
   Motor motor;
   Sensor wetness; 
   Bloomer blooming = Unknown;
+  //keep hardware status handy for debug:
+  struct state {
+    bool Wet=false;
+    bool Dry=false;
+    bool Moving=false;
+    long At = ~0;
+  } is;
+  
   BloomingFlower()
     : motor(AccelStepper::FULL4WIRE),  // AccelStepper(uint8_t interface = AccelStepper::FULL4WIRE, uint8_t pin1 = 2, uint8_t pin2 = 3, uint8_t pin3 = 4, uint8_t pin4 = 5, bool enable = true);
       wetness(puzzle.sensorPin) {}
@@ -124,32 +123,29 @@ struct BloomingFlower {
     motor.move(0);
   }
 
-//keep status handy for debug:
-  struct state {
-    bool Wet=false;
-    bool Dry=false;
-    bool Moving=false;
-  } is;
-  
+
   void onTick(MilliTick now) {
     wetness.onTick(now);
-    
-    is.Moving = motor.distanceToGo()!=0;
+    //get all hardware state whether it matters or not, for debug convenience.
     is.Wet = wetness < puzzle.WetnessRequired - puzzle.WetnessHysteresis;
-    is.Dry = wetness>puzzle.WetnessRequired + puzzle.WetnessHysteresis;
-    
+    is.Dry = wetness > puzzle.WetnessRequired + puzzle.WetnessHysteresis;
+    //motor guesses where it is at, don't know how reliably it homes.
+    is.At = motor.currentPosition();
+    is.Moving = motor.distanceToGo()!=0;
+
     //state changes are here
     switch (blooming) {
       default:
-        Serial.println("Illegal blooming state, reseting puzzle");
+        Serial.println("Illegal blooming state");
         blooming = Unknown;
-      
+        //join:
       case Unknown:        
         rehome();  
         break;
       case Homing:
         if(! is.Moving){
           blooming = Closed;
+           Serial.println("Homed");
           //todo: reduce motor power.
         }
         break;
@@ -164,6 +160,7 @@ struct BloomingFlower {
         //todo: check fail safe timer and stop stepper
         if(!is.Moving){
           blooming = Opened;
+           Serial.println("Opened");
           //todo: reduce motor power.
         }
         break;
@@ -177,11 +174,15 @@ struct BloomingFlower {
       case Closing:  //presume sensor glitched and we should do a full reset
         if(!is.Moving){
           blooming = Closed;
+           Serial.println("Closed");
           //todo: reduce motor power.
         }
         break;      
     };
-    
+  }
+
+  void showState(){
+    Serial.printf("\tWet:%d\tDry:%d\tMoving:%d\tStep:%ld\tMoisture: %d\tms: %d\n\n",is.Wet,is.Dry,is.Moving,is.At,wetness.reading,wetness.read);         
   }
 
   void setup() {
@@ -211,8 +212,11 @@ void loop() {
   switch (tolower(Serial.read())) {
     default:
     break;
-    case ' ':
+    case '?':
       puzzle.info();
+      break;
+    case ' ':
+      flower.showState();
       break;
     case 'b':
       flower.startOpening();
