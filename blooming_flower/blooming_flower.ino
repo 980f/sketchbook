@@ -1,7 +1,10 @@
+////////////////////////////////////////////////
 // Blooming flower mechanism, first used for Quest Night 2026 Swamping puzzle
-
+// 
+// pins: motor board 3,4,(5,6,)7,8,(9,10,)11,12
+////////////////////////////////////////////////
 #include "AccelStepper.h"
-class AF_Motor : public AccelStepper {
+class SPI_Motor : public AccelStepper {
   //only implement enough for bloomer
   //D12 is latch
   //D8 data
@@ -10,12 +13,12 @@ class AF_Motor : public AccelStepper {
   //PWM_2A,D11 for motor1A
   //PWM_2B,D3 for motor1B
   enum {
-    Latch=12,
-    Data=8,
-    Clock=4,
-    Disabler=7,
-    Adrive=11,
-    Bdrive=3,
+    Latch = 12,
+    Data = 8,
+    Clock = 4,
+    Disabler = 7,
+    Adrive = 11,
+    Bdrive = 3,
   };
   //shift order: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
   //latch low, shift in the order above, latch high (then low)
@@ -24,52 +27,126 @@ private:
 
   void shiftout(int mask,int bitnum=0){
     digitalWrite(Clock,0);
-    digitalWrite(Data,bitRead(mask,bitnum));
+    auto b=bitRead(mask,bitnum);
+    Serial.print(b);
+    digitalWrite(Data,b);
     digitalWrite(Clock,1);
   }
 public:
 
-  AF_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
+  SPI_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
 
   void setOutputPins(uint8_t mask){
+    Serial.print("\nstep:");
+    Serial.print(mask);// 5->6->10->9
+    Serial.print('\t');
     //have to shift data out via psuedo spi interface
-      digitalWrite(Latch,0);//idle low
-      //incoming data: M2B,M2A,M1B,M1A
-      //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
-      shiftout(0);      
-      shiftout(0);       
-      shiftout(0);  
-      shiftout(mask,3);
-      shiftout(mask,1);      
-      shiftout(mask,0);       
-      shiftout(mask,2);  
-      shiftout(0);
-      
-      digitalWrite(Latch,1);//mass update
-      digitalWrite(Latch,0);//idle low    
+    digitalWrite(Latch,0);//idle low
+    //incoming data: M2B,M2A,M1B,M1A
+    //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
+    //to use shiftOut library function we would have to swap around the incoming bits, so let us just crank out the bits ourselves while doing the bit picking.
+    shiftout(0);
+    shiftout(0);
+    shiftout(0);
+    shiftout(mask,3);
+    shiftout(mask,1);      
+    shiftout(mask,0);       
+    shiftout(mask,2);  
+    shiftout(0);
+    
+    digitalWrite(Latch,1);//mass update
   }
 
   void setup(){
+    Serial.print("\nAF_Motor taking its pins");
+    //SPI like interface bits
     pinMode(Latch,OUTPUT);
     pinMode(Data,OUTPUT);
     pinMode(Clock,OUTPUT);
-    pinMode(Disabler,OUTPUT);
+    //pwm motor controls need to be driven, even if we don't pwm them
     pinMode(Adrive,OUTPUT);
     pinMode(Bdrive,OUTPUT);
-//always on bits:
-    digitalWrite(Disabler, 0);
-    
+
+    pinMode(Disabler,OUTPUT);
+    digitalWrite(Disabler, 0);//the board curiously pulled up this signal that must be low for the board to function properly.
+    //set a known state for consistency
     power(0); //disable power to motor at startup
-    setOutputPins(0); //choose a phase.
+    setOutputPins(0); //secondary way to power down.
   }
 
   void power(bool beon){
+    Serial.print("\tpower:");
+    Serial.print(beon);
+    //use the pwm capable controls as power control.
     digitalWrite(Adrive, beon);
     digitalWrite(Bdrive, beon);
   }
 };
 
-using Motor = AF_Motor;// we keep on changing our mind which class to use ;)
+
+class HackedMotor : public AccelStepper {
+  //only implement enough for bloomer
+  enum {
+    M1A=7,
+    M1B=12,
+    M2A=8,
+    M2B=4,
+    
+    Adrive = 11,
+    Bdrive = 3,
+  };
+
+  public:
+
+  HackedMotor():AccelStepper(AccelStepper::FULL4WIRE){}
+  void setOutputPins(uint8_t mask){
+    Serial.print("\nstep:");
+    Serial.print(mask);// 5->6->10->9
+    Serial.print('\t');
+    //break before make on each pair
+    digitalWrite(M1A,0);
+    digitalWrite(M1B,0);
+    digitalWrite((bitRead(mask,0)?M1B:M1A) , 1);
+    
+    digitalWrite(M2A,0);
+    digitalWrite(M2B,0);
+    digitalWrite((bitRead(mask,2)?M2B:M2A) , 1);
+
+  }
+
+  void setup(){
+    Serial.print("\nAF_Motor taking its pins");
+    //pwm motor controls need to be driven, even if we don't pwm them
+    pinMode(Adrive,OUTPUT);
+    pinMode(Bdrive,OUTPUT);
+
+    //set a known state for consistency
+    power(0); //disable power to motor at startup
+    //direct outputs to L293B
+    digitalWrite(M1A,0);
+    pinMode(M1A,OUTPUT);
+
+    digitalWrite(M1B,0);
+    pinMode(M1B,OUTPUT);
+    
+    digitalWrite(M2A,0);
+    pinMode(M2A,OUTPUT);
+
+    digitalWrite(M2B,0);
+    pinMode(M2B,OUTPUT);
+    
+  }
+
+  void power(bool beon){
+    Serial.print("\tpower:");
+    Serial.print(beon);
+    //use the pwm capable controls as power control.
+    digitalWrite(Adrive, beon);
+    digitalWrite(Bdrive, beon);
+  }
+
+};
+using Motor = HackedMotor;//SPI_Motor;// we keep on changing our mind which class to use ;)
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
@@ -106,13 +183,16 @@ struct Puzzle {
   }
 
   void info() {
-    Serial.println("\tPuzzle Parameters:");
-    Serial.println("SampRate\tWetThreshold\t+/-\t");
+    Serial.print("\nPuzzle Parameters:");
+    Serial.print("\nSampRate\tWetThreshold\t+/-\tLength");
+    Serial.print("\n");
     Serial.print(sensorSamplingRate);
     Serial.print("\t");
     Serial.print(WetnessRequired);
     Serial.print("\t");
     Serial.print(WetnessHysteresis);
+    Serial.print("\t");
+    Serial.print(trackLength);
     Serial.println();
   }
 
@@ -188,22 +268,25 @@ struct BloomingFlower {
       wetness(puzzle.sensorPin) {}
 
   void startOpening() {
-    Serial.println("startOpening");
+    Serial.print("\nstartOpening");
+    motor.power(1);
     blooming=Opening;
     motor.moveTo(puzzle.trackLength);
   }
 
   void startClosing() {
-    Serial.println("startClosing");
+    Serial.print("\nstartClosing");
+    motor.power(1);
     blooming=Closing;
-    motor.move(0);
+    motor.moveTo(0);
   }
 
   void rehome() {
-    Serial.println("rehome");
+    Serial.print("\nrehome");
+    motor.power(1);
     blooming = Homing;
     motor.setCurrentPosition(puzzle.trackLength);// worst case: guess that we are as far open as can be
-    motor.move(0);
+    motor.moveTo(0);
   }
 
 
@@ -244,7 +327,8 @@ struct BloomingFlower {
         if(!is.Moving){
           blooming = Opened;
            Serial.println("Opened");
-          //todo: reduce motor power.
+          //todo: reduce motor power      
+           showState();
         }
         break;
 
@@ -259,6 +343,7 @@ struct BloomingFlower {
           blooming = Closed;
            Serial.println("Closed");
           //todo: reduce motor power.
+          showState();
         }
         //perhaps:
         // if(is.Wet){
@@ -287,8 +372,9 @@ struct BloomingFlower {
 
   void setup() {
     wetness.setup();
-    //todo:  motor.setAcceleration(something)
-    motor.setSpeed(200);//todo: a puzzle param for this.
+    motor.setAcceleration(10.0f);// steps per second per second
+    motor.setMaxSpeed(200);
+    motor.setSpeed(10);//todo: a puzzle param for this.
   }
 };
 BloomingFlower flower;
@@ -303,6 +389,44 @@ void setup() {
   Serial.println("\nBloomin' Flower!");  
 }
 
+//returns whether char was applied
+bool romanize(int &number,char letter){
+  bool isUpper=letter <= 'Z';
+  int magnitude=0;//init in case we get stupid later
+
+  switch(tolower(letter)){
+    case 'i':
+      magnitude=1; break;
+    case 'v':
+      magnitude=5; break;
+    case 'x':
+      magnitude=10;break;
+    case 'l':
+      magnitude=50; break;
+    case 'c':
+      magnitude=100; break;
+    case 'd':
+      magnitude=500; break;
+    case 'm':
+      magnitude=1000; break;
+    default:
+      return false;
+  }
+  if(isUpper){
+    number += magnitude;
+  } else {
+    number -= magnitude;
+  }
+
+  return true;  
+}
+
+// enum Tweak {
+//   Wetness,
+//   Speed,
+//   Accel,
+//   Length
+// } tweakee;
 
 void loop() {
   //this stepper library checks micros in the following call and steps motor etc.
@@ -316,6 +440,11 @@ void loop() {
   }
   //debug actions
   auto key=Serial.read();
+  //we want to tweak numbers, at first just sensor threshold.
+  if(romanize(puzzle.WetnessRequired, key)){
+    return;
+  }
+  //not a number tweak so do something else.
   switch (tolower(key)) {
     default:
       if(key>0){
@@ -323,23 +452,27 @@ void loop() {
         Serial.println(key);
       }
       break;
+  
     case '?':
       puzzle.info();
       break;
     case ' ':
       flower.showState();
       break;
-    case 'b':
-      flower.startOpening();
+    case '.':
+      flower.motor.move(0);//or perhaps power off?
       break;
-    case 'm':
+    case '/':
       flower.startClosing();
+      break;
+    case ',':
+      flower.startOpening();
       break;
     case '!':
       flower.setup();
       flower.rehome();
       break;
-    case '\\':
+    case '\\'://reset to compiled in values, needed on first load of a signficantly new program
       puzzle.builtins();
       break;
     case '|':
