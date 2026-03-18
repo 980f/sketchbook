@@ -28,6 +28,9 @@ private:
     digitalWrite(Clock,1);
   }
 public:
+
+  AF_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
+
   void setOutputPins(uint8_t mask){
     //have to shift data out via psuedo spi interface
       digitalWrite(Latch,0);//idle low
@@ -76,12 +79,12 @@ MilliTick milliTicker = 0;
 
 //things that should be saved and restored from eeprom:
 struct Puzzle {
-  unsigned trackLength = 500;  //number of steps from fully closed to fully open
+  unsigned trackLength;  //number of steps from fully closed to fully open
   int sensorPin = A0;
-  MilliTick sensorSamplingRate = 257;
+  MilliTick sensorSamplingRate;
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
-  int WetnessRequired = 500;
-  int WetnessHysteresis = 20;
+  int WetnessRequired;
+  int WetnessHysteresis;
 
   bool isWet(int wetness){
     return wetness < (WetnessRequired - WetnessHysteresis);
@@ -91,8 +94,16 @@ struct Puzzle {
     return wetness > (WetnessRequired + WetnessHysteresis);
   }
 
-  MilliTick maxTimeToOpen = 9920;
-  MilliTick maxTimeToClose = 6900;
+  MilliTick maxTimeToOpen ;
+  MilliTick maxTimeToClose;
+
+  void builtins(){
+    trackLength = 500;  //number of steps from fully closed to fully open
+    sensorPin = A0;
+    sensorSamplingRate = 257;
+    WetnessRequired = 600;
+    WetnessHysteresis = 20;
+  }
 
   void info() {
     Serial.println("\tPuzzle Parameters:");
@@ -173,7 +184,7 @@ struct BloomingFlower {
   } is;
   
   BloomingFlower()
-    : motor(AccelStepper::FULL4WIRE),  // AccelStepper(uint8_t interface = AccelStepper::FULL4WIRE, uint8_t pin1 = 2, uint8_t pin2 = 3, uint8_t pin3 = 4, uint8_t pin4 = 5, bool enable = true);
+    : motor(),
       wetness(puzzle.sensorPin) {}
 
   void startOpening() {
@@ -327,6 +338,9 @@ void loop() {
     case '!':
       flower.setup();
       flower.rehome();
+      break;
+    case '\\':
+      puzzle.builtins();
       break;
     case '|':
       puzzle.save();
