@@ -1,24 +1,78 @@
-// AFMotor R4 Compatible Library
-//blocking actions, bad juju! #include "AFMotor_R4.h"
-// using Motor = AF_Stepper;
-
-// //stub until we have non-blocking motor class.
-// class Motor {
-//   public:
-//   Motor(unsigned,int);
-//  void setSpeed(unsigned Hertz);
-//  void step(unsigned, int fORWARD, int steptype);
-// };
-
+// Blooming flower mechanism, first used for Quest Night 2026 Swamping puzzle
 
 #include "AccelStepper.h"
-using Motor = AccelStepper;
+class AF_Motor : public AccelStepper {
+  //only implement enough for bloomer
+  //D12 is latch
+  //D8 data
+  //D4 clock
+  //D7 en*, always low please
+  //PWM_2A,D11 for motor1A
+  //PWM_2B,D3 for motor1B
+  enum {
+    Latch=12,
+    Data=8,
+    Clock=4,
+    Disabler=7,
+    Adrive=11,
+    Bdrive=3,
+  };
+  //shift order: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
+  //latch low, shift in the order above, latch high (then low)
+  //clock is low, put datum on pin, clock high.
+private:
+
+  void shiftout(int mask,int bitnum=0){
+    digitalWrite(Clock,0);
+    digitalWrite(Data,bitRead(mask,bitnum));
+    digitalWrite(Clock,1);
+  }
+public:
+  void setOutputPins(uint8_t mask){
+    //have to shift data out via psuedo spi interface
+      digitalWrite(Latch,0);//idle low
+      //incoming data: M2B,M2A,M1B,M1A
+      //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
+      shiftout(0);      
+      shiftout(0);       
+      shiftout(0);  
+      shiftout(mask,3);
+      shiftout(mask,1);      
+      shiftout(mask,0);       
+      shiftout(mask,2);  
+      shiftout(0);
+      
+      digitalWrite(Latch,1);//mass update
+      digitalWrite(Latch,0);//idle low    
+  }
+
+  void setup(){
+    pinMode(Latch,OUTPUT);
+    pinMode(Data,OUTPUT);
+    pinMode(Clock,OUTPUT);
+    pinMode(Disabler,OUTPUT);
+    pinMode(Adrive,OUTPUT);
+    pinMode(Bdrive,OUTPUT);
+//always on bits:
+    digitalWrite(Disabler, 0);
+    
+    power(0); //disable power to motor at startup
+    setOutputPins(0); //choose a phase.
+  }
+
+  void power(bool beon){
+    digitalWrite(Adrive, beon);
+    digitalWrite(Bdrive, beon);
+  }
+};
+
+using Motor = AF_Motor;// we keep on changing our mind which class to use ;)
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
 MilliTick milliTicker = 0;
 
-//configuration of hardware
+#include <EEPROM.h>  //for tweaking parameters without downloading a new program
 
 //things that should be saved and restored from eeprom:
 struct Puzzle {
@@ -28,6 +82,15 @@ struct Puzzle {
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
   int WetnessRequired = 500;
   int WetnessHysteresis = 20;
+
+  bool isWet(int wetness){
+    return wetness < (WetnessRequired - WetnessHysteresis);
+  }
+
+  bool isDry(int wetness){
+    return wetness > (WetnessRequired + WetnessHysteresis);
+  }
+
   MilliTick maxTimeToOpen = 9920;
   MilliTick maxTimeToClose = 6900;
 
@@ -41,6 +104,15 @@ struct Puzzle {
     Serial.print(WetnessHysteresis);
     Serial.println();
   }
+
+  void load(){
+    EEPROM.get(0, *this);
+  }
+
+  void save(){
+    EEPROM.put(0,*this);
+  }
+
 } puzzle;
 
 //state of bloom
@@ -126,17 +198,17 @@ struct BloomingFlower {
 
   void onTick(MilliTick now) {
     wetness.onTick(now);
-    //get all hardware state whether it matters or not, for debug convenience.
-    is.Wet = wetness < puzzle.WetnessRequired - puzzle.WetnessHysteresis;
-    is.Dry = wetness > puzzle.WetnessRequired + puzzle.WetnessHysteresis;
-    //motor guesses where it is at, don't know how reliably it homes.
+    //get all hardware state whether it matters or not, for debug convenience:
+    is.Wet = puzzle.isWet(wetness.reading);
+    is.Dry = puzzle.isDry(wetness.reading);
+
     is.At = motor.currentPosition();
     is.Moving = motor.distanceToGo()!=0;
 
     //state changes are here
     switch (blooming) {
       default:
-        Serial.println("Illegal blooming state");
+        Serial.println("\nIllegal blooming state");
         blooming = Unknown;
         //join:
       case Unknown:        
@@ -177,12 +249,29 @@ struct BloomingFlower {
            Serial.println("Closed");
           //todo: reduce motor power.
         }
+        //perhaps:
+        // if(is.Wet){
+        //   startOpening();          
+        // }
         break;      
     };
   }
 
   void showState(){
-    Serial.printf("\tWet:%d\tDry:%d\tMoving:%d\tStep:%ld\tMoisture: %d\tms: %d\n\n",is.Wet,is.Dry,is.Moving,is.At,wetness.reading,wetness.read);         
+    //IDE lied about uno having printf: Serial.printf("\tWet:%d\tDry:%d\tMoving:%d\tStep:%ld\tMoisture: %d\tms: %d\n\n",is.Wet,is.Dry,is.Moving,is.At,wetness.reading,wetness.read);
+    Serial.print("\tWet:");    
+    Serial.print(is.Wet);
+    Serial.print("\tDry:");
+    Serial.print(is.Dry);
+    Serial.print("\tMoving:");
+    Serial.print(is.Moving);
+    Serial.print("\tStep:");
+    Serial.print(is.At);
+    Serial.print("\tMoisture: ");
+    Serial.print(wetness.reading);
+    Serial.print("\tms: ");
+    Serial.print(wetness.read);
+    Serial.println();
   }
 
   void setup() {
@@ -193,25 +282,36 @@ struct BloomingFlower {
 };
 BloomingFlower flower;
 
+///////////////////////////////
+//arduino hooks:
 void setup() {
-  Serial.begin(9600);
-  Serial.println("Bloomin' Flower!");
-  //todo: read puzzle configuration object from eeprom.
+  puzzle.load(); //reads puzzle configuration object from eeprom.
   flower.setup();
+
+  Serial.begin(115200);//use same baud as downloader to eliminate crap in serial monitore window.
+  Serial.println("\nBloomin' Flower!");  
 }
 
-//loop is called way too often, we put our logic in a once per millisecond function above
-void loop() {
-  flower.motor.run(); //todo: see if we can do this on the millitick OR in a timer ISR.
 
+void loop() {
+  //this stepper library checks micros in the following call and steps motor etc.
+  flower.motor.run(); //todo: see if we can do this on the millitick OR in a timer ISR.
+  
+  //loop is called way too often, we put our logic in a once per millisecond function above
   MilliTick now = millis();
   if (milliTicker != now) {  //once a millisecond
     milliTicker = now;
     flower.onTick(now);
   }
-  switch (tolower(Serial.read())) {
+  //debug actions
+  auto key=Serial.read();
+  switch (tolower(key)) {
     default:
-    break;
+      if(key>0){
+        Serial.print("\nUnknown command char:");
+        Serial.println(key);
+      }
+      break;
     case '?':
       puzzle.info();
       break;
@@ -228,18 +328,18 @@ void loop() {
       flower.setup();
       flower.rehome();
       break;
+    case '|':
+      puzzle.save();
+      break;
+    case 13: case 10: //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
+      break;
   }
 }
-
-// Serial.println("Double coil steps");
-// motor.step(1400, BACKWARD, DOUBLE);
-// //open = 1;
-// motor.step(1400, BACKWARD, DOUBLE);
-// }
-//  Serial.println("Interleaved coil steps");
-// motor.step(100, FORWARD, INTERLEAVE);
-//  motor.step(100, BACKWARD, INTERLEAVE);
-
-// Serial.println("Microsteps");
-//  motor.step(50, FORWARD, MICROSTEP);
-//  motor.step(50, BACKWARD, MICROSTEP);
+///////////////////////////
+//end of code.
+///////////////////////////
+// P/S from servo board to sensor: red +5, brown GND, 
+// sensor AO to UNO A0, orange wire.
+// barrel to M power: orange +, grey GND
+// motor green/black to M1?
+// motor red/blue to M2?
