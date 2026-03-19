@@ -1,7 +1,11 @@
 ////////////////////////////////////////////////
 // Blooming flower mechanism, first used for Quest Night 2026 Swamping puzzle
 // 
-// pins: motor board 3,4,(5,6,)7,8,(9,10,)11,12
+// pins: 
+// motor board 3,4,(5,6,)7,8,(9,10,)11,12
+// sensor A0
+// opened switch A1
+// closed switch A2
 ////////////////////////////////////////////////
 #include "AccelStepper.h"
 class SPI_Motor : public AccelStepper {
@@ -156,13 +160,17 @@ MilliTick milliTicker = 0;
 
 //things that should be saved and restored from eeprom:
 struct Puzzle {
-  unsigned trackLength;  //number of steps from fully closed to fully open
-  int sensorPin = A0;
-  MilliTick sensorSamplingRate;
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
-  int WetnessRequired;
-  int WetnessHysteresis;
-
+  unsigned WetnessRequired;
+  unsigned WetnessHysteresis;
+  //motor tuners:  The below should be floats but making them ints allows for shared tweaking code, and is resolution enough for this puzzle.
+  unsigned Acceleration; //steps per second per second
+  unsigned MaxSpeed;     //steps per second
+  
+  unsigned trackLength;  //number of steps from fully closed to fully open
+  unsigned sensorPin;
+  unsigned sensorSamplingRate;
+  
   bool isWet(int wetness){
     return wetness < (WetnessRequired - WetnessHysteresis);
   }
@@ -171,20 +179,20 @@ struct Puzzle {
     return wetness > (WetnessRequired + WetnessHysteresis);
   }
 
-  MilliTick maxTimeToOpen ;
-  MilliTick maxTimeToClose;
-
   void builtins(){
-    trackLength = 500;  //number of steps from fully closed to fully open
+    trackLength = 100;  //number of steps from fully closed to fully open, may be set low for debug!
     sensorPin = A0;
-    sensorSamplingRate = 257;
+    sensorSamplingRate = 167;
     WetnessRequired = 600;
     WetnessHysteresis = 20;
+
+    Acceleration=7;
+    MaxSpeed=98;
   }
 
   void info() {
     Serial.print("\nPuzzle Parameters:");
-    Serial.print("\nSampRate\tWetThreshold\t+/-\tLength");
+    Serial.print("\nSampRate\tWetThreshold\t+/-\tLength\tAcc\tSpeed");
     Serial.print("\n");
     Serial.print(sensorSamplingRate);
     Serial.print("\t");
@@ -193,6 +201,10 @@ struct Puzzle {
     Serial.print(WetnessHysteresis);
     Serial.print("\t");
     Serial.print(trackLength);
+    Serial.print("\t");
+    Serial.print(Acceleration);
+    Serial.print("\t");
+    Serial.print(MaxSpeed);
     Serial.println();
   }
 
@@ -390,7 +402,7 @@ void setup() {
 }
 
 //returns whether char was applied
-bool romanize(int &number,char letter){
+bool romanize(unsigned &number,char letter){
   bool isUpper=letter <= 'Z';
   int magnitude=0;//init in case we get stupid later
 
@@ -415,18 +427,13 @@ bool romanize(int &number,char letter){
   if(isUpper){
     number += magnitude;
   } else {
-    number -= magnitude;
+    number -= magnitude;//user beware that negative numbers are instead treated as really large.
   }
 
   return true;  
 }
 
-// enum Tweak {
-//   Wetness,
-//   Speed,
-//   Accel,
-//   Length
-// } tweakee;
+unsigned *tweakee = &puzzle.WetnessRequired;//legacy init
 
 void loop() {
   //this stepper library checks micros in the following call and steps motor etc.
@@ -440,8 +447,8 @@ void loop() {
   }
   //debug actions
   auto key=Serial.read();
-  //we want to tweak numbers, at first just sensor threshold.
-  if(romanize(puzzle.WetnessRequired, key)){
+  //if a roman numeral letter then tweak some number
+  if(tweakee && romanize(*tweakee, key)){ //uses CDILMVX
     return;
   }
   //not a number tweak so do something else.
@@ -478,6 +485,28 @@ void loop() {
     case '|':
       puzzle.save();
       break;
+
+    case 'w': 
+      Serial.print("\nTweaking wetness threshold");
+      tweakee = &puzzle.WetnessRequired; 
+      break;
+    case 't': 
+      Serial.print("\nTweaking track length");
+      tweakee = &puzzle.trackLength; 
+      break;
+    case 'h': 
+      Serial.print("\nTweaking wetness hysteresis");
+      tweakee = &puzzle.WetnessHysteresis; 
+      break;
+    case 'a': 
+      Serial.print("\nTweaking acceleration");
+      tweakee = &puzzle.Acceleration; 
+      break;
+    case 's': 
+      Serial.print("\nTweaking max speed");
+      tweakee = &puzzle.MaxSpeed; 
+      break;
+
     case 13: case 10: //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
       break;
   }
