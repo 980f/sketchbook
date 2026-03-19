@@ -4,25 +4,41 @@
 // pins: 
 // motor board 3,4,(5,6,)7,8,(9,10,)11,12
 // sensor A0
-// opened switch A1
-// closed switch A2
+// opened switch A1 = D15
+// closed switch A2 = D16
+//
+//
+// 
 ////////////////////////////////////////////////
+//original board: #define UnoR3
+
+//Andy's quick hack cause his leonardos are all at Scare:
+#define ProMicro
+
 #include "AccelStepper.h"
+
+//AccelStepper does not have a nativeimplementationfor the SPI like motor shield, but allows an override
 class SPI_Motor : public AccelStepper {
   //only implement enough for bloomer
-  //D12 is latch
-  //D8 data
-  //D4 clock
-  //D7 en*, always low please
-  //PWM_2A,D11 for motor1A
-  //PWM_2B,D3 for motor1B
   enum {
+ 
+#if defined(ProMicro)
+     Latch = 16, //no 12
+    Data = 8,
+    Clock = 4,
+    Disabler = 7,
+   
+    Adrive = 10, //no 11
+    Bdrive = 3,
+ #else
     Latch = 12,
     Data = 8,
     Clock = 4,
     Disabler = 7,
     Adrive = 11,
     Bdrive = 3,
+#endif
+
   };
   //shift order: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
   //latch low, shift in the order above, latch high (then low)
@@ -87,17 +103,38 @@ public:
   }
 };
 
-
+/////////////////////////////////////////////
+//for motor board with HC595 replaced with jumpers
 class HackedMotor : public AccelStepper {
   //only implement enough for bloomer
   enum {
-    M1A=7,
+
+#if defined(ProMicro)
+    M1A=7,    
+    M1B=16,   //no 12 
+    M2A=8,
+    M2B=4,
+    
+    Adrive = 10, //no 11
+    Bdrive = 3,
+#elif defined(UnoR3)
+    M1A=7,    
     M1B=12,
     M2A=8,
     M2B=4,
     
     Adrive = 11,
     Bdrive = 3,
+#else
+    M1A=7,
+    M1B=6,
+    M2A=5,
+    M2B=4,
+    
+    Adrive = 8,
+    Bdrive = 3,
+#endif
+
   };
 
   public:
@@ -150,7 +187,8 @@ class HackedMotor : public AccelStepper {
   }
 
 };
-using Motor = HackedMotor;//SPI_Motor;// we keep on changing our mind which class to use ;)
+using Motor = SPI_Motor;
+//using Motor = HackedMotor;// we keep on changing our mind which class to use ;)
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
@@ -192,7 +230,7 @@ struct Puzzle {
 
   void info() {
     Serial.print("\nPuzzle Parameters:");
-    Serial.print("\nSampRate\tWetThreshold\t+/-\tLength\tAcc\tSpeed");
+    Serial.print("\nrate\tWet\t+/-\tLen\tAcc\tSpd");
     Serial.print("\n");
     Serial.print(sensorSamplingRate);
     Serial.print("\t");
@@ -301,6 +339,15 @@ struct BloomingFlower {
     motor.moveTo(0);
   }
 
+  void stop(Bloomer be,const char *why){
+    blooming = be;
+    Serial.print('\n');
+    Serial.print(why);
+    motor.move(0);//truncate attempts to move
+    motor.power(0);//the mechanism has enough friction that we don't need the motor to hold it in place.
+
+    showState();
+  }
 
   void onTick(MilliTick now) {
     wetness.onTick(now);
@@ -312,6 +359,8 @@ struct BloomingFlower {
     is.Moving = motor.distanceToGo()!=0;
 
     //state changes are here
+    //todo: priority of motion completing over changes in wetness. Presently once we start we finish before being willing to turn around.
+    //todo: add limit switches making is.Moving a backup for a failed switch.
     switch (blooming) {
       default:
         Serial.println("\nIllegal blooming state");
@@ -322,9 +371,7 @@ struct BloomingFlower {
         break;
       case Homing:
         if(! is.Moving){
-          blooming = Closed;
-           Serial.println("Homed");
-          //todo: reduce motor power.
+          stop(Closed,"Homed");
         }
         break;
       
@@ -337,10 +384,7 @@ struct BloomingFlower {
       case Opening:
         //todo: check fail safe timer and stop stepper
         if(!is.Moving){
-          blooming = Opened;
-           Serial.println("Opened");
-          //todo: reduce motor power      
-           showState();
+          stop(Opened,"Opened");
         }
         break;
 
@@ -352,10 +396,7 @@ struct BloomingFlower {
 
       case Closing:  //presume sensor glitched and we should do a full reset
         if(!is.Moving){
-          blooming = Closed;
-           Serial.println("Closed");
-          //todo: reduce motor power.
-          showState();
+          stop(Closed,"Closed");
         }
         //perhaps:
         // if(is.Wet){
@@ -480,10 +521,19 @@ void loop() {
       flower.rehome();
       break;
     case '\\'://reset to compiled in values, needed on first load of a signficantly new program
+      Serial.print("\nSet parameters to hard coded values");
       puzzle.builtins();
+      puzzle.info();
+      break;
+    case '`':
+      Serial.print("\nUndoing temporary changes");
+      puzzle.load();
+      puzzle.info();
       break;
     case '|':
+      Serial.print("\nSaving parameters");
       puzzle.save();
+      puzzle.info();
       break;
 
     case 'w': 
