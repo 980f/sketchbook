@@ -24,6 +24,10 @@
 #define D4 4
 #define D7 7
 #define D8 8
+//servo connectors, but can drive simple logic signals out as well.
+#define D9 9
+#define D10 10
+
 #define D11 11
 #define D12 12
 #endif
@@ -47,7 +51,7 @@ class SPI_Motor : public AccelStepper {
   //only implement enough for bloomer
   enum {
  
-#define NotStacked 1
+#define NotStacked 0
 #if NotStacked==1
 //jumpered a few pins differently than stacking boards does.
     Latch = D5, //no 12
@@ -66,6 +70,8 @@ class SPI_Motor : public AccelStepper {
     Disabler = D7,
     Adrive = D11,
     Bdrive = D3,
+
+    InMotion = D10, // servo 1
 #endif
 
   };
@@ -139,6 +145,8 @@ public:
 
     setupPin(Disabler);
 
+    setupPin(InMotion); 
+
     digitalWrite(Disabler, 0);//the board curiously pulls up this signal that must be low for the board to function properly.
     //set a known state for consistency
     power(0); //disable power to motor at startup
@@ -151,6 +159,8 @@ public:
     //use the pwm capable controls as power control.
     digitalWrite(Adrive, beon);
     digitalWrite(Bdrive, beon);
+
+    digitalWrite(InMotion,beon);
   }
 };
 
