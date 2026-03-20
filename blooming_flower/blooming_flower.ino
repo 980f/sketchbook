@@ -17,6 +17,17 @@
 
 #include "AccelStepper.h"
 
+//grrrr, UNO support doesn't define Dx symbols!
+#ifndef ESP32
+#define D2 2
+#define D3 3
+#define D4 4
+#define D7 7
+#define D8 8
+#define D11 11
+#define D12 12
+#endif
+
 //AccelStepper does not have a nativeimplementationfor the SPI like motor shield, but allows an override
 class SPI_Motor : public AccelStepper {
   //only implement enough for bloomer
@@ -24,16 +35,17 @@ class SPI_Motor : public AccelStepper {
  
 #if defined(ProMicro)
 //jumpered a few pins differently than stacking boards does.
-    Latch = 2, //no 12
-    Data = 8,
-    Clock = 4,
-    Disabler = 7,//may be bypassed to ground
+    Latch = D2, //no 12
+    Data = D8,
+    Clock = D4,
+    Disabler = D7,//may be bypassed to ground
    
-    Adrive = 6, //no 11, 6 is M4 pwr.
-    Bdrive = 3,
- #else
+    Adrive = D6, //no 11, 6 is M4 pwr.
+    Bdrive = D3,
+ #else  
     Latch = D12,
     Data = D8,
+    //D4 is IO17 on ESPDuino32 which causes a boot loop. WTF? Why does the manufacturer claim arduino compatibility when using D4 or D5 causes the processor to fault!?
     Clock = D4,
     Disabler = D7,
     Adrive = D11,
@@ -41,9 +53,7 @@ class SPI_Motor : public AccelStepper {
 #endif
 
   };
-  //shift order: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
-  //latch low, shift in the order above, latch high (then low)
-  //clock is low, put datum on pin, clock high.
+ 
 private:
 
   void shiftout(int mask,int bitnum=0){
@@ -65,7 +75,7 @@ public:
     Serial.print(mask,BIN);// 5->6->10->9
     Serial.print('\t');
     //have to shift data out via psuedo spi interface
-    digitalWrite(Latch,0);//idle low
+    digitalWrite(Latch,0);//start of shifting, in case we use an SPI device where this is a CS*
     //incoming data: M2B,M2A,M1B,M1A
     //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
     if(doitOurselves){
@@ -87,24 +97,31 @@ public:
         garbled |= 1<<1;
       }
       Serial.print(garbled,BIN);//FYI: this print preceding shiftOut but following latch->0 creates a tangible delay from latch low to first data clock.
-      shiftOut(Data,Clock,MSBFIRST,garbled);
-      
+      shiftOut(Data,Clock,MSBFIRST,garbled);      
     }
 
     digitalWrite(Latch,1);//mass update
   }
 
+  //made a separate function for debugging ESP32duino boot loops
+  void setupPin(int dx){
+    Serial.print("\ttaking pin ");
+    Serial.print(dx);
+    Serial.print('\t');
+    pinMode(dx,OUTPUT);
+  }
+
   void setup(){
     Serial.print("\nSPI_Motor taking its pins\n");
     //SPI like interface bits
-    pinMode(Latch,OUTPUT);
-    pinMode(Data,OUTPUT);
-    pinMode(Clock,OUTPUT);
+    setupPin(Latch);
+    setupPin(Data);
+    setupPin(Clock);
     //pwm motor controls need to be driven, even if we don't pwm them
-    pinMode(Adrive,OUTPUT);
-    pinMode(Bdrive,OUTPUT);
+    setupPin(Adrive);
+    setupPin(Bdrive);
 
-    pinMode(Disabler,OUTPUT);
+    setupPin(Disabler);
 
     digitalWrite(Disabler, 0);//the board curiously pulls up this signal that must be low for the board to function properly.
     //set a known state for consistency
@@ -122,101 +139,15 @@ public:
 };
 
 /////////////////////////////////////////////
-//for motor board with HC595 replaced with jumpers
-class HackedMotor : public AccelStepper {
-  //only implement enough for bloomer
-  enum {
-
-#if defined(ProMicro)
-//no longer valud
-    M1A=7,    
-    M1B=16,   //no 12 
-    M2A=8,
-    M2B=4,
-    
-    Adrive = 10, //no 11
-    Bdrive = 3,
-#elif defined(UnoR3)
-    M1A=7,    
-    M1B=12,
-    M2A=8,
-    M2B=4,
-    
-    Adrive = 11,
-    Bdrive = 3,
-#else
-    M1A=7,
-    M1B=6,
-    M2A=5,
-    M2B=4,
-    
-    Adrive = 8,
-    Bdrive = 3,
-#endif
-
-  };
-
-  public:
-
-  HackedMotor():AccelStepper(AccelStepper::FULL4WIRE){}
-  void setOutputPins(uint8_t mask){
-    Serial.print("\nstep:");
-    Serial.print(mask);// 5->6->10->9
-    Serial.print('\t');
-    //break before make on each pair
-    digitalWrite(M1A,0);
-    digitalWrite(M1B,0);
-    digitalWrite((bitRead(mask,0)?M1B:M1A) , 1);
-    
-    digitalWrite(M2A,0);
-    digitalWrite(M2B,0);
-    digitalWrite((bitRead(mask,2)?M2B:M2A) , 1);
-
-  }
-
-  void setup(){
-    Serial.print("\nAF_Motor taking its pins");
-    //pwm motor controls need to be driven, even if we don't pwm them
-    pinMode(Adrive,OUTPUT);
-    pinMode(Bdrive,OUTPUT);
-
-    //set a known state for consistency
-    power(0); //disable power to motor at startup
-    //direct outputs to L293B
-    digitalWrite(M1A,0);
-    pinMode(M1A,OUTPUT);
-
-    digitalWrite(M1B,0);
-    pinMode(M1B,OUTPUT);
-    
-    digitalWrite(M2A,0);
-    pinMode(M2A,OUTPUT);
-
-    digitalWrite(M2B,0);
-    pinMode(M2B,OUTPUT);
-    
-  }
-
-  void power(bool beon){
-    Serial.print("\tpower:");
-    Serial.print(beon);
-    //use the pwm capable controls as power control.
-    digitalWrite(Adrive, beon);
-    digitalWrite(Bdrive, beon);
-  }
-
-};
-//picking at compile time for now.
-using Motor = SPI_Motor;
-//using Motor = HackedMotor;// we keep on changing our mind which class to use ;)
+using Motor = SPI_Motor;  //in case we change library again.
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
 MilliTick milliTicker = 0;
 
 #include <EEPROM.h>  //for tweaking parameters without downloading a new program
-//esp32 needs eeprom size and init, worked without that on uno.
-#define EEPROM_SIZE 1024
+
+/////////////////////////////////////
 //things that should be saved and restored from eeprom:
 struct Puzzle {
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
@@ -279,7 +210,9 @@ struct Puzzle {
   }
 
   void setup(){
-    EEPROM.begin(EEPROM_SIZE);
+    #ifdef ESP32
+    EEPROM.begin((sizeof(Puzzle)+63) & ~63);//round up to block of 64 as that is optimal on ESP32 
+    #endif
     load();
   }
 
