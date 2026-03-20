@@ -13,7 +13,7 @@
 //original board: #define UnoR3
 
 //Andy's quick hack cause his leonardos are all at Scare:
-#define ProMicro
+//#define ProMicro
 
 #include "AccelStepper.h"
 
@@ -23,12 +23,13 @@ class SPI_Motor : public AccelStepper {
   enum {
  
 #if defined(ProMicro)
-     Latch = 16, //no 12
+//jumpered a few pins differently than stacking boards does.
+    Latch = 2, //no 12
     Data = 8,
     Clock = 4,
-    Disabler = 7,
+    Disabler = 7,//may be bypassed to ground
    
-    Adrive = 10, //no 11
+    Adrive = 6, //no 11, 6 is M4 pwr.
     Bdrive = 3,
  #else
     Latch = 12,
@@ -52,33 +53,48 @@ private:
     digitalWrite(Data,b);
     digitalWrite(Clock,1);
   }
+
 public:
+  bool doitOurselves=false; //how to shift out bits. Delete once the system actually works.
 
   SPI_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
 
   void setOutputPins(uint8_t mask){
     Serial.print("\nstep:");
-    Serial.print(mask);// 5->6->10->9
+    Serial.print(mask,BIN);// 5->6->10->9
     Serial.print('\t');
     //have to shift data out via psuedo spi interface
     digitalWrite(Latch,0);//idle low
     //incoming data: M2B,M2A,M1B,M1A
     //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
-    //to use shiftOut library function we would have to swap around the incoming bits, so let us just crank out the bits ourselves while doing the bit picking.
-    shiftout(0);
-    shiftout(0);
-    shiftout(0);
-    shiftout(mask,3);
-    shiftout(mask,1);      
-    shiftout(mask,0);       
-    shiftout(mask,2);  
-    shiftout(0);
-    
+    if(doitOurselves){
+      shiftout(0); //M4B
+      shiftout(0); //M3B
+      shiftout(0); //M4A
+      shiftout(mask,3);//M2B
+      shiftout(mask,1);//M1B      
+      shiftout(mask,0);//M1A       
+      shiftout(mask,2);//M2A  
+      shiftout(0); //M3A
+    } else {
+      //to use shiftOut library function we have to swap around the incoming bits
+      int garbled=((mask&3)<<2);//0 and 1 in place
+      if(bitRead(mask,3)){
+        garbled |= 1<<4;
+      }
+      if(bitRead(mask,2)){
+        garbled |= 1<<1;
+      }
+      Serial.print(garbled,BIN);//FYI: this print preceding shiftOut but following latch->0 creates a tangible delay from latch low to first data clock.
+      shiftOut(Data,Clock,MSBFIRST,garbled);
+      
+    }
+
     digitalWrite(Latch,1);//mass update
   }
 
   void setup(){
-    Serial.print("\nAF_Motor taking its pins");
+    Serial.print("\nSPI_Motor taking its pins\n");
     //SPI like interface bits
     pinMode(Latch,OUTPUT);
     pinMode(Data,OUTPUT);
@@ -110,6 +126,7 @@ class HackedMotor : public AccelStepper {
   enum {
 
 #if defined(ProMicro)
+//no longer valud
     M1A=7,    
     M1B=16,   //no 12 
     M2A=8,
@@ -187,6 +204,7 @@ class HackedMotor : public AccelStepper {
   }
 
 };
+//picking at compile time for now.
 using Motor = SPI_Motor;
 //using Motor = HackedMotor;// we keep on changing our mind which class to use ;)
 
@@ -256,15 +274,6 @@ struct Puzzle {
 
 } puzzle;
 
-//state of bloom
-enum Bloomer {
-  Unknown,
-  Homing,
-  Opened,
-  Closed,
-  Opening,
-  Closing,
-};
 
 struct Sensor {
   int ain;
@@ -289,6 +298,8 @@ struct Sensor {
   }
 
   void setup() {
+    pinMode(ain,INPUT);//in case we dynamically reassign pins.
+    Serial.println("\nfirst reading of sensor");
     reading = analogRead(ain);
     read = millis();
   }
@@ -304,6 +315,18 @@ struct Sensor {
 struct BloomingFlower {
   Motor motor;
   Sensor wetness; 
+  int openSwitch;
+  int closeSwitch;
+  //state of bloom
+  enum Bloomer {
+    Unknown,
+    Homing,
+    Opened,
+    Closed,
+    Opening,
+    Closing,
+  };
+
   Bloomer blooming = Unknown;
   //keep hardware status handy for debug:
   struct state {
@@ -311,6 +334,8 @@ struct BloomingFlower {
     bool Dry=false;
     bool Moving=false;
     long At = ~0;
+    bool Open = false;  //limit switch
+    bool Closed = false;//limit switch
   } is;
   
   BloomingFlower()
@@ -354,6 +379,8 @@ struct BloomingFlower {
     //get all hardware state whether it matters or not, for debug convenience:
     is.Wet = puzzle.isWet(wetness.reading);
     is.Dry = puzzle.isDry(wetness.reading);
+    is.Open = digitalRead(openSwitch);
+    is.Closed = digitalRead(closeSwitch);
 
     is.At = motor.currentPosition();
     is.Moving = motor.distanceToGo()!=0;
@@ -406,28 +433,45 @@ struct BloomingFlower {
     };
   }
 
+  template <typename SomePrintableType> void showItem(const char *symbol,SomePrintableType datum){
+    Serial.print("\t");
+    Serial.print(symbol);
+    Serial.print(":");    
+    Serial.print(datum);
+    
+  }
   void showState(){
-    //IDE lied about uno having printf: Serial.printf("\tWet:%d\tDry:%d\tMoving:%d\tStep:%ld\tMoisture: %d\tms: %d\n\n",is.Wet,is.Dry,is.Moving,is.At,wetness.reading,wetness.read);
-    Serial.print("\tWet:");    
-    Serial.print(is.Wet);
-    Serial.print("\tDry:");
-    Serial.print(is.Dry);
-    Serial.print("\tMoving:");
-    Serial.print(is.Moving);
-    Serial.print("\tStep:");
-    Serial.print(is.At);
-    Serial.print("\tMoisture: ");
-    Serial.print(wetness.reading);
-    Serial.print("\tms: ");
-    Serial.print(wetness.read);
+    //IDE lied about uno having printf:
+    Serial.println();
+
+    showItem("Wet",is.Wet);
+    showItem("Dry",is.Dry);
+    showItem("Moving",is.Moving);
+    showItem("Step",is.At);
+
+    showItem("Olim",is.Open);
+    showItem("CLim",is.Closed);
+
+    showItem("Moisture",wetness.reading);
+    showItem("ms",wetness.read);
+    
     Serial.println();
   }
 
+  void setupSwitch(int &switchee,int Dpin){
+    pinMode(Dpin,INPUT_PULLUP);
+    switchee=digitalRead(Dpin);
+  }
+
   void setup() {
+    Serial.println("\nFlower Setup");
     wetness.setup();
-    motor.setAcceleration(10.0f);// steps per second per second
-    motor.setMaxSpeed(200);
-    motor.setSpeed(10);//todo: a puzzle param for this.
+    motor.setup();
+    motor.setAcceleration(puzzle.Acceleration);
+    motor.setMaxSpeed(puzzle.MaxSpeed);
+    motor.setSpeed(puzzle.MaxSpeed);
+    setupSwitch(openSwitch,15);//15 should get us A1 as digital
+    setupSwitch(closeSwitch,16);//16 for A2
   }
 };
 BloomingFlower flower;
@@ -435,11 +479,13 @@ BloomingFlower flower;
 ///////////////////////////////
 //arduino hooks:
 void setup() {
-  puzzle.load(); //reads puzzle configuration object from eeprom.
-  flower.setup();
 
   Serial.begin(115200);//use same baud as downloader to eliminate crap in serial monitore window.
+  delay(1000);//to let serial monitor reliably get the following text
   Serial.println("\nBloomin' Flower!");  
+
+  puzzle.load(); //reads puzzle configuration object from eeprom.
+  flower.setup();
 }
 
 //returns whether char was applied
@@ -500,7 +546,14 @@ void loop() {
         Serial.println(key);
       }
       break;
-  
+    case 'p':
+      flower.motor.power(1);
+      Serial.print("\nMotor power enabled");
+      break;
+    case 'o':
+      flower.motor.power(0);
+      Serial.print("\nMotor power disabled");
+      break;
     case '?':
       puzzle.info();
       break;
