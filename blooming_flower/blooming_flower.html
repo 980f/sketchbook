@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>blooming_flower</title>
+  </head>
+  <body>
+    <p>blooming_flower diagnostic commands<br>
+      -----------------------------------------------------------------------------------------------</p>
+    <p>(Extracted from loop()'s switch on characters read from serial)</p>
+    <p>'p': turn motor power on<br>
+      &nbsp;'o': turn motor power off<br>
+      ' ': (space char) show sensor and motion state info<br>
+      '.': (period) ask motor to stop moving<br>
+      &nbsp;'/': act like sensor just became dry<br>
+      ',': act like sensor just became wet<br>
+      '!': executes most of startup.</p>
+    <p>Manage configuration state:<br>
+      '?': show configuration info (stuff that gets saved)<br>
+      '\':(backslash) reset all to compiled in values (a bunch of assignment statements in class Puzzle)<br>
+      '`': (back tick) Undoing temporary changes (reread EEProm)<br>
+      '|': (vertical bar) Saving parameters (save into EEProm)</p>
+    <p>Tweakable parameters are selected by the following letters, w is the powerup default:<br>
+      &nbsp;'w': wetness threshold WetnessRequired; <br>
+      &nbsp;'t': track length trackLength; <br>
+      &nbsp;'h': wetness hysteresis WetnessHysteresis; <br>
+      &nbsp;'a': acceleration Acceleration; <br>
+      &nbsp;'s': max speed MaxSpeed; </p>
+    <p>Values are raised or lowered by the letters used for Roman numerals, lower case is subtracted, upper case added: (function romanize)<br>
+      &nbsp; 'i':1; 'v':5; 'x':10; 'l':50; 'c':100;&nbsp; 'd':500;&nbsp; 'm':1000.</p>
+    <p>-----------------------------------------------------------------------------------------------<br>
+      For instance, to alter track length from 100 to 127&nbsp; "txxvii?". <br>
+      You don't need to send them in one Serial Monitor click, characters are inspected individually andnewlines are ignored.</p>
+    <p>When you are happy with the config '|' saves it, and you can test it mostly with '!', but should test with a power cycle of the board before trusting it fully.<br>
+      -----------------------------------------------------------------------------------------------</p>
+  </body>
+</html>
