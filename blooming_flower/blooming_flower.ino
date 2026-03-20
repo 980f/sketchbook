@@ -94,6 +94,9 @@ public:
   }
 
   void setup(){
+    #ifdef ESP32 
+    Serial.print("\nSPI_Motor NOT taking its pins coz ESP32 reboots in a loop\n");
+    #else
     Serial.print("\nSPI_Motor taking its pins\n");
     //SPI like interface bits
     pinMode(Latch,OUTPUT);
@@ -108,6 +111,7 @@ public:
     //set a known state for consistency
     power(0); //disable power to motor at startup
     setOutputPins(0); //secondary way to power down.
+    #endif
   }
 
   void power(bool beon){
@@ -213,7 +217,8 @@ using MilliTick = unsigned long;
 MilliTick milliTicker = 0;
 
 #include <EEPROM.h>  //for tweaking parameters without downloading a new program
-
+//esp32 needs eeprom size and init, worked without that on uno.
+#define EEPROM_SIZE 1024
 //things that should be saved and restored from eeprom:
 struct Puzzle {
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
@@ -270,6 +275,14 @@ struct Puzzle {
 
   void save(){
     EEPROM.put(0,*this);
+    #ifdef ESP32
+    EEPROM.commit();
+    #endif
+  }
+
+  void setup(){
+    EEPROM.begin(EEPROM_SIZE);
+    load();
   }
 
 } puzzle;
@@ -478,14 +491,29 @@ BloomingFlower flower;
 
 ///////////////////////////////
 //arduino hooks:
+#ifdef ESP32 
+#pragma message "disabling WDT due to resets when SPI pins are set to output"
+#include <esp_task_wdt.h>
+void disableWDT(){
+  Serial.print("\nDisabling WDT");
+  esp_task_wdt_deinit(); // Deletes the current task's WDT
+}
+#else
+void disableWDT(){
+  //don't have one
+}
+
+#endif
+
 void setup() {
 
   Serial.begin(115200);//use same baud as downloader to eliminate crap in serial monitore window.
   delay(1000);//to let serial monitor reliably get the following text
   Serial.println("\nBloomin' Flower!");  
-
-  puzzle.load(); //reads puzzle configuration object from eeprom.
+  puzzle.setup(); //reads puzzle configuration object from eeprom.
+  // disableWDT();
   flower.setup();
+  
 }
 
 //returns whether char was applied
