@@ -18,7 +18,7 @@
 #include "AccelStepper.h"
 
 //grrrr, UNO support doesn't define Dx symbols!
-#ifndef ESP32
+#ifdef ARDUINO_AVR_UNO
 #define D2 2
 #define D3 3
 #define D4 4
@@ -28,21 +28,37 @@
 #define D12 12
 #endif
 
-//AccelStepper does not have a nativeimplementationfor the SPI like motor shield, but allows an override
+#ifdef ARDUINO_ESP32C3_DEV
+#define D5 5
+#define D6 6
+#define D7 7
+#define D8 8
+
+#define D9 9
+#define D10 10
+
+#define D20 20
+#define D21 21
+
+#endif
+
+//AccelStepper does not have a native implementationfor the SPI like motor shield, but allows an override
 class SPI_Motor : public AccelStepper {
   //only implement enough for bloomer
   enum {
  
-#if defined(ProMicro)
+#define NotStacked 1
+#if NotStacked==1
 //jumpered a few pins differently than stacking boards does.
-    Latch = D2, //no 12
-    Data = D8,
-    Clock = D4,
-    Disabler = D7,//may be bypassed to ground
+    Latch = D5, //no 12
+    Data = D6,
+    Clock = D7,
    
-    Adrive = D6, //no 11, 6 is M4 pwr.
-    Bdrive = D3,
- #else  
+    Adrive = D8, //no 11, 6 is M4 pwr.
+    Bdrive = D9,
+
+    Disabler = D10,//may be bypassed to ground
+ #else  //UNO and some others
     Latch = D12,
     Data = D8,
     //D4 is IO17 on ESPDuino32 which causes a boot loop. WTF? Why does the manufacturer claim arduino compatibility when using D4 or D5 causes the processor to fault!?
