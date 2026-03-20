@@ -32,12 +32,12 @@ class SPI_Motor : public AccelStepper {
     Adrive = 6, //no 11, 6 is M4 pwr.
     Bdrive = 3,
  #else
-    Latch = 12,
-    Data = 8,
-    Clock = 4,
-    Disabler = 7,
-    Adrive = 11,
-    Bdrive = 3,
+    Latch = D12,
+    Data = D8,
+    Clock = D4,
+    Disabler = D7,
+    Adrive = D11,
+    Bdrive = D3,
 #endif
 
   };
@@ -59,6 +59,7 @@ public:
 
   SPI_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
 
+  //override base class's direct pin stuff, compiler is balking at 'override' keyword, must be an older version of C++
   void setOutputPins(uint8_t mask){
     Serial.print("\nstep:");
     Serial.print(mask,BIN);// 5->6->10->9
@@ -94,9 +95,6 @@ public:
   }
 
   void setup(){
-    #ifdef ESP32 
-    Serial.print("\nSPI_Motor NOT taking its pins coz ESP32 reboots in a loop\n");
-    #else
     Serial.print("\nSPI_Motor taking its pins\n");
     //SPI like interface bits
     pinMode(Latch,OUTPUT);
@@ -107,11 +105,11 @@ public:
     pinMode(Bdrive,OUTPUT);
 
     pinMode(Disabler,OUTPUT);
-    digitalWrite(Disabler, 0);//the board curiously pulled up this signal that must be low for the board to function properly.
+
+    digitalWrite(Disabler, 0);//the board curiously pulls up this signal that must be low for the board to function properly.
     //set a known state for consistency
     power(0); //disable power to motor at startup
     setOutputPins(0); //secondary way to power down.
-    #endif
   }
 
   void power(bool beon){
@@ -491,29 +489,19 @@ BloomingFlower flower;
 
 ///////////////////////////////
 //arduino hooks:
-#ifdef ESP32 
-#pragma message "disabling WDT due to resets when SPI pins are set to output"
-#include <esp_task_wdt.h>
-void disableWDT(){
-  Serial.print("\nDisabling WDT");
-  esp_task_wdt_deinit(); // Deletes the current task's WDT
-}
+//match baud rate to downloader so that we don't get garbage in serial monitor when running new program:
+#ifdef ESP32
+#define DebugBaud 921600
 #else
-void disableWDT(){
-  //don't have one
-}
-
+#define DebugBaud 115200
 #endif
 
 void setup() {
-
-  Serial.begin(115200);//use same baud as downloader to eliminate crap in serial monitore window.
-  delay(1000);//to let serial monitor reliably get the following text
+  Serial.begin(DebugBaud);//use same baud as downloader to eliminate crap in serial monitore window.
+  delay(1000);//to let UNO serial monitor reliably get the following text
   Serial.println("\nBloomin' Flower!");  
-  puzzle.setup(); //reads puzzle configuration object from eeprom.
-  // disableWDT();
-  flower.setup();
-  
+  puzzle.setup(); //reads puzzle configuration object from eeprom. This is kept separate from flower.setup() so that we can see how flower will work with temporarily altered puzzle parameters. see '!' debug action.
+  flower.setup(); //rest of setup.
 }
 
 //returns whether char was applied
