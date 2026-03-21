@@ -5,33 +5,117 @@
     <title>blooming_flower</title>
   </head>
   <body>
-    <p>blooming_flower diagnostic commands<br>
-      -----------------------------------------------------------------------------------------------</p>
-    <p>(Extracted from loop()'s switch on characters read from serial)</p>
-    <p>'p': turn motor power on<br>
-      &nbsp;'o': turn motor power off<br>
-      ' ': (space char) show sensor and motion state info<br>
-      '.': (period) ask motor to stop moving<br>
-      &nbsp;'/': act like sensor just became dry<br>
-      ',': act like sensor just became wet<br>
-      '!': executes most of startup.</p>
-    <p>Manage configuration state:<br>
-      '?': show configuration info (stuff that gets saved)<br>
-      '\':(backslash) reset all to compiled in values (a bunch of assignment statements in class Puzzle)<br>
-      '`': (back tick) Undoing temporary changes (reread EEProm)<br>
-      '|': (vertical bar) Saving parameters (save into EEProm)</p>
-    <p>Tweakable parameters are selected by the following letters, w is the powerup default:<br>
-      &nbsp;'w': wetness threshold WetnessRequired; <br>
-      &nbsp;'t': track length trackLength; <br>
-      &nbsp;'h': wetness hysteresis WetnessHysteresis; <br>
-      &nbsp;'a': acceleration Acceleration; <br>
-      &nbsp;'s': max speed MaxSpeed; </p>
-    <p>Values are raised or lowered by the letters used for Roman numerals, lower case is subtracted, upper case added: (function romanize)<br>
-      &nbsp; 'i':1; 'v':5; 'x':10; 'l':50; 'c':100;&nbsp; 'd':500;&nbsp; 'm':1000.</p>
-    <p>-----------------------------------------------------------------------------------------------<br>
-      For instance, to alter track length from 100 to 127&nbsp; "txxvii?". <br>
-      You don't need to send them in one Serial Monitor click, characters are inspected individually andnewlines are ignored.</p>
-    <p>When you are happy with the config '|' saves it, and you can test it mostly with '!', but should test with a power cycle of the board before trusting it fully.<br>
-      -----------------------------------------------------------------------------------------------</p>
+    <h2>blooming_flower </h2>
+    <hr>
+    <h2>diagnostic commands</h2>
+    (Extracted from loop()'s switch on characters read from serial)
+    <table cellspacing="2" cellpadding="2" border="1">
+      <tbody>
+        <tr>
+          <td>'p'</td>
+          <td> turn motor power on</td>
+        </tr>
+        <tr>
+          <td>'o'</td>
+          <td> turn motor power off</td>
+        </tr>
+        <tr>
+          <td>' '</td>
+          <td> (space char) show sensor and motion state info</td>
+        </tr>
+        <tr>
+          <td>'.'</td>
+          <td> (period) ask motor to stop moving</td>
+        </tr>
+        <tr>
+          <td>'/'</td>
+          <td> act like sensor just became dry</td>
+        </tr>
+        <tr>
+          <td>','</td>
+          <td> act like sensor just became wet</td>
+        </tr>
+        <tr>
+          <td>'!'</td>
+          <td> executes most of startup.</td>
+        </tr>
+      </tbody>
+    </table>
+    Manage configuration state:<br>
+    <table  cellspacing="2" cellpadding="2" border="1">
+      <tbody>
+        <tr>
+          <td>'?'</td>
+          <td> show configuration info (stuff that gets saved)</td>
+        </tr>
+        <tr>
+          <td>'\'</td>
+          <td>(backslash) reset all to compiled in values (a bunch of assignment statements in class Puzzle)</td>
+        </tr>
+        <tr>
+          <td>'`'</td>
+          <td> (back tick) Undoing temporary changes (reread EEProm)</td>
+        </tr>
+        <tr>
+          <td>'|'</td>
+          <td> (vertical bar) Saving parameters (save into EEProm)</td>
+        </tr>
+      </tbody>
+    </table>
+    <br>
+    Tweakable parameters are selected by the following letters, w is the powerup default:
+    <table cellspacing="2" cellpadding="2" border="1">
+      <tbody>
+        <tr>
+          <td>'w'</td>
+          <td> wetness threshold WetnessRequired;</td>
+        </tr>
+        <tr>
+          <td>'t'</td>
+          <td> track length trackLength;</td>
+        </tr>
+        <tr>
+          <td>'h'</td>
+          <td> wetness hysteresis WetnessHysteresis;</td>
+        </tr>
+        <tr>
+          <td>'a'</td>
+          <td> acceleration Acceleration;</td>
+        </tr>
+        <tr>
+          <td>'s'</td>
+          <td> max speed MaxSpeed; </td>
+        </tr>
+      </tbody>
+    </table>
+    <br>
+    Values are raised or lowered by the letters used for Roman numerals, lower case is subtracted, upper case added: (function romanize)<br>
+    &nbsp; 'i':1; 'v':5; 'x':10; 'l':50; 'c':100;&nbsp; 'd':500;&nbsp; 'm':1000.
+    <hr>For instance, to alter track length from 100 to 127:&nbsp; "txxvii?". <br>
+    You don't need to send them in one Serial Monitor click, characters are inspected individually andnewlines are ignored.<br>
+    When you are happy with the config '|' saves it, and you can test it mostly with '!', but should test with a power cycle of the board before trusting it fully.
+    <hr>
+    <h3>Reverse engineering</h3>
+    <p>The internal control board has the motor connector, <br>
+      a connector for an optical pickup for the home sensor,<br>
+      a PWM output for the LED,<br>
+      a UART connector,<br>
+      4 stake pins connector that I either didn't figure out or forgot what it does,<br>
+      and a connector for what is likely a MCU downloader/debugger.</p>
+    <p>I gather that to get the thing to do something more than its back and forth we need to talk to it via the serial port, then use the stake pins for triggers. Unfortunately the connector is metric spaced and I don't have the associated parts to make a nice cable.</p>
+    <hr>
+    <h3>Present state of the gear</h3>
+    The motor board is up on wings that make it easy to get to pins, they are however a bit crappy and we should remove them when not actively debugging the hardware.<br>
+    The particular motor board that is mounted is one of mine, the original one with a long cable to the sensor is in the tote and it would be simplest to swap them out rather than move the wires over to my board.<br>
+    <br>
+    The program thinks it is driving the flower open and closed for a fixed number of steps given by "track length". If we set the acceleration to the same or greater than the speed (named "MaxSpeed" for reasons) then we can use the MaxSpeed and the number of steps to compute the runtime, or actually the other way around, choose a number of steps (since we aren't doing the stepping choose any number) and then set the MaxSpeed to get the time that we want the thing to spend in each traversal.<br>
+    <br>
+    <hr>
+    <h3>The dangly bits that are presently not actually used</h3>
+    <p>I have made a breadboard with connectors for the motor and the home sensor, and have made but need to solder on a T-tap for the home sensor, which beware uses 12V.</p>
+    <p>The home sensor data line is 12V (the associated power pin) through most of the travel, and ~0V when at one of the extremes, I did not note which. We can feed this through an optocoupler before passing on to the Arduino, or a voltage divider if we are feeling brave. I have a board receiving the signal which needs a little rework for this isolation/voltage conversion.</p>
+    <hr>
+    <p><br>
+    </p>
   </body>
 </html>
