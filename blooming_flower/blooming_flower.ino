@@ -81,7 +81,9 @@ private:
   void shiftout(int mask,int bitnum=0){
     digitalWrite(Clock,0);
     auto b=bitRead(mask,bitnum);
+#if spewsteps
     Serial.print(b);
+#endif
     digitalWrite(Data,b);
     digitalWrite(Clock,1);
   }
@@ -93,9 +95,11 @@ public:
 
   //override base class's direct pin stuff, compiler is balking at 'override' keyword, must be an older version of C++
   void setOutputPins(uint8_t mask){
+#if spewsteps
     Serial.print("\nstep:");
     Serial.print(mask,BIN);// 5->6->10->9
     Serial.print('\t');
+#endif
     //have to shift data out via psuedo spi interface
     digitalWrite(Latch,0);//start of shifting, in case we use an SPI device where this is a CS*
     //incoming data: M2B,M2A,M1B,M1A
@@ -118,7 +122,9 @@ public:
       if(bitRead(mask,2)){
         garbled |= 1<<1;
       }
+#if spewsteps
       Serial.print(garbled,BIN);//FYI: this print preceding shiftOut but following latch->0 creates a tangible delay from latch low to first data clock.
+#endif
       shiftOut(Data,Clock,MSBFIRST,garbled);      
     }
 
@@ -589,7 +595,7 @@ void loop() {
       break;
   }
 }
-///////////////////////////
+ ///////////////////////////
 //end of code.
 ///////////////////////////
 // P/S from servo board to sensor: red +5, brown GND, 
