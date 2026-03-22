@@ -1,177 +1,36 @@
 ////////////////////////////////////////////////
 // Blooming flower mechanism, first used for Quest Night 2026 Swamping puzzle
-// 
-// pins: 
+//
+// pins:
 // motor board 3,4,(5,6,)7,8,(9,10,)11,12
 // sensor A0
 // opened switch A1 = D15
 // closed switch A2 = D16
 //
 //
-// 
+//
 ////////////////////////////////////////////////
 //original board: #define UnoR3
 
 //Andy's quick hack cause his leonardos are all at Scare:
 //#define ProMicro
 
-#include "AccelStepper.h"
+const int InMotion = 10;  //D10;
+const int forceOn= 8;//D8
+//made a separate function for debugging ESP32duino boot loops
+void setupPin(int dx) {
+  Serial.print("\ttaking pin ");
+  Serial.print(dx);
+  Serial.print('\t');
+  pinMode(dx, OUTPUT);
+}
 
-//grrrr, UNO support doesn't define Dx symbols!
-#ifdef ARDUINO_AVR_UNO
-#define D2 2
-#define D3 3
-#define D4 4
-#define D7 7
-#define D8 8
-//servo connectors, but can drive simple logic signals out as well.
-#define D9 9
-#define D10 10
+void power(bool beon) {
+  Serial.print("\tpower:");
+  Serial.print(beon);
+  digitalWrite(InMotion, beon);
+}
 
-#define D11 11
-#define D12 12
-#endif
-
-#ifdef ARDUINO_ESP32C3_DEV
-#define D5 5
-#define D6 6
-#define D7 7
-#define D8 8
-
-#define D9 9
-#define D10 10
-
-#define D20 20
-#define D21 21
-
-#endif
-
-//AccelStepper does not have a native implementationfor the SPI like motor shield, but allows an override
-class SPI_Motor : public AccelStepper {
-  //only implement enough for bloomer
-  enum {
- 
-#define NotStacked 0
-#if NotStacked==1
-//jumpered a few pins differently than stacking boards does.
-    Latch = D5, //no 12
-    Data = D6,
-    Clock = D7,
-   
-    Adrive = D8, //no 11, 6 is M4 pwr.
-    Bdrive = D9,
-
-    Disabler = D10,//may be bypassed to ground
- #else  //UNO and some others
-    Latch = D12,
-    Data = D8,
-    //D4 is IO17 on ESPDuino32 which causes a boot loop. WTF? Why does the manufacturer claim arduino compatibility when using D4 or D5 causes the processor to fault!?
-    Clock = D4,
-    Disabler = D7,
-    Adrive = D11,
-    Bdrive = D3,
-
-    InMotion = D10, // servo 1
-#endif
-
-  };
- 
-private:
-
-  void shiftout(int mask,int bitnum=0){
-    digitalWrite(Clock,0);
-    auto b=bitRead(mask,bitnum);
-#if spewsteps
-    Serial.print(b);
-#endif
-    digitalWrite(Data,b);
-    digitalWrite(Clock,1);
-  }
-
-public:
-  bool doitOurselves=false; //how to shift out bits. Delete once the system actually works.
-
-  SPI_Motor():AccelStepper(AccelStepper::FULL4WIRE){}
-
-  //override base class's direct pin stuff, compiler is balking at 'override' keyword, must be an older version of C++
-  void setOutputPins(uint8_t mask){
-#if spewsteps
-    Serial.print("\nstep:");
-    Serial.print(mask,BIN);// 5->6->10->9
-    Serial.print('\t');
-#endif
-    //have to shift data out via psuedo spi interface
-    digitalWrite(Latch,0);//start of shifting, in case we use an SPI device where this is a CS*
-    //incoming data: M2B,M2A,M1B,M1A
-    //device: M4B,M3B,M4A,M2B,M1B,M1A,M2A,M3A 
-    if(doitOurselves){
-      shiftout(0); //M4B
-      shiftout(0); //M3B
-      shiftout(0); //M4A
-      shiftout(mask,3);//M2B
-      shiftout(mask,1);//M1B      
-      shiftout(mask,0);//M1A       
-      shiftout(mask,2);//M2A  
-      shiftout(0); //M3A
-    } else {
-      //to use shiftOut library function we have to swap around the incoming bits
-      int garbled=((mask&3)<<2);//0 and 1 in place
-      if(bitRead(mask,3)){
-        garbled |= 1<<4;
-      }
-      if(bitRead(mask,2)){
-        garbled |= 1<<1;
-      }
-#if spewsteps
-      Serial.print(garbled,BIN);//FYI: this print preceding shiftOut but following latch->0 creates a tangible delay from latch low to first data clock.
-#endif
-      shiftOut(Data,Clock,MSBFIRST,garbled);      
-    }
-
-    digitalWrite(Latch,1);//mass update
-  }
-
-  //made a separate function for debugging ESP32duino boot loops
-  void setupPin(int dx){
-    Serial.print("\ttaking pin ");
-    Serial.print(dx);
-    Serial.print('\t');
-    pinMode(dx,OUTPUT);
-  }
-
-  void setup(){
-    Serial.print("\nSPI_Motor taking its pins\n");
-    //SPI like interface bits
-    setupPin(Latch);
-    setupPin(Data);
-    setupPin(Clock);
-    //pwm motor controls need to be driven, even if we don't pwm them
-    setupPin(Adrive);
-    setupPin(Bdrive);
-
-    setupPin(Disabler);
-
-    setupPin(InMotion); 
-
-    digitalWrite(Disabler, 0);//the board curiously pulls up this signal that must be low for the board to function properly.
-    //set a known state for consistency
-    power(0); //disable power to motor at startup
-    setOutputPins(0); //secondary way to power down.
-  }
-
-  void power(bool beon){
-    Serial.print("\tpower:");
-    Serial.print(beon);
-    //use the pwm capable controls as power control.
-    digitalWrite(Adrive, beon);
-    digitalWrite(Bdrive, beon);
-
-    digitalWrite(InMotion,beon);
-  }
-};
-
-/////////////////////////////////////////////
-using Motor = SPI_Motor;  //in case we change library again.
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
@@ -186,30 +45,30 @@ struct Puzzle {
   unsigned WetnessRequired;
   unsigned WetnessHysteresis;
   //motor tuners:  The below should be floats but making them ints allows for shared tweaking code, and is resolution enough for this puzzle.
-  unsigned Acceleration; //steps per second per second
-  unsigned MaxSpeed;     //steps per second
-  
+  unsigned Acceleration;  //steps per second per second
+  unsigned MaxSpeed;      //steps per second
+
   unsigned trackLength;  //number of steps from fully closed to fully open
   unsigned sensorPin;
   unsigned sensorSamplingRate;
-  
-  bool isWet(int wetness){
+
+  bool isWet(int wetness) {
     return wetness < (WetnessRequired - WetnessHysteresis);
   }
 
-  bool isDry(int wetness){
+  bool isDry(int wetness) {
     return wetness > (WetnessRequired + WetnessHysteresis);
   }
 
-  void builtins(){
-    trackLength = 100;  //number of steps from fully closed to fully open, may be set low for debug!
+  void builtins() {
+    trackLength = 6100;  //number of steps from fully closed to fully open, may be set low for debug!
     sensorPin = A0;
     sensorSamplingRate = 167;
     WetnessRequired = 600;
     WetnessHysteresis = 20;
 
-    Acceleration=7;
-    MaxSpeed=98;
+    Acceleration = 7;
+    MaxSpeed = 98;
   }
 
   void info() {
@@ -230,21 +89,21 @@ struct Puzzle {
     Serial.println();
   }
 
-  void load(){
+  void load() {
     EEPROM.get(0, *this);
   }
 
-  void save(){
-    EEPROM.put(0,*this);
-    #ifdef ESP32
+  void save() {
+    EEPROM.put(0, *this);
+#ifdef ESP32
     EEPROM.commit();
-    #endif
+#endif
   }
 
-  void setup(){
-    #ifdef ESP32
-    EEPROM.begin((sizeof(Puzzle)+63) & ~63);//round up to block of 64 as that is optimal on ESP32 
-    #endif
+  void setup() {
+#ifdef ESP32
+    EEPROM.begin((sizeof(Puzzle) + 63) & ~63);  //round up to block of 64 as that is optimal on ESP32
+#endif
     load();
   }
 
@@ -254,27 +113,27 @@ struct Puzzle {
 struct Sensor {
   int ain;
   MilliTick readInterval;  //how often to read the sensor, so that diagnostics don't swamp us.
-  unsigned reading ;   //raw analog value
-  MilliTick read ;      //time sensor was last read
-  
-  bool operator > (unsigned threshold){
+  unsigned reading;        //raw analog value
+  MilliTick read;          //time sensor was last read
+
+  bool operator>(unsigned threshold) {
     return reading > threshold;
   }
 
-  bool operator <(unsigned threshold){
-    return ! operator > (threshold);
+  bool operator<(unsigned threshold) {
+    return !operator>(threshold);
   }
 
   Sensor(int ainPin)
     : ain(ainPin),
       readInterval(puzzle.sensorSamplingRate),
       reading(~0),  //init to something wildly impossible
-      read(0){        
+      read(0) {
     //nothing needed here
   }
 
   void setup() {
-    pinMode(ain,INPUT);//in case we dynamically reassign pins.
+    pinMode(ain, INPUT);  //in case we dynamically reassign pins.
     Serial.println("\nfirst reading of sensor");
     reading = analogRead(ain);
     read = millis();
@@ -283,16 +142,20 @@ struct Sensor {
   void onTick(MilliTick now) {
     if (now > read + readInterval) {
       read = now;
-      reading = analogRead(ain);    
+      reading = analogRead(ain);
     }
   }
 };
 
 struct BloomingFlower {
-  Motor motor;
-  Sensor wetness; 
-  int openSwitch;
-  int closeSwitch;
+  Sensor wetness;
+
+  MilliTick doneTime = 0;
+  void startTimer() {
+    power(1);
+    
+    doneTime = millis() + puzzle.trackLength;
+  }
   //state of bloom
   enum Bloomer {
     Unknown,
@@ -306,47 +169,39 @@ struct BloomingFlower {
   Bloomer blooming = Unknown;
   //keep hardware status handy for debug:
   struct state {
-    bool Wet=false;
-    bool Dry=false;
-    bool Moving=false;
+    bool Wet = false;
+    bool Dry = false;
+    bool Moving = false;
     long At = ~0;
-    bool Open = false;  //limit switch
-    bool Closed = false;//limit switch
+    bool Open = false;    //limit switch
+    bool Closed = false;  //limit switch
   } is;
-  
+
   BloomingFlower()
-    : motor(),
-      wetness(puzzle.sensorPin) {}
+    : wetness(puzzle.sensorPin) {}
 
   void startOpening() {
     Serial.print("\nstartOpening");
-    motor.power(1);
-    blooming=Opening;
-    motor.moveTo(puzzle.trackLength);
+    startTimer();
+    blooming = Opening;
   }
 
   void startClosing() {
     Serial.print("\nstartClosing");
-    motor.power(1);
-    blooming=Closing;
-    motor.moveTo(0);
+    blooming = Closing;
+    startTimer();
   }
 
   void rehome() {
     Serial.print("\nrehome");
-    motor.power(1);
     blooming = Homing;
-    motor.setCurrentPosition(puzzle.trackLength);// worst case: guess that we are as far open as can be
-    motor.moveTo(0);
   }
 
-  void stop(Bloomer be,const char *why){
+  void stop(Bloomer be, const char *why) {
     blooming = be;
+    power(0);
     Serial.print('\n');
     Serial.print(why);
-    motor.move(0);//truncate attempts to move
-    motor.power(0);//the mechanism has enough friction that we don't need the motor to hold it in place.
-
     showState();
   }
 
@@ -355,12 +210,11 @@ struct BloomingFlower {
     //get all hardware state whether it matters or not, for debug convenience:
     is.Wet = puzzle.isWet(wetness.reading);
     is.Dry = puzzle.isDry(wetness.reading);
-    is.Open = digitalRead(openSwitch);
-    is.Closed = digitalRead(closeSwitch);
+    is.Moving = now < doneTime;
 
-    is.At = motor.currentPosition();
-    is.Moving = motor.distanceToGo()!=0;
-
+    if(digitalRead(forceOn)==0){
+      power(1);
+    }
     //state changes are here
     //todo: priority of motion completing over changes in wetness. Presently once we start we finish before being willing to turn around.
     //todo: add limit switches making is.Moving a backup for a failed switch.
@@ -369,85 +223,72 @@ struct BloomingFlower {
         Serial.println("\nIllegal blooming state");
         blooming = Unknown;
         //join:
-      case Unknown:        
-        rehome();  
+      case Unknown:
+        rehome();
         break;
       case Homing:
-        if(! is.Moving){
-          stop(Closed,"Homed");
+        if (!is.Moving) {
+          stop(Closed, "Homed");
         }
         break;
-      
-      case Closed: //most of the time we are here, waiting for the customer to dunk orbees into the bucket.
-        if(is.Wet){
-          startOpening();          
+
+      case Closed:  //most of the time we are here, waiting for the customer to dunk orbees into the bucket.
+        if (is.Wet) {
+          startOpening();
         }
         break;
-   
+
       case Opening:
         //todo: check fail safe timer and stop stepper
-        if(!is.Moving){
-          stop(Opened,"Opened");
+        if (!is.Moving) {
+          stop(Opened, "Opened");
         }
         break;
 
       case Opened:  //if sensor not on then start closing
-        if(is.Dry){
-          startClosing();          
-        }      
+        if (is.Dry) {
+          startClosing();
+        }
         break;
 
       case Closing:  //presume sensor glitched and we should do a full reset
-        if(!is.Moving){
-          stop(Closed,"Closed");
+        if (!is.Moving) {
+          stop(Closed, "Closed");
         }
         //perhaps:
         // if(is.Wet){
-        //   startOpening();          
+        //   startOpening();
         // }
-        break;      
+        break;
     };
   }
 
-  template <typename SomePrintableType> void showItem(const char *symbol,SomePrintableType datum){
+  template<typename SomePrintableType> void showItem(const char *symbol, SomePrintableType datum) {
     Serial.print("\t");
     Serial.print(symbol);
-    Serial.print(":");    
+    Serial.print(":");
     Serial.print(datum);
-    
   }
-  void showState(){
+  void showState() {
     //IDE lied about uno having printf:
     Serial.println();
 
-    showItem("Wet",is.Wet);
-    showItem("Dry",is.Dry);
-    showItem("Moving",is.Moving);
-    showItem("Step",is.At);
+    showItem("Wet", is.Wet);
+    showItem("Dry", is.Dry);
 
-    showItem("Olim",is.Open);
-    showItem("CLim",is.Closed);
+    showItem("Moisture", wetness.reading);
+    showItem("ms", wetness.read);
 
-    showItem("Moisture",wetness.reading);
-    showItem("ms",wetness.read);
-    
     Serial.println();
-  }
-
-  void setupSwitch(int &switchee,int Dpin){
-    pinMode(Dpin,INPUT_PULLUP);
-    switchee=digitalRead(Dpin);
   }
 
   void setup() {
     Serial.println("\nFlower Setup");
     wetness.setup();
-    motor.setup();
-    motor.setAcceleration(puzzle.Acceleration);
-    motor.setMaxSpeed(puzzle.MaxSpeed);
-    motor.setSpeed(puzzle.MaxSpeed);
-    setupSwitch(openSwitch,15);//15 should get us A1 as digital
-    setupSwitch(closeSwitch,16);//16 for A2
+    setupPin(InMotion);
+    pinMode(forceOn,INPUT_PULLUP);
+    //set a known state for consistency
+    power(0);
   }
 };
 BloomingFlower flower;
@@ -462,51 +303,56 @@ BloomingFlower flower;
 #endif
 
 void setup() {
-  Serial.begin(DebugBaud);//use same baud as downloader to eliminate crap in serial monitore window.
-  delay(1000);//to let UNO serial monitor reliably get the following text
-  Serial.println("\nBloomin' Flower!");  
-  puzzle.setup(); //reads puzzle configuration object from eeprom. This is kept separate from flower.setup() so that we can see how flower will work with temporarily altered puzzle parameters. see '!' debug action.
-  flower.setup(); //rest of setup.
+  Serial.begin(DebugBaud);  //use same baud as downloader to eliminate crap in serial monitore window.
+  delay(1000);              //to let UNO serial monitor reliably get the following text
+  Serial.println("\nBloomin' Flower!");
+  puzzle.setup();  //reads puzzle configuration object from eeprom. This is kept separate from flower.setup() so that we can see how flower will work with temporarily altered puzzle parameters. see '!' debug action.
+  flower.setup();  //rest of setup.
 }
 
 //returns whether char was applied
-bool romanize(unsigned &number,char letter){
-  bool isUpper=letter <= 'Z';
-  int magnitude=0;//init in case we get stupid later
+bool romanize(unsigned &number, char letter) {
+  bool isUpper = letter <= 'Z';
+  int magnitude = 0;  //init in case we get stupid later
 
-  switch(tolower(letter)){
+  switch (tolower(letter)) {
     case 'i':
-      magnitude=1; break;
+      magnitude = 1;
+      break;
     case 'v':
-      magnitude=5; break;
+      magnitude = 5;
+      break;
     case 'x':
-      magnitude=10;break;
+      magnitude = 10;
+      break;
     case 'l':
-      magnitude=50; break;
+      magnitude = 50;
+      break;
     case 'c':
-      magnitude=100; break;
+      magnitude = 100;
+      break;
     case 'd':
-      magnitude=500; break;
+      magnitude = 500;
+      break;
     case 'm':
-      magnitude=1000; break;
+      magnitude = 1000;
+      break;
     default:
       return false;
   }
-  if(isUpper){
+  if (isUpper) {
     number += magnitude;
   } else {
-    number -= magnitude;//user beware that negative numbers are instead treated as really large.
+    number -= magnitude;  //user beware that negative numbers are instead treated as really large.
   }
 
-  return true;  
+  return true;
 }
 
-unsigned *tweakee = &puzzle.WetnessRequired;//legacy init
+unsigned *tweakee = &puzzle.WetnessRequired;  //legacy init
 
 void loop() {
-  //this stepper library checks micros in the following call and steps motor etc.
-  flower.motor.run(); //todo: see if we can do this on the millitick OR in a timer ISR.
-  
+
   //loop is called way too often, we put our logic in a once per millisecond function above
   MilliTick now = millis();
   if (milliTicker != now) {  //once a millisecond
@@ -514,25 +360,25 @@ void loop() {
     flower.onTick(now);
   }
   //debug actions
-  auto key=Serial.read();
+  auto key = Serial.read();
   //if a roman numeral letter then tweak some number
-  if(tweakee && romanize(*tweakee, key)){ //uses CDILMVX
+  if (tweakee && romanize(*tweakee, key)) {  //uses CDILMVX
     return;
   }
   //not a number tweak so do something else.
   switch (tolower(key)) {
     default:
-      if(key>0){
+      if (key > 0) {
         Serial.print("\nUnknown command char:");
         Serial.println(key);
       }
       break;
     case 'p':
-      flower.motor.power(1);
+      power(1);
       Serial.print("\nMotor power enabled");
       break;
     case 'o':
-      flower.motor.power(0);
+      power(0);
       Serial.print("\nMotor power disabled");
       break;
     case '?':
@@ -542,7 +388,7 @@ void loop() {
       flower.showState();
       break;
     case '.':
-      flower.motor.move(0);//or perhaps power off?
+      // flower.motor.move(0);  //or perhaps power off?
       break;
     case '/':
       flower.startClosing();
@@ -554,7 +400,7 @@ void loop() {
       flower.setup();
       flower.rehome();
       break;
-    case '\\'://reset to compiled in values, needed on first load of a signficantly new program
+    case '\\':  //reset to compiled in values, needed on first load of a signficantly new program
       Serial.print("\nSet parameters to hard coded values");
       puzzle.builtins();
       puzzle.info();
@@ -570,35 +416,36 @@ void loop() {
       puzzle.info();
       break;
 
-    case 'w': 
+    case 'w':
       Serial.print("\nTweaking wetness threshold");
-      tweakee = &puzzle.WetnessRequired; 
+      tweakee = &puzzle.WetnessRequired;
       break;
-    case 't': 
-      Serial.print("\nTweaking track length");
-      tweakee = &puzzle.trackLength; 
+    case 't':
+      Serial.print("\nTweaking time");
+      tweakee = &puzzle.trackLength;
       break;
-    case 'h': 
+    case 'h':
       Serial.print("\nTweaking wetness hysteresis");
-      tweakee = &puzzle.WetnessHysteresis; 
+      tweakee = &puzzle.WetnessHysteresis;
       break;
-    case 'a': 
+    case 'a':
       Serial.print("\nTweaking acceleration");
-      tweakee = &puzzle.Acceleration; 
+      tweakee = &puzzle.Acceleration;
       break;
-    case 's': 
+    case 's':
       Serial.print("\nTweaking max speed");
-      tweakee = &puzzle.MaxSpeed; 
+      tweakee = &puzzle.MaxSpeed;
       break;
 
-    case 13: case 10: //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
+    case 13:
+    case 10:  //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
       break;
   }
 }
- ///////////////////////////
+///////////////////////////
 //end of code.
 ///////////////////////////
-// P/S from servo board to sensor: red +5, brown GND, 
+// P/S from servo board to sensor: red +5, brown GND,
 // sensor AO to UNO A0, orange wire.
 // barrel to M power: orange +, grey GND
 // motor green/black to M1?
