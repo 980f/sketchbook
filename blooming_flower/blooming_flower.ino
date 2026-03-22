@@ -16,7 +16,7 @@
 //#define ProMicro
 
 const int InMotion = 10;  //D10;
-const int forceOn= 8;//D8
+const int forceOn = 8;    //D8
 //made a separate function for debugging ESP32duino boot loops
 void setupPin(int dx) {
   Serial.print("\ttaking pin ");
@@ -153,7 +153,7 @@ struct BloomingFlower {
   MilliTick doneTime = 0;
   void startTimer() {
     power(1);
-    
+
     doneTime = millis() + puzzle.trackLength;
   }
   //state of bloom
@@ -164,6 +164,7 @@ struct BloomingFlower {
     Closed,
     Opening,
     Closing,
+    Timing,
   };
 
   Bloomer blooming = Unknown;
@@ -212,9 +213,11 @@ struct BloomingFlower {
     is.Dry = puzzle.isDry(wetness.reading);
     is.Moving = now < doneTime;
 
-    if(digitalRead(forceOn)==0){
-      power(1);
+    if (digitalRead(forceOn) == 0) {
+      blooming = Timing;
+      digitalWrite(InMotion, 1);
     }
+
     //state changes are here
     //todo: priority of motion completing over changes in wetness. Presently once we start we finish before being willing to turn around.
     //todo: add limit switches making is.Moving a backup for a failed switch.
@@ -260,6 +263,12 @@ struct BloomingFlower {
         //   startOpening();
         // }
         break;
+      case Timing:
+        if (digitalRead(forceOn)) {
+          blooming = Closed;
+          digitalWrite(InMotion, 0);
+        }
+        break;
     };
   }
 
@@ -286,7 +295,7 @@ struct BloomingFlower {
     Serial.println("\nFlower Setup");
     wetness.setup();
     setupPin(InMotion);
-    pinMode(forceOn,INPUT_PULLUP);
+    pinMode(forceOn, INPUT_PULLUP);
     //set a known state for consistency
     power(0);
   }
