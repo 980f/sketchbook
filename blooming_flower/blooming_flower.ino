@@ -8,7 +8,7 @@
 //
 //
 ////////////////////////////////////////////////
-
+////////////////////////////////////////////////
 //timer version: InMotion is output to enable flower power
 const int InMotion = 10;  //D10;
 //forceOn is for testing, it bypasses most other logic
@@ -17,7 +17,7 @@ const int forceOn = 8;  //D8
 //low when flower is closed, else somewhat high (2.5V in first system, maybe wrong zener was used?)
 //CAVEAT: reports high when power is off! Cannot check home without the device definitely being on (relay has to have activated, not just been told to be active).
 const int homeSensor = 6;  //D6
-
+////////////////////////////////////////////////
 //made a separate function for debugging ESP32duino boot loops
 void setupPin(int dx) {
   Serial.print("\ttaking pin ");
@@ -43,50 +43,55 @@ MilliTick milliTicker = 0;
 struct Puzzle {
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
   unsigned WetnessRequired;
-  unsigned WetnessHysteresis;
+
   //motor tuners:  The below should be floats but making them ints allows for shared tweaking code, and is resolution enough for this puzzle.
   unsigned Acceleration;  //steps per second per second
   unsigned MaxSpeed;      //steps per second
-
-  unsigned trackLength;  //number of steps from fully closed to fully open
+                          //below is temporarily abused to be ms needed to go from homed to open.
+  unsigned trackLength;   //number of steps from fully closed to fully open
   unsigned sensorPin;
+  //how often to read and report on the wetness sensor
   unsigned sensorSamplingRate;
+  //how many samples in a row that must match before a change is reacted to
+  unsigned sensorFilter;
 
   bool isWet(int wetness) {
-    return wetness < (WetnessRequired - WetnessHysteresis);
+    return wetness < WetnessRequired;
   }
 
-  bool isDry(int wetness) {
-    return wetness > (WetnessRequired + WetnessHysteresis);
-  }
+  // bool isDry(int wetness) {
+  //   return wetness > (WetnessRequired + WetnessHysteresis);
+  // }
 
   void builtins() {
-    trackLength = 6100;  //number of steps from fully closed to fully open, may be set low for debug!
+    trackLength = 5270;  //was number of steps from fully closed to fully open, temporarily is milliseconds needed to go from homed to open
     sensorPin = A0;
-    sensorSamplingRate = 167;
+    sensorSamplingRate = 333;
+    sensorFilter = 3;  // this many in a row the same or no change happened
     WetnessRequired = 600;
-    WetnessHysteresis = 20;
 
-    Acceleration = 7;
-    MaxSpeed = 98;
+    MaxSpeed = 100;
+    Acceleration = MaxSpeed;  //defeats acceleration feature
   }
 
   void info() {
     Serial.print("\nPuzzle Parameters:");
-    Serial.print("\nrate\tWet\t+/-\tLen\tAcc\tSpd");
+    Serial.print("\nrate\tfilt\tWet\tLen\tAcc\tSpd");
     Serial.print("\n");
     Serial.print(sensorSamplingRate);
     Serial.print("\t");
-    Serial.print(WetnessRequired);
+    Serial.print(sensorFilter);
+
     Serial.print("\t");
-    Serial.print(WetnessHysteresis);
+    Serial.print(WetnessRequired);
+
     Serial.print("\t");
     Serial.print(trackLength);
+
     Serial.print("\t");
     Serial.print(Acceleration);
     Serial.print("\t");
     Serial.print(MaxSpeed);
-    Serial.println();
   }
 
   void load() {
@@ -177,7 +182,7 @@ struct BloomingFlower {
   //keep hardware status handy for debug:
   struct state {
     bool Wet = false;
-    bool Dry = false;
+    unsigned bouncing = 0;
     bool Moving = false;
     long At = ~0;
     bool atHome = false;
@@ -217,7 +222,7 @@ struct BloomingFlower {
   bool checkHome(MilliTick now) {
     if (startTime < now && now > startTime + 100) {  //todo: make that 100 another puzzle parameter
       bool newvalue = digitalRead(homeSensor) == 0;
-      if (is.atHome != newvalue) {//change detect to keep message spew readable
+      if (is.atHome != newvalue) {  //change detect to keep message spew readable
         is.atHome = newvalue;
         Serial.print("\nhome sensor changed to ");
         Serial.print(is.atHome);
@@ -232,8 +237,15 @@ struct BloomingFlower {
     is.Moving = now < doneTime;  //timeout is a backup now, not a primary control
 
     if (wetness.onTick(now)) {  //then we have a new reading so update values
-      is.Wet = puzzle.isWet(wetness.reading);
-      is.Dry = puzzle.isDry(wetness.reading);
+      bool newlyWet = puzzle.isWet(wetness.reading);
+      if (is.Wet != newlyWet) {
+        if (++is.bouncing > puzzle.sensorFilter) {
+          is.Wet != newlyWet;
+          showState();
+        }
+      } else {
+        is.bouncing = 0;
+      }
       if (debug) {
         showState();
       }
@@ -245,8 +257,6 @@ struct BloomingFlower {
     }
 
     //state changes are here
-    //todo: priority of motion completing over changes in wetness. Presently once we start we finish before being willing to turn around.
-    //todo: add limit switches making is.Moving a backup for a failed switch.
     switch (blooming) {
       default:
         Serial.println("\nIllegal blooming state");
@@ -270,31 +280,19 @@ struct BloomingFlower {
         break;
 
       case Opening:
-        //todo: check fail safe timer and stop stepper
         if (!is.Moving) {
           stop(Opened, "Opened");
-        }
-        if (is.Dry) {
-       //   Serial.print("\tsensor glitch");
-          rehome("sensor glitch");
         }
         break;
 
       case Opened:  //if sensor not on then start closing
         //removed auto home, it fuzzed things and also ignoring it means we may not need to debounce.
-        // if (is.Dry) {
-        //   startClosing();
-        // }
         break;
 
       case Closing:  //presume sensor glitched and we should do a full reset
         if (!is.Moving) {
           stop(Closed, "Closed");
         }
-        //perhaps:
-        // if(is.Wet){
-        //   startOpening();
-        // }
         break;
       case Timing:  //obsolete case
         if (digitalRead(forceOn)) {
@@ -317,7 +315,7 @@ struct BloomingFlower {
     Serial.println();
 
     showItem("Wet", is.Wet);
-    showItem("Dry", is.Dry);
+    showItem("Bounce", is.bouncing);
     showItem("Homed", is.atHome);
 
     showItem("Moisture", wetness.reading);
@@ -471,6 +469,10 @@ void loop() {
         Serial.print("\nTweaking sensor sampling rate");
         tweakee = &puzzle.sensorSamplingRate;
         break;
+      case 'f':
+        Serial.print("\nTweaking sensorFilter");
+        tweakee = &puzzle.sensorFilter;
+        break;
       case 'w':
         Serial.print("\nTweaking wetness threshold");
         tweakee = &puzzle.WetnessRequired;
@@ -479,10 +481,10 @@ void loop() {
         Serial.print("\nTweaking time");
         tweakee = &puzzle.trackLength;
         break;
-      case 'h':
-        Serial.print("\nTweaking wetness hysteresis");
-        tweakee = &puzzle.WetnessHysteresis;
-        break;
+      // case 'h':
+      //   Serial.print("\nTweaking wetness hysteresis");
+      //   tweakee = &puzzle.;
+      //   break;
       case 'a':
         Serial.print("\nTweaking acceleration");
         tweakee = &puzzle.Acceleration;
