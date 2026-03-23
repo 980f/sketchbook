@@ -1,22 +1,23 @@
 ////////////////////////////////////////////////
 // Blooming flower mechanism, first used for Quest Night 2026 Swamping puzzle
 //
-// pins:
+// full control pins:
 // motor board 3,4,(5,6,)7,8,(9,10,)11,12
-// sensor A0
-// opened switch A1 = D15
-// closed switch A2 = D16
-//
+// moisture sensor A0
+// homeSensor ??
 //
 //
 ////////////////////////////////////////////////
-//original board: #define UnoR3
 
-//Andy's quick hack cause his leonardos are all at Scare:
-//#define ProMicro
-
+//timer version: InMotion is output to enable flower power
 const int InMotion = 10;  //D10;
-const int forceOn = 8;    //D8
+//forceOn is for testing, it bypasses most other logic
+// and now it is 'puzzle reset', but I ain't changing the name until it actually works
+const int forceOn = 8;  //D8
+//low when flower is closed, else somewhat high (2.5V in first system, maybe wrong zener was used?)
+//CAVEAT: reports high when power is off! Cannot check home without the device definitely being on (relay has to have activated, not just been told to be active).
+const int homeSensor = 6;  //D6
+
 //made a separate function for debugging ESP32duino boot loops
 void setupPin(int dx) {
   Serial.print("\ttaking pin ");
@@ -30,7 +31,6 @@ void power(bool beon) {
   Serial.print(beon);
   digitalWrite(InMotion, beon);
 }
-
 
 //andy has a library that makes millisecond timing compact, this is a tiny bit of it.
 using MilliTick = unsigned long;
@@ -126,36 +126,42 @@ struct Sensor {
 
   Sensor(int ainPin)
     : ain(ainPin),
-      readInterval(puzzle.sensorSamplingRate),
-      reading(~0),  //init to something wildly impossible
+      readInterval(1000),  //should always be overwritten before 'real' code runs
+      reading(~0),         //init to something wildly impossible
       read(0) {
     //nothing needed here
   }
 
   void setup() {
     pinMode(ain, INPUT);  //in case we dynamically reassign pins.
+    readInterval = puzzle.sensorSamplingRate;
     Serial.println("\nfirst reading of sensor");
     reading = analogRead(ain);
     read = millis();
   }
 
-  void onTick(MilliTick now) {
+  bool onTick(MilliTick now) {
     if (now > read + readInterval) {
       read = now;
       reading = analogRead(ain);
+      return true;
     }
+    return false;
   }
 };
 
 struct BloomingFlower {
+  bool debug = false;
   Sensor wetness;
 
   MilliTick doneTime = 0;
+  MilliTick startTime = ~0;  //mark 'never started'
   void startTimer() {
     power(1);
-
-    doneTime = millis() + puzzle.trackLength;
+    startTime = millis();  //record for relay start time for home sensor
+    doneTime = startTime + puzzle.trackLength;
   }
+
   //state of bloom
   enum Bloomer {
     Unknown,
@@ -174,8 +180,7 @@ struct BloomingFlower {
     bool Dry = false;
     bool Moving = false;
     long At = ~0;
-    bool Open = false;    //limit switch
-    bool Closed = false;  //limit switch
+    bool atHome = false;
   } is;
 
   BloomingFlower()
@@ -187,35 +192,56 @@ struct BloomingFlower {
     blooming = Opening;
   }
 
-  void startClosing() {
+  void startClosing() {  //this should be obsolete
     Serial.print("\nstartClosing");
     blooming = Closing;
     startTimer();
   }
 
-  void rehome() {
-    Serial.print("\nrehome");
+  void rehome(const char *why) {
+    Serial.print("\nrehome due to ");
+    Serial.print(why);
     blooming = Homing;
+    startTimer();
   }
 
   void stop(Bloomer be, const char *why) {
     blooming = be;
     power(0);
+    startTime = ~0;
     Serial.print('\n');
     Serial.print(why);
     showState();
   }
 
-  void onTick(MilliTick now) {
-    wetness.onTick(now);
-    //get all hardware state whether it matters or not, for debug convenience:
-    is.Wet = puzzle.isWet(wetness.reading);
-    is.Dry = puzzle.isDry(wetness.reading);
-    is.Moving = now < doneTime;
+  bool checkHome(MilliTick now) {
+    if (startTime < now && now > startTime + 100) {  //todo: make that 100 another puzzle parameter
+      bool newvalue = digitalRead(homeSensor) == 0;
+      if (is.atHome != newvalue) {//change detect to keep message spew readable
+        is.atHome = newvalue;
+        Serial.print("\nhome sensor changed to ");
+        Serial.print(is.atHome);
+        Serial.print(" at ");
+        Serial.print(now);
+      }
+    }  //else just keep the last value
+  }
 
-    if (digitalRead(forceOn) == 0) {
-      blooming = Timing;
-      digitalWrite(InMotion, 1);
+  void onTick(MilliTick now) {
+    checkHome(now);
+    is.Moving = now < doneTime;  //timeout is a backup now, not a primary control
+
+    if (wetness.onTick(now)) {  //then we have a new reading so update values
+      is.Wet = puzzle.isWet(wetness.reading);
+      is.Dry = puzzle.isDry(wetness.reading);
+      if (debug) {
+        showState();
+      }
+    }
+    //puzzle reset overrides most other logic
+    if (blooming != Homing && digitalRead(forceOn) == 0) {
+      rehome("puzzle reset button");
+      blooming = Homing;
     }
 
     //state changes are here
@@ -227,10 +253,12 @@ struct BloomingFlower {
         blooming = Unknown;
         //join:
       case Unknown:
-        rehome();
+        rehome("power up");
         break;
       case Homing:
         if (!is.Moving) {
+          stop(Closed, "Timeout Homing");
+        } else if (is.atHome) {
           stop(Closed, "Homed");
         }
         break;
@@ -246,12 +274,17 @@ struct BloomingFlower {
         if (!is.Moving) {
           stop(Opened, "Opened");
         }
+        if (is.Dry) {
+       //   Serial.print("\tsensor glitch");
+          rehome("sensor glitch");
+        }
         break;
 
       case Opened:  //if sensor not on then start closing
-        if (is.Dry) {
-          startClosing();
-        }
+        //removed auto home, it fuzzed things and also ignoring it means we may not need to debounce.
+        // if (is.Dry) {
+        //   startClosing();
+        // }
         break;
 
       case Closing:  //presume sensor glitched and we should do a full reset
@@ -263,7 +296,7 @@ struct BloomingFlower {
         //   startOpening();
         // }
         break;
-      case Timing:
+      case Timing:  //obsolete case
         if (digitalRead(forceOn)) {
           blooming = Closed;
           digitalWrite(InMotion, 0);
@@ -278,12 +311,14 @@ struct BloomingFlower {
     Serial.print(":");
     Serial.print(datum);
   }
+
   void showState() {
     //IDE lied about uno having printf:
     Serial.println();
 
     showItem("Wet", is.Wet);
     showItem("Dry", is.Dry);
+    showItem("Homed", is.atHome);
 
     showItem("Moisture", wetness.reading);
     showItem("ms", wetness.read);
@@ -301,7 +336,7 @@ struct BloomingFlower {
   }
 };
 BloomingFlower flower;
-
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////
 //arduino hooks:
 //match baud rate to downloader so that we don't get garbage in serial monitor when running new program:
@@ -320,11 +355,11 @@ void setup() {
 }
 
 //returns whether char was applied
-bool romanize(unsigned &number, char letter) {
-  bool isUpper = letter <= 'Z';
-  int magnitude = 0;  //init in case we get stupid later
+template<typename SomeIntType> bool romanize(SomeIntType &number, char letter, bool isUpper) {
 
-  switch (tolower(letter)) {
+  SomeIntType magnitude = 0;  //init in case we get stupid later
+
+  switch (letter) {
     case 'i':
       magnitude = 1;
       break;
@@ -352,7 +387,7 @@ bool romanize(unsigned &number, char letter) {
   if (isUpper) {
     number += magnitude;
   } else {
-    number -= magnitude;  //user beware that negative numbers are instead treated as really large.
+    number -= magnitude;  //user beware that negative numbers might be treated as really large.
   }
 
   return true;
@@ -370,92 +405,115 @@ void loop() {
   }
   //debug actions
   auto key = Serial.read();
-  //if a roman numeral letter then tweak some number
-  if (tweakee && romanize(*tweakee, key)) {  //uses CDILMVX
-    return;
-  }
-  //not a number tweak so do something else.
-  switch (tolower(key)) {
-    default:
-      if (key > 0) {
+  if (key > 0) {  //negative is "no key was present", zero is a NUL character
+    bool isUpper = key <= 'Z';
+    char letter = tolower(key);
+    //if a roman numeral letter then tweak some number
+    if (tweakee && romanize(*tweakee, letter, isUpper)) {  //uses CDILMVX
+      return;
+    }
+    //not a number tweak so do something else.
+    switch (letter) {
+      default:
         Serial.print("\nUnknown command char:");
         Serial.println(key);
-      }
-      break;
-    case 'p':
-      power(1);
-      Serial.print("\nMotor power enabled");
-      break;
-    case 'o':
-      power(0);
-      Serial.print("\nMotor power disabled");
-      break;
-    case '?':
-      puzzle.info();
-      break;
-    case ' ':
-      flower.showState();
-      break;
-    case '.':
-      // flower.motor.move(0);  //or perhaps power off?
-      break;
-    case '/':
-      flower.startClosing();
-      break;
-    case ',':
-      flower.startOpening();
-      break;
-    case '!':
-      flower.setup();
-      flower.rehome();
-      break;
-    case '\\':  //reset to compiled in values, needed on first load of a signficantly new program
-      Serial.print("\nSet parameters to hard coded values");
-      puzzle.builtins();
-      puzzle.info();
-      break;
-    case '`':
-      Serial.print("\nUndoing temporary changes");
-      puzzle.load();
-      puzzle.info();
-      break;
-    case '|':
-      Serial.print("\nSaving parameters");
-      puzzle.save();
-      puzzle.info();
-      break;
+        break;
+      case 'q':
+        flower.debug = isUpper;
+        Serial.print("\nstatus spew is:");
+        Serial.print(flower.debug ? "ON" : "Off");
+        break;
+      case 'p':
+        power(1);
+        Serial.print("\nMotor power enabled ");
+        break;
+      case 'o':
+        power(0);
+        Serial.print("\nMotor power disabled ");
+        Serial.print(now);
+        break;
+      case '?':
+        puzzle.info();
+        break;
+      case ' ':
+        flower.showState();
+        break;
+      case '.':
+        // flower.motor.move(0);  //or perhaps power off?
+        break;
+      case '/':
+        flower.startClosing();
+        break;
+      case ',':
+        flower.startOpening();
+        break;
+      case '!':
+        flower.setup();
+        flower.rehome("debug request");
+        break;
+      case '\\':  //reset to compiled in values, needed on first load of a signficantly new program
+        Serial.print("\nSet parameters to hard coded values");
+        puzzle.builtins();
+        puzzle.info();
+        break;
+      case '`':
+        Serial.print("\nUndoing temporary changes");
+        puzzle.load();
+        puzzle.info();
+        break;
+      case '|':
+        Serial.print("\nSaving parameters");
+        puzzle.save();
+        puzzle.info();
+        break;
 
-    case 'w':
-      Serial.print("\nTweaking wetness threshold");
-      tweakee = &puzzle.WetnessRequired;
-      break;
-    case 't':
-      Serial.print("\nTweaking time");
-      tweakee = &puzzle.trackLength;
-      break;
-    case 'h':
-      Serial.print("\nTweaking wetness hysteresis");
-      tweakee = &puzzle.WetnessHysteresis;
-      break;
-    case 'a':
-      Serial.print("\nTweaking acceleration");
-      tweakee = &puzzle.Acceleration;
-      break;
-    case 's':
-      Serial.print("\nTweaking max speed");
-      tweakee = &puzzle.MaxSpeed;
-      break;
+      case 'r':
+        Serial.print("\nTweaking sensor sampling rate");
+        tweakee = &puzzle.sensorSamplingRate;
+        break;
+      case 'w':
+        Serial.print("\nTweaking wetness threshold");
+        tweakee = &puzzle.WetnessRequired;
+        break;
+      case 't':
+        Serial.print("\nTweaking time");
+        tweakee = &puzzle.trackLength;
+        break;
+      case 'h':
+        Serial.print("\nTweaking wetness hysteresis");
+        tweakee = &puzzle.WetnessHysteresis;
+        break;
+      case 'a':
+        Serial.print("\nTweaking acceleration");
+        tweakee = &puzzle.Acceleration;
+        break;
+      case 's':
+        Serial.print("\nTweaking max speed");
+        tweakee = &puzzle.MaxSpeed;
+        break;
 
-    case 13:
-    case 10:  //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
-      break;
+      case 13:
+      case 10:  //ignore these, arduino2 serial monitor sends newlines when it sends what you type.
+        break;
+    }
   }
 }
 ///////////////////////////
 //end of code.
 ///////////////////////////
-// P/S from servo board to sensor: red +5, brown GND,
-// sensor AO to UNO A0, orange wire.
-// barrel to M power: orange +, grey GND
-// motor green/black to M1?
-// motor red/blue to M2?
+#if 0  //documentation
+
+with home sensor but just controlling power:
+-- on puzzle reset turn power on until home sensor is active
+-- on wet power goes on and stays on 
+-- perhaps if dry but am opening switch to homing
+
+
+Doitourselves wiring:
+P/S from servo board to sensor: red +5, brown GND,
+ sensor AO to UNO A0, orange wire.
+ barrel to M power: orange +, grey GND
+ motor green/black to M1?
+ motor red/blue to M2?
+
+#endif  //and the file really has ended
