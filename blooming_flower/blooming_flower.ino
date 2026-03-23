@@ -239,8 +239,8 @@ struct BloomingFlower {
     if (wetness.onTick(now)) {  //then we have a new reading so update values
       bool newlyWet = puzzle.isWet(wetness.reading);
       if (is.Wet != newlyWet) {
-        if (++is.bouncing > puzzle.sensorFilter) {
-          is.Wet != newlyWet;
+        if (++is.bouncing >= puzzle.sensorFilter) {
+          is.Wet = newlyWet;
           showState();
         }
       } else {
