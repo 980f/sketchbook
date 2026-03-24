@@ -4,16 +4,13 @@
 // pins:
 // motor board 3,4,(5,6,)7,8,(9,10,)11,12
 // sensor A0
-// opened switch A1 = D15
-// closed switch A2 = D16
 //
+// 
 //
 //
 ////////////////////////////////////////////////
 //original board: #define UnoR3
 
-//Andy's quick hack cause his leonardos are all at Scare:
-//#define ProMicro
 
 const int InMotion = 10;  //D10;
 const int forceOn = 8;    //D8
