@@ -29,7 +29,7 @@
         </tr>
         <tr>
           <td>'/'</td>
-          <td> act like sensor just became dry</td>
+          <td> <span style="text-decoration: line-through;">act like sensor just became dry</span></td>
         </tr>
         <tr>
           <td>','</td>
@@ -39,11 +39,9 @@
           <td>'!'</td>
           <td> executes most of startup.</td>
         </tr>
-      </tbody>
-    </table>
-    Manage configuration state:<br>
-    <table  cellspacing="2" cellpadding="2" border="1">
-      <tbody>
+        <tr>
+          <td colspan="2">Manage configuration state:</td>
+        </tr>
         <tr>
           <td>'?'</td>
           <td> show configuration info (stuff that gets saved)</td>
@@ -60,12 +58,9 @@
           <td>'|'</td>
           <td> (vertical bar) Saving parameters (save into EEProm)</td>
         </tr>
-      </tbody>
-    </table>
-    <br>
-    Tweakable parameters are selected by the following letters, w is the powerup default:
-    <table cellspacing="2" cellpadding="2" border="1">
-      <tbody>
+        <tr>
+          <td colspan="2"> Tweakable parameters are selected by the following letters, w is the powerup default:</td>
+        </tr>
         <tr>
           <td>'w'</td>
           <td> wetness threshold WetnessRequired;</td>
@@ -75,8 +70,8 @@
           <td> track length trackLength;</td>
         </tr>
         <tr>
-          <td>'h'</td>
-          <td> wetness hysteresis WetnessHysteresis;</td>
+          <td><span style="text-decoration: line-through;">'h'</span></td>
+          <td> <span style="text-decoration: line-through;">wetness hysteresis WetnessHysteresis;</span></td>
         </tr>
         <tr>
           <td>'a'</td>
@@ -86,13 +81,43 @@
           <td>'s'</td>
           <td> max speed MaxSpeed; </td>
         </tr>
+        <tr>
+          <td>'r'</td>
+          <td>wetness sensor sampling rate</td>
+        </tr>
+        <tr>
+          <td>'f'</td>
+          <td>"in a row" filter parameter for wetness</td>
+        </tr>
       </tbody>
     </table>
     <br>
     Values are raised or lowered by the letters used for Roman numerals, lower case is subtracted, upper case added: (function romanize)<br>
-    &nbsp; 'i':1; 'v':5; 'x':10; 'l':50; 'c':100;&nbsp; 'd':500;&nbsp; 'm':1000.
-    <hr>For instance, to alter track length from 100 to 127:&nbsp; "txxvii?". <br>
-    You don't need to send them in one Serial Monitor click, characters are inspected individually andnewlines are ignored.<br>
+    <table border="1">
+      <tbody>
+        <tr>
+          <td>'i'</td>
+          <td>'v'</td>
+          <td>'x'</td>
+          <td>'l'</td>
+          <td>'c'</td>
+          <td>'d'</td>
+          <td>'m'</td>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td>5</td>
+          <td>10</td>
+          <td>50</td>
+          <td>100</td>
+          <td>500</td>
+          <td>1000</td>
+        </tr>
+      </tbody>
+    </table>
+    <br>
+    For instance, to alter track length from 100 to 127:&nbsp; "txxvii". <br>
+    You don't need to send them in one Serial Monitor click, characters are inspected individually and space and newlines are ignored.<br>
     When you are happy with the config '|' saves it, and you can test it mostly with '!', but should test with a power cycle of the board before trusting it fully.
     <hr>
     <h3>Reverse engineering</h3>
@@ -105,17 +130,16 @@
     <p>I gather that to get the thing to do something more than its back and forth we need to talk to it via the serial port, then use the stake pins for triggers. Unfortunately the connector is metric spaced and I don't have the associated parts to make a nice cable.</p>
     <hr>
     <h3>Present state of the gear</h3>
-    The motor board is up on wings that make it easy to get to pins, they are however a bit crappy and we should remove them when not actively debugging the hardware.<br>
-    The particular motor board that is mounted is one of mine, the original one with a long cable to the sensor is in the tote and it would be simplest to swap them out rather than move the wires over to my board.<br>
+    A T-tap has been added to the flower's homed/closed sensor. A cable leads from there to a board that has a resistor divider and a zener to bring that level down to 3.3V logic.<br>
+    The tap board has a stepper motor connector that we are not using at present. The cables can be left dangling with no concern other than their tips shorting out something else.<br>
     <br>
-    The program thinks it is driving the flower open and closed for a fixed number of steps given by "track length". If we set the acceleration to the same or greater than the speed (named "MaxSpeed" for reasons) then we can use the MaxSpeed and the number of steps to compute the runtime, or actually the other way around, choose a number of steps (since we aren't doing the stepping choose any number) and then set the MaxSpeed to get the time that we want the thing to spend in each traversal.<br>
+    A relay is driven by the Arduino and interrupts the 12V power going to the flower. The default state is such that Arduino failing usually leaves power ON. Power will go on when downloading a program.<br>
     <br>
+    The firmware still has some of the parts in it for driving the motor, but the stepping has been bypassed and what was the track length in steps is now milliseconds to be on for the opening pass. Putting the motor stuff back in will require minimal editing of existing source. The blooming_flower sketch folder still has a stepper driver library in it, but that is not presently getting built.<br>
+    <br>
+    The sketchbook is my personal but public git repo, laptop #3 presently has my credentials cached in it.<br>
     <hr>
-    <h3>The dangly bits that are presently not actually used</h3>
-    <p>I have made a breadboard with connectors for the motor and the home sensor, and have made but need to solder on a T-tap for the home sensor, which beware uses 12V.</p>
-    <p>The home sensor data line is 12V (the associated power pin) through most of the travel, and ~0V when at one of the extremes, I did not note which. We can feed this through an optocoupler before passing on to the Arduino, or a voltage divider if we are feeling brave. I have a board receiving the signal which needs a little rework for this isolation/voltage conversion.</p>
-    <hr>
-    <p><br>
+    <p>end of document<br>
     </p>
   </body>
 </html>
