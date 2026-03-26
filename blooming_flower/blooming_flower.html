@@ -7,6 +7,11 @@
   <body>
     <h2>blooming_flower </h2>
     <hr>
+   Strike <span style="text-decoration: line-through;">through</span> is for things disabled until we restore driving the motor ourselves instead of diddling its power.<br>
+      The code deployed to the field has been tagged "deployed-tuesday".<br>
+      The git repo still has AccelStepper.* in it but those are not used in the build. They are from the Arduino library of that name. They are better than the regular library as they do NOT block when moving which allows us to do things like check the home sensor and stop and clear the stepper coordinate value rather than do a worst case pounding on the mechanism at startup or puzzle reset.<br>
+   
+    <hr>
     <h2>diagnostic commands</h2>
     (Extracted from loop()'s switch on characters read from serial)
     <table cellspacing="2" cellpadding="2" border="1">
