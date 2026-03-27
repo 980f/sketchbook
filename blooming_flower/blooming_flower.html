@@ -6,11 +6,9 @@
   </head>
   <body>
     <h2>blooming_flower </h2>
-    <hr>
-   Strike <span style="text-decoration: line-through;">through</span> is for things disabled until we restore driving the motor ourselves instead of diddling its power.<br>
-      The code deployed to the field has been tagged "deployed-tuesday".<br>
-      The git repo still has AccelStepper.* in it but those are not used in the build. They are from the Arduino library of that name. They are better than the regular library as they do NOT block when moving which allows us to do things like check the home sensor and stop and clear the stepper coordinate value rather than do a worst case pounding on the mechanism at startup or puzzle reset.<br>
-   
+    <hr> Strike <span style="text-decoration: line-through;">through</span> is for things disabled until we restore driving the motor ourselves instead of diddling its power.<br>
+    The code deployed to the field has been tagged "deployed-tuesday".<br>
+    The git repo still has AccelStepper.* in it but those are not used in the build. They are from the Arduino library of that name. They are better than the regular library as they do NOT block when moving which allows us to do things like check the home sensor and stop and clear the stepper coordinate value rather than do a worst case pounding on the mechanism at startup or puzzle reset.<br>
     <hr>
     <h2>diagnostic commands</h2>
     (Extracted from loop()'s switch on characters read from serial)
@@ -133,6 +131,89 @@
       4 stake pins connector that I either didn't figure out or forgot what it does,<br>
       and a connector for what is likely a MCU downloader/debugger.</p>
     <p>I gather that to get the thing to do something more than its back and forth we need to talk to it via the serial port, then use the stake pins for triggers. Unfortunately the connector is metric spaced and I don't have the associated parts to make a nice cable.</p>
+    <p>In the following table the pins are listed looking from the component side of the board, with the connector at 6:00 position</p>
+    <table style="width: 100%" border="1">
+      <tbody>
+        <tr>
+          <td>home sensor, JST 2.54 mm 3 pin</td>
+          <td>+12V<br>
+            peach/brown</td>
+          <td>Signal<br>
+            black</td>
+          <td>GND<br>
+            blue</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>uart, JST 2 mm(?) 4 position</td>
+          <td>GND</td>
+          <td>RX</td>
+          <td>TX</td>
+          <td>3.3V</td>
+        </tr>
+        <tr>
+          <td>firmware, stake pins</td>
+          <td>GND</td>
+          <td>CLK</td>
+          <td>DIO</td>
+          <td>3.3V</td>
+        </tr>
+        <tr>
+          <td>lamp, JST 2.54mm 2 pin</td>
+          <td>+12V</td>
+          <td>GND (pwm'd)</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>motor, JST 2.54 mm</td>
+          <td>M1+<br>
+            black</td>
+          <td>M1-<br>
+            green</td>
+          <td>M2+<br>
+            blue</td>
+          <td>M2-<br>
+            red</td>
+        </tr>
+        <tr>
+          <td>power in, JST 2.54 mm 2 pin</td>
+          <td>GND<br>
+            black</td>
+          <td>+12V<br>
+            red</td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td>unknown, top to bottom:</td>
+          <td>+12V</td>
+          <td>signal</td>
+          <td>GND</td>
+          <td><br>
+          </td>
+        </tr>
+        <tr>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+          <td><br>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p><br>
+    </p>
     <hr>
     <h3>Present state of the gear</h3>
     A T-tap has been added to the flower's homed/closed sensor. A cable leads from there to a board that has a resistor divider and a zener to bring that level down to 3.3V logic.<br>
