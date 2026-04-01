@@ -44,6 +44,7 @@ struct Puzzle {
   //wetness above required+hysteresis starts opening, below required-hysteresis to start closing if it was opening.
   unsigned WetnessRequired;
 
+  unsigned pullInTicks;
   //motor tuners:  The below should be floats but making them ints allows for shared tweaking code, and is resolution enough for this puzzle.
   unsigned Acceleration;  //steps per second per second
   unsigned MaxSpeed;      //steps per second
@@ -69,14 +70,14 @@ struct Puzzle {
     sensorSamplingRate = 333;
     sensorFilter = 3;  // this many in a row the same or no change happened
     WetnessRequired = 600;
-
+    pullInTicks = 100;
     MaxSpeed = 100;
     Acceleration = MaxSpeed;  //defeats acceleration feature
   }
 
   void info() {
     Serial.print("\nPuzzle Parameters:");
-    Serial.print("\nrate\tfilt\tWet\tLen\tAcc\tSpd");
+    Serial.print("\nrate\tfilt\tWet\tLen\tAcc\tSpd\trlY");
     Serial.print("\n");
     Serial.print(sensorSamplingRate);
     Serial.print("\t");
@@ -87,7 +88,10 @@ struct Puzzle {
 
     Serial.print("\t");
     Serial.print(trackLength);
-
+  
+    Serial.print("\t");
+    Serial.print(pullInTicks);
+    
     Serial.print("\t");
     Serial.print(Acceleration);
     Serial.print("\t");
@@ -220,16 +224,22 @@ struct BloomingFlower {
   }
 
   bool checkHome(MilliTick now) {
-    if (startTime < now && now > startTime + 100) {  //todo: make that 100 another puzzle parameter
-      bool newvalue = digitalRead(homeSensor) == 0;
-      if (is.atHome != newvalue) {  //change detect to keep message spew readable
-        is.atHome = newvalue;
-        Serial.print("\nhome sensor changed to ");
-        Serial.print(is.atHome);
-        Serial.print(" at ");
-        Serial.print(now);
+    if (startTime <= now){
+      if(now > startTime + puzzle.pullInTicks) {  //todo: make that 100 another puzzle parameter          
+        bool newvalue = digitalRead(homeSensor) == 0;
+        if (is.atHome != newvalue) {  //change detect to keep message spew readable
+          is.atHome = newvalue;
+          Serial.print("\nhome sensor changed to ");
+          Serial.print(is.atHome);
+          Serial.print(" at ");
+          Serial.print(now);
+        }
+      } else {
+        is.atHome = false;
+        Serial.print("\nhome sensor faked to 0");          
       }
-    }  //else just keep the last value
+    }  
+    //else just keep the last value
   }
 
   void onTick(MilliTick now) {
@@ -250,11 +260,11 @@ struct BloomingFlower {
         showState();
       }
     }
-    //puzzle reset overrides most other logic
-    if (blooming != Homing && digitalRead(forceOn) == 0) {
-      rehome("puzzle reset button");
-      blooming = Homing;
-    }
+//    //puzzle reset overrides most other logic
+//    if (blooming != Homing && digitalRead(forceOn) == 0) {
+//      rehome("puzzle reset button");
+//      power
+//    }
 
     //state changes are here
     switch (blooming) {
@@ -286,12 +296,18 @@ struct BloomingFlower {
         break;
 
       case Opened:  //if sensor not on then start closing
+        if(digitalRead(forceOn) == 0) {
+          startClosing();   
+        }
+
         //removed auto home, it fuzzed things and also ignoring it means we may not need to debounce.
         break;
 
       case Closing:  //presume sensor glitched and we should do a full reset
         if (!is.Moving) {
           stop(Closed, "Closed");
+        } else if(digitalRead(forceOn) ) {
+          stop(Closed,"button released");
         }
         break;
       case Timing:  //obsolete case
@@ -485,6 +501,11 @@ void loop() {
       //   Serial.print("\nTweaking wetness hysteresis");
       //   tweakee = &puzzle.;
       //   break;
+      case 'y':
+        Serial.print("\nTweaking relay pullin");
+        tweakee = &puzzle.pullInTicks;
+        break;
+    
       case 'a':
         Serial.print("\nTweaking acceleration");
         tweakee = &puzzle.Acceleration;
