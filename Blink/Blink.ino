@@ -24,10 +24,10 @@
   https://www.arduino.cc/en/Tutorial/BuiltInExamples/Blink
 */
 
-//#ifdef ESP32-C3 super mini, can't find a predefined board definition for this.
-#undef LED_BUILTIN
-#define LED_BUILTIN 8
-//#endif
+// //#ifdef ESP32-C3 super mini, can't find a predefined board definition for this.
+// #undef LED_BUILTIN
+// #define LED_BUILTIN 8
+// //#endif
 
 // the setup function runs once when you press reset or power the board
 void setup() {
