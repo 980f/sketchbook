@@ -28,10 +28,14 @@ static const char enddocument[] = "\n</body></html>";
 static const char form[] =
   "<form > " NEWL "<input name='r' id='r' type='number' step=1 min=0 max=4095 value=0>" NEWL "<input name='g' id='g' type='number' step=1 min=0 max=4095 value=0>" NEWL "<input name='b' id='b' type='number' step=1 min=0 max=4095 value=0>" NEWL "<button type='submit'> Submit</button>" NEWL "</form><br>";
 
+//how to pass a member function to something that wants just a function pointer.
+#define ThunkIng(member) \
+      [this](){\
+        member ();\
+      }
 
-#define ThunkName(member) member##Thunk
-#define ThunkIt(member) \
-static void ThunkName(member) (void) { if(highlander){ highlander-> member (); }}
+//the above works as the compiler writes a function with function statics for the captured variables, emits code to set them where the lambda itself is declared then sets the value of the lambda expression to the address of the generated function.
+
 
 class RGB_Server {
   static RGB_Server *highlander; ///there can be only one. At least until the callback has some means to figure out the base url of the request and map that to out container.
@@ -78,13 +82,9 @@ class RGB_Server {
     server.send(404, "text/plain", p.buffer);
   }
 
-  ThunkIt(showRequest)
-
   void ackIgnore() {
     server.send(410, "text/plain", "Sorry Dave, I can't do that");
   }
-
-  ThunkIt(ackIgnore)
 
   void slash() {
     timestamp("Begin main page");
@@ -120,8 +120,6 @@ class RGB_Server {
     timestamp("End main page");
   }
 
-  ThunkIt(slash)
-
   void onConnection(void) {
     dbg("\nConnected to ", dnserver->ssid);
     dbg("\nIP address: ", WiFi.localIP());
@@ -134,9 +132,9 @@ class RGB_Server {
       dbg("\nmDNS failed, tried to be ", ourname);
     }
 
-    server.on("/", ThunkName(slash));
-    server.on("/favicon.ico", ThunkName(ackIgnore)); // browser insists on asking us for this, ignore it.
-    server.onNotFound(ThunkName(showRequest));
+    server.on("/", ThunkIng(slash));
+    server.on("/favicon.ico", ThunkIng(ackIgnore)); // browser insists on asking us for this, ignore it.
+    server.onNotFound(ThunkIng(showRequest));
 
     server.begin();
     dbg("\n RGB controller is at your service.\n");
