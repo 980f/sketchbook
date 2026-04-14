@@ -1,9 +1,9 @@
 #pragma once
 
 #ifndef BroadcastNode_WIFI_CHANNEL
-#warning "using 6 for wifi channel, #define BroadcastNode_WIFI_CHANNEL before including this header if you don't like that"
-#warning "and since you are new to this library you will likely want to pass BroadcastNode_Triplet as the constructor arg"
 #define BroadcastNode_WIFI_CHANNEL 6
+#warning "using 6 for wifi channel, #define BroadcastNode_WIFI_CHANNEL before including this header if you don't like that"
+#warning "and since you are new to this library you will likely want to pass BroadcastNode_Triplet as the constructor arg to your BroadcastNode"
 #endif
 
 #include <ESP32_NOW.h>
@@ -46,9 +46,9 @@ class BroadcastNode : public ESP_NOW_Peer {
     // Function to send a message to all devices within the network
     bool send_message(const Packet &msg) {
       if (msg.isVacuous()) {
-        return true; //vacuous messages are instantly sent successfully
+        return true; //vacuous messages are instantly sent successfully ;) IE nothing to send does not result in an empty message, we don't send anything at all.
       }
-      esp_log_level_set("*", ESP_LOG_WARN);
+      esp_log_level_set("*", ESP_LOG_WARN);//todoL this looks like it shouild be done somewhere else, such as in setup
       if (send(msg.content, msg.size)) {
         return true;
       }
@@ -58,7 +58,7 @@ class BroadcastNode : public ESP_NOW_Peer {
       return false;
     }
 
-
+//some debug aids
     static void dumpHex(unsigned len, const uint8_t *data, Print &stream) {
       stream.printf("Hex Dump: %u bytes Address:%p\n", len, data);
       while (len-- > 0) {
@@ -94,13 +94,13 @@ class BroadcastNode : public ESP_NOW_Peer {
     // called (via thunk) when an unknown peer sends a message
     void unknown_node(const esp_now_recv_info_t *info, unsigned len, const uint8_t *data) {
       if (spew) {
-        if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {//todo: apply our MAC class
+        if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {//todo: apply our MAC class, also the 6 is number of bytes in a mac address which probably has a public symbol defined somewhere
           Serial.printf("Broadcast received from: " MACSTR "\n", MAC2STR(info->src_addr));
         } else {
           Serial.printf("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
         }
       }
-      //here is where we could qualify the peer and if its message indicates it is on our network than "add_peer" it and process the message.
+      //here is where we could qualify the peer and if its message indicates it is on our network then "add_peer" it and process the message.
       addJustReceived = false;
       onReceive(data, len, true);//message from nodes that are not added are not sent to onReceive by ESP library.
 //      if (addJustReceived) { //stifled incoming message in the rare case that it succeeded.

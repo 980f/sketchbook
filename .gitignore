@@ -10,7 +10,6 @@ heltec_demo/
 *~
 .et-al/logs/
 ASCIITable/
-Blink/
 BlinkWithoutDelay/
 FFat_ESP32/
 *.replaced

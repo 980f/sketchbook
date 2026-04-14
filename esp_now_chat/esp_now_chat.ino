@@ -37,10 +37,10 @@ uint8_t *writer = data;
 
 void loop() {
   auto buffered = Serial.available();
-  decltype(Serial.read()) key = 0;
+  auto key = 0;
   if (buffered > 0) { //do by chunks
     do {
-      if (writer < & data[sizeof(data) - 2]) {//2= room for char AND prophylactic null
+      if (writer < & data[sizeof(data) - 2]) {//2= room for newest char AND prophylactic null
         key = Serial.read();//don't read if we have no place for it.
         if (key == '\r') {//keyboard end of line
           *writer++ = '\n';//unix end of line, your serial monitor should be configured to convert \n into \r\n locally.
@@ -51,7 +51,7 @@ void loop() {
           }
           writer = data;//reset buffer pointer and keep on accepting strings.
         } else {
-           *writer++ = key;
+          *writer++ = key;
         }
       }
     } while (--buffered);
