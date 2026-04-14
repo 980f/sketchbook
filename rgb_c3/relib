@@ -1,0 +1,23 @@
+## recreate links to library sources
+ln -sf ../shared/arduous
+ln -sf ../shared/chainprinter.h
+ln -sf ../shared/ezcpp/char.cpp
+ln -sf ../shared/ezcpp/char.h
+ln -sf ../shared/ezcpp/cheaptricks.h
+ln -sf lib/clirp.h
+ln -sf ../shared/ezcpp/cstr.h
+ln -sf ../shared/easyconsole.h
+ln -sf ../shared/ezcpp/eztypes.h
+ln -sf ../shared/ezcpp/index.h
+ln -sf ../shared/lardls
+ln -sf ../shared/ezcpp/limitedpointer.h
+ln -sf lib/microseconds.h
+ln -sf lib/millievent.cpp
+ln -sf ../shared/millievent.h
+ln -sf ../shared/ezcpp/minimath.h
+ln -sf ../shared/sprinter.cpp
+ln -sf ../shared/sprinter.h
+ln -sf ../shared/stopwatch.cpp
+ln -sf ../shared/stopwatch.h
+ln -sf ../shared/ezcpp/textkey.h
+ln -sf lib/valuestacker.h
