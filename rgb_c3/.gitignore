@@ -3,6 +3,7 @@ chainprinter.h
 char.cpp
 char.h
 cheaptricks.h
+.clang-format
 clirp.h
 cstr.h
 easyconsole.h
@@ -19,4 +20,5 @@ sprinter.h
 stopwatch.cpp
 stopwatch.h
 textkey.h
+unsignedrecognizer.h
 valuestacker.h
