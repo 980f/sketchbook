@@ -11,6 +11,15 @@
 #include "stopwatch.h" //to see how fast we dare poll.
 #include "rgb_driver.h"
 
+//todo: replace the following defines with NV memory 
+
+#ifndef rgb_server_triplet
+#error "to use rgb_server you must define rgb_server_triplet to the 3 pins of interest, separate by commas" 
+#endif
+
+#ifndef rgb_server_port
+#error "to use rgb_server you must define rgb_server_port with the IP port to listen on"
+#endif
  
 static const char *const ourname = "RGBonC3";//todo: make this a constructor arg to RBG_Server
 
@@ -47,9 +56,9 @@ class RGB_Server {
 
   bool connected = false;
  
-  WebServer server{1859}; // 1859: publication year of "On Origin of Species"
+  WebServer server{rgb_server_port};
   public:
-  RGB_C3 driver; // todo: make an interface and pass this in
+  RGB_C3 driver(rgb_server_triplet); // todo: make an interface and pass this in
   MilliTick refreshRate=0;
 
   private:

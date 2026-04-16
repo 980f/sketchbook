@@ -5,7 +5,12 @@
   the name and port number given to the server module via construction(the port number) and the MDNS.begin() command for the name as:
   name.local:port e.g. RGBonC3.local:1859
 
+  as of this writing the pins and port are set by defines, later on they will be set from NV memory, ditto for network name and passwords.
+
 */
+
+#define rgb_server_triplet 0,1,3
+#define rgb_server_port 1859
 
 
 #include "eztypes.h" //countof
@@ -21,8 +26,7 @@ struct Login {
   const char *const ssid;
   const char *const password;
   unsigned timeout; // also serves as retry internval.
-  Login(const char *const ssid, const char *const password, unsigned timeout = 5000) :
-      ssid(ssid), password(password), timeout(timeout) {
+  Login(const char *const ssid, const char *const password, unsigned timeout = 5000) : ssid(ssid), password(password), timeout(timeout) {
   }
 };
 
@@ -35,11 +39,8 @@ Login *dnserver = nullptr; // the actual server in use, which is one of the 'kno
 /////////////////////////////////////////////////////////////
 
 #include "rgb_server.h"
-
 RGB_Server rgbPage;
 
-// greee, esp put this in global macro namespace, when it should be __ since it is a nominal intrinsic, not a convenience. It also should be a real function that is inlined, but they like C over C++ and do we have to deal with the slop ourselves.
-#undef cli
 /////////////////////////////////////////////////////////
 void setup(void) {
   Serial.begin(115200);//loses hardware identity when wrapped by a chainprinter.
@@ -48,29 +49,35 @@ void setup(void) {
 
 #include "sui.h"
 struct myUI: public SUI<unsigned, true, 2> {
-
-  myUI(Stream &keyboard, Print &printer):SUI(keyboard, printer){}
+  using SUI::SUI;
 
   bool handleKey(unsigned char cmd, bool wasUpper){
     switch (cmd) {
       case 'r':
       case 'b':
-      case 'g':
-        rgbPage.driver.apply(cmd, cli[0]);
+      case 'g': {
+        unsigned desired=cli[0];
+        if(desired>4095){
+          desired=4095;
+        }
+        cout("\n setting ",cmd," to ",value);
+        rgbPage.driver.apply(cmd, value);
+      }
         break;
       case '\n':
+        cout("\t updating.");
         rgbPage.driver.refresh();
         break;
     }
     //treat every input as a command, unknown ones still consume any passed parameters.
     return true;
   }  
-} cli(Serial,dbg.raw);
+} sui(Serial,dbg.raw);
 
 void loop(void) {
   if (MilliTicker) {
     rgbPage.onTick(MilliTicker.recent());
   }
 
-  cli.loop();
+  sui.loop();
 }
