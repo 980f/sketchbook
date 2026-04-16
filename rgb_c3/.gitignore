@@ -19,6 +19,7 @@ sprinter.cpp
 sprinter.h
 stopwatch.cpp
 stopwatch.h
+sui.h
 textkey.h
 unsignedrecognizer.h
 valuestacker.h

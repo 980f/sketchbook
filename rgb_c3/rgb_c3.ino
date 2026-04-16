@@ -1,11 +1,9 @@
 /*
-   web server which passes along commands via serial to clock controller.
-   Someday will merge and run directly on an ESP module of some kind, but those were pin tight for this application.
-   Works on an ESP-01 with 512K (uses around ~320k).
+   web server for controlling a simple RGB led or strip thereof.
 
   the url, which only works on the same wifi network as the device, is formed from
   the name and port number given to the server module via construction(the port number) and the MDNS.begin() command for the name as:
-  name.local:port e.g. bigbender.local:1859
+  name.local:port e.g. RGBonC3.local:1859
 
 */
 
@@ -15,8 +13,8 @@
 #include "millievent.h" //especially login timing
 
 ////////////////////////////////////////////////////////////////
-#include "easyconsole.h"
-EasyConsole<decltype(Serial)> dbg(Serial);
+#include "chainprinter.h"
+ChainPrinter dbg(Serial);
 
 /////////////////////////////////////////////
 struct Login {
@@ -37,37 +35,42 @@ Login *dnserver = nullptr; // the actual server in use, which is one of the 'kno
 /////////////////////////////////////////////////////////////
 
 #include "rgb_server.h"
-;
+
 RGB_Server rgbPage;
 
 // greee, esp put this in global macro namespace, when it should be __ since it is a nominal intrinsic, not a convenience. It also should be a real function that is inlined, but they like C over C++ and do we have to deal with the slop ourselves.
 #undef cli
 /////////////////////////////////////////////////////////
 void setup(void) {
-  dbg.begin(115200);
+  Serial.begin(115200);//loses hardware identity when wrapped by a chainprinter.
   rgbPage.setup();
 }
 
-#include "clirp.h"
-CLIRP<unsigned, true, 2> cli;
+#include "sui.h"
+struct myUI: public SUI<unsigned, true, 2> {
+
+  myUI(Stream &keyboard, Print &printer):SUI(keyboard, printer){}
+
+  bool handleKey(unsigned char cmd, bool wasUpper){
+    switch (cmd) {
+      case 'r':
+      case 'b':
+      case 'g':
+        rgbPage.driver.apply(cmd, cli[0]);
+        break;
+      case '\n':
+        rgbPage.driver.refresh();
+        break;
+    }
+    //treat every input as a command, unknown ones still consume any passed parameters.
+    return true;
+  }  
+} cli(Serial,dbg.raw);
 
 void loop(void) {
   if (MilliTicker) {
     rgbPage.onTick(MilliTicker.recent());
   }
 
-  auto ch = dbg.getKey();
-  if (cli(ch)) { // if might be command
-    switch (ch) {
-      case 'r':
-      case 'b':
-      case 'g':
-        rgbPage.driver.desired.apply(ch, cli[0]);
-        break;
-      case '\n':
-        rgbPage.driver.apply(rgbPage.driver.desired);
-        break;
-    }
-    cli.reset(); // prepare for next command, do not let args leak.
-  }
+  cli.loop();
 }

@@ -18,6 +18,8 @@ struct Color {
         break;
     }
   }
+
+  
 };
 
 /** access to the hardware */
@@ -30,4 +32,13 @@ struct RGB_C3 {
     // todo: send 'desired' values to hardware.
     this->desired = desired;
   }
+
+  void apply(char color, unsigned rawvalue) {
+    desired.apply(color,rawvalue);
+  }
+
+  void refresh(){
+    apply(desired);
+  }
+
 };

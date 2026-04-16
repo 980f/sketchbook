@@ -12,10 +12,11 @@
 #include "rgb_driver.h"
 
  
-static const char *const ourname = "RGBonC3";
+static const char *const ourname = "RGBonC3";//todo: make this a constructor arg to RBG_Server
 
 //////////////////////////////////////////////////////////////////////////////
-
+// the following was moved outside the using class during chasing down of a compilation bug ( parens vs braces on constructors).
+// I'm leaving it out in case I change to using a file for the web page.
 static const char headbody[] =
   "\n<html><head><meta http-equiv='refresh' content='%d'/><title>RGB on a C3</title></head><body>"
   "<h1>RGB Light String</h1> ";
@@ -26,15 +27,19 @@ static const char enddocument[] = "\n</body></html>";
 
 // using single letter button names to allow use of switch(). The 4095 is for 12 bit analog outputs, some systems allow for setting the number of bits and as we try this on those we will make this an editable string.
 static const char form[] =
-  "<form > " NEWL "<input name='r' id='r' type='number' step=1 min=0 max=4095 value=0>" NEWL "<input name='g' id='g' type='number' step=1 min=0 max=4095 value=0>" NEWL "<input name='b' id='b' type='number' step=1 min=0 max=4095 value=0>" NEWL "<button type='submit'> Submit</button>" NEWL "</form><br>";
+  "<form > " NEWL 
+  "<input name='r' id='r' type='number' step=1 min=0 max=4095 value=0>" NEWL 
+  "<input name='g' id='g' type='number' step=1 min=0 max=4095 value=0>" NEWL 
+  "<input name='b' id='b' type='number' step=1 min=0 max=4095 value=0>" NEWL 
+  "<button type='submit'> Submit</button>" NEWL 
+  "</form><br>";
 
 //how to pass a member function to something that wants just a function pointer.
 #define ThunkIng(member) \
       [this](){\
         member ();\
       }
-
-//the above works as the compiler writes a function with function statics for the captured variables, emits code to set them where the lambda itself is declared then sets the value of the lambda expression to the address of the generated function.
+//FYI: the above works as the compiler writes a function with function statics for the captured variables, emits code to set them where the lambda itself is declared then sets the value of the lambda expression to the address of the generated function.
 
 
 class RGB_Server {
