@@ -2,57 +2,54 @@
 
 #include "cstr.h"
 
-// todo: see if we have a more complete class somewhere, such as in FastLED.
-struct Color {
-  unsigned r;
-  unsigned g;
-  unsigned b;
-
-  void apply(char color, unsigned rawvalue) {
-    switch (color) {
-      case 'r':
-        r = rawvalue;
-        break;
-      case 'g':
-        g = rawvalue;
-        break;
-      case 'b':
-        b = rawvalue;
-        break;
-    }
-  }  
-};
 
 
 /** wrapper class for ledc C functions 
-//bool ledcAttach(uint8_t pin, uint32_t freq, uint8_t resolution);
-//void ledcWrite(uint8_t pin, uint32_t duty);
+
+This module has the duty cycle always run from 0 to uint_max, which is conveniently ~0 for this processor family (and every processor designed since the late 1970's).
+As such only the person allocating the pin needs to know what the hardware wants, and the hardware resolution can be changed (for frequency range reasons) without any other code being modifed.
+
+We could also choose a signed integer and use the sign bit as an overflow/underflow indicator.
+
 */
 class LEDC {
   //store pin so that only the constructor needs to know which pin.
-  uint8_t pin;
+  unsigned pin;
+  unsigned shift; //recoded resolution
   bool ok;
   
   public:
-  
+
+
+  /** sets output duty cycle, passes @param duty back*/*/
+  uint32_t operator =(uint32_t duty){
+    if(ok){ //do not even attempt the ledcWrite unless ledcAttach was called successfully. (reduces error spew when library debug is enabled)
+      ok = ledcWrite(pin, duty>>shift);
+    }
+    return duty;
+  }
 
   LEDC &configure(uint32_t freq, uint8_t resolution){
+    shift=32 - resolution; //if resolution is 1 then only msb of duty is to be used
     ok = ledcAttach(pin,freq,resolution);
     return *this;
   }
 
-  bool operator ()(uint32_t duty){
-    if(ok){ //do not even attempt the ledcWrite unless ledcAttach was called successfully. (reduces error spew when library debug is enabled)
-      ok = ledcWrite(pin, duty);
+  LEDC(unsigned gpioPin):pin(gpioPin),shift(12),ok(false){}
+  /////////////
+  struct ClockSource {
+    operator ledc_clk_cfg_t () const {
+      return ledcGetClockSource();
     }
-    return ok;
-  }
-
-  LEDC(unsigned gpioPin):pin(gpioPin){}
-
-  //todo: add operator *= to expedite fading and such.
+    ClockSource& operator =(ledc_clk_cfg_t source) const {
+      ledcSetClockSource(source);
+      return *this;
+    }
+  };
+  static const ClockSource clockSource;
 
 };
+
 
 
 /** access to the hardware */

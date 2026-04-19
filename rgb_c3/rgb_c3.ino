@@ -43,7 +43,7 @@ RGB_Server rgbPage;
 
 /////////////////////////////////////////////////////////
 void setup(void) {
-  Serial.begin(115200);//loses hardware identity when wrapped by a chainprinter.
+  Serial.begin(115200);.
   rgbPage.setup();
 }
 
@@ -75,7 +75,7 @@ struct myUI: public SUI<unsigned, true, 2> {
 } sui(Serial,dbg.raw);
 
 void loop(void) {
-  if (MilliTicker) {
+  if (MilliTicker) { 
     rgbPage.onTick(MilliTicker.recent());
   }
 
