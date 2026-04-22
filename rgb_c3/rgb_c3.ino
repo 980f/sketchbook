@@ -43,7 +43,7 @@ RGB_Server rgbPage;
 
 /////////////////////////////////////////////////////////
 void setup(void) {
-  Serial.begin(115200);.
+  Serial.begin(115200);
   rgbPage.setup();
 }
 
@@ -60,8 +60,8 @@ struct myUI: public SUI<unsigned, true, 2> {
         if(desired>4095){
           desired=4095;
         }
-        cout("\n setting ",cmd," to ",value);
-        rgbPage.driver.apply(cmd, value);
+        cout("\n setting ",cmd," to ",desired);
+        rgbPage.driver.apply(cmd, desired);
       }
         break;
       case '\n':

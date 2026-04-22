@@ -58,7 +58,7 @@ class RGB_Server {
  
   WebServer server{rgb_server_port};
   public:
-  RGB_C3 driver(rgb_server_triplet); // todo: make an interface and pass this in
+  RGB_C3 driver{rgb_server_triplet}; // todo: make an interface and pass this in
   MilliTick refreshRate=0;
 
   private:

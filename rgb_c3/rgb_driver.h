@@ -21,7 +21,7 @@ class LEDC {
   public:
 
 
-  /** sets output duty cycle, passes @param duty back*/*/
+  /** sets output duty cycle, passes @param duty back*/
   uint32_t operator =(uint32_t duty){
     if(ok){ //do not even attempt the ledcWrite unless ledcAttach was called successfully. (reduces error spew when library debug is enabled)
       ok = ledcWrite(pin, duty>>shift);
@@ -35,13 +35,24 @@ class LEDC {
     return *this;
   }
 
-  LEDC(unsigned gpioPin):pin(gpioPin),shift(12),ok(false){}
+  LEDC &attach(unsigned pin){
+    //todo: check that pin is realistic
+    //todo: if already ok then detach
+    this->pin=pin;
+    return *this;
+  }
+
+
+  //default to detectably invalid pin number
+  LEDC(unsigned gpioPin=~0):pin(gpioPin),shift(12),ok(false){}
+
   /////////////
+  // the group shares a clock
   struct ClockSource {
     operator ledc_clk_cfg_t () const {
       return ledcGetClockSource();
     }
-    ClockSource& operator =(ledc_clk_cfg_t source) const {
+    const ClockSource& operator =(ledc_clk_cfg_t source) const {
       ledcSetClockSource(source);
       return *this;
     }
@@ -50,7 +61,23 @@ class LEDC {
 
 };
 
+struct Color {
+  unsigned red;
+  unsigned green; 
+  unsigned blue;  
 
+  static unsigned indexFor(char rgb){
+    return Cstr{"rgb"}.index(rgb);//perhaps prophylactic tolower?
+  }
+
+  void apply(char letter,unsigned value){
+    switch(letter){
+      case 'r': red=value; break;
+      case 'g': green=value; break;
+      case 'b': blue=value ; break;
+    }    
+  }
+};
 
 /** access to the hardware */
 #include "ESP32Servo.h"
@@ -60,14 +87,9 @@ struct RGB_C3 {
 
   LEDC driver[3];
 
-  static const Cstr map("rgb");
-
-  unsigned indexFor(char rgb){
-    return map.index(rgb);//perhaps prophylactic tolower?
-  }
-
+  
   RGB_C3(unsigned red, unsigned green, unsigned blue){
-
+    //todo: attach the pins
   }
 
   void apply(Color &desired) {
