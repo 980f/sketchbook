@@ -10,6 +10,7 @@ easyconsole.h
 eztypes.h
 index.h
 lardls
+lib
 limitedpointer.h
 microseconds.h
 millievent.cpp
