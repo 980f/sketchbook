@@ -39,12 +39,14 @@ Login *dnserver = nullptr; // the actual server in use, which is one of the 'kno
 /////////////////////////////////////////////////////////////
 
 #include "rgb_server.h"
-RGB_Server rgbPage;
+RGB_Server rgbServer;
+//todo: the next line should be in a cpp file, with some extracts of rgb_driver.h file.
+LEDC::ClockSource LEDC::clockSource;
 
 /////////////////////////////////////////////////////////
 void setup(void) {
   Serial.begin(115200);
-  rgbPage.setup();
+  rgbServer.setup();
 }
 
 #include "sui.h"
@@ -61,12 +63,12 @@ struct myUI: public SUI<unsigned, true, 2> {
           desired=4095;
         }
         cout("\n setting ",cmd," to ",desired);
-        rgbPage.driver.apply(cmd, desired);
+        rgbServer.driver.apply(cmd, desired);
       }
         break;
       case '\n':
         cout("\t updating.");
-        rgbPage.driver.refresh();
+        rgbServer.driver.update();
         break;
     }
     //treat every input as a command, unknown ones still consume any passed parameters.
@@ -76,7 +78,7 @@ struct myUI: public SUI<unsigned, true, 2> {
 
 void loop(void) {
   if (MilliTicker) { 
-    rgbPage.onTick(MilliTicker.recent());
+    rgbServer.onTick(MilliTicker.recent());
   }
 
   sui.loop();
