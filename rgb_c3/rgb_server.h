@@ -52,8 +52,6 @@ static const char form[] =
 
 
 class RGB_Server {
-  static RGB_Server *highlander; ///there can be only one. At least until the callback has some means to figure out the base url of the request and map that to out container.
-
   bool connected = false;
  
   WebServer server{rgb_server_port};
@@ -172,7 +170,6 @@ class RGB_Server {
     WiFi.mode(WIFI_STA);
     login(); // optional early start, could drop this and wait for the recovery logic in loop to do the login.
     since.start();
-    highlander = this;
   }
 
   void onTick(MilliTick now) {
@@ -194,6 +191,3 @@ class RGB_Server {
     }
   }
 };
-
-//todo: move to a cpp file, along with most of the method guts:
-RGB_Server *RGB_Server::highlander=nullptr;

@@ -53,7 +53,7 @@ void setup(void) {
 struct myUI: public SUI<unsigned, true, 2> {
   using SUI::SUI;
 
-  bool handleKey(unsigned char cmd, bool wasUpper){
+  bool handleKey(unsigned char cmd, bool wasUpper) override {
     switch (cmd) {
       case 'r':
       case 'b':
