@@ -7,6 +7,8 @@ ln -sf ../shared/ezcpp/cheaptricks.h
 ln -sf /r/work/safely/.clang-format
 ln -sf lib/clirp.h
 ln -sf ../shared/ezcpp/cstr.h
+ln -sf lib/dbgserial.cpp
+ln -sf lib/dbgserial.h
 ln -sf ../shared/ezcpp/eztypes.h
 ln -sf ../shared/ezcpp/index.h
 ln -sf ../shared/lardls

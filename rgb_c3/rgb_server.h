@@ -1,5 +1,17 @@
 #pragma once
 
+#if __has_include("rgb_server_opts.h")
+#include "rgb_server_opts.h"
+#endif
+//todo: replace the following defines with NV memory 
+
+#ifndef rgb_server_triplet
+#error "to use rgb_server you must define rgb_server_triplet to the 3 pins of interest, separate by commas. This is typically done in file rgb_server_opts.h" 
+#endif
+
+#ifndef rgb_server_port
+#error "to use rgb_server you must define rgb_server_port with the IP port to listen on. This is typically done in file rgb_server_opts.h"
+#endif
 
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -11,61 +23,29 @@
 #include "stopwatch.h" //to see how fast we dare poll.
 #include "rgb_driver.h"
 
-//todo: replace the following defines with NV memory 
-
-#ifndef rgb_server_triplet
-#error "to use rgb_server you must define rgb_server_triplet to the 3 pins of interest, separate by commas" 
-#endif
-
-#ifndef rgb_server_port
-#error "to use rgb_server you must define rgb_server_port with the IP port to listen on"
-#endif
- 
-static const char *const ourname = "RGBonC3";//todo: make this a constructor arg to RBG_Server
-
-//////////////////////////////////////////////////////////////////////////////
-// the following was moved outside the using class during chasing down of a compilation bug ( parens vs braces on constructors).
-// I'm leaving it out in case I change to using a file for the web page.
-static const char headbody[] =
-  "\n<html><head><meta http-equiv='refresh' content='%d'/><title>RGB on a C3</title></head><body>"
-  "<h1>RGB Light String</h1> ";
-
-static const char enddocument[] = "\n</body></html>";
-
-#define NEWL "<br>\n"
-
-// using single letter button names to allow use of switch(). The 4095 is for 12 bit analog outputs, some systems allow for setting the number of bits and as we try this on those we will make this an editable string.
-static const char form[] =
-  "<form > " NEWL 
-  "<input name='r' id='r' type='number' step=1 min=0 max=4095 value=0>" NEWL 
-  "<input name='g' id='g' type='number' step=1 min=0 max=4095 value=0>" NEWL 
-  "<input name='b' id='b' type='number' step=1 min=0 max=4095 value=0>" NEWL 
-  "<button type='submit'> Submit</button>" NEWL 
-  "</form><br>";
-
-//how to pass a member function to something that wants just a function pointer.
-#define ThunkIng(member) \
-      [this](){\
-        member ();\
-      }
-//FYI: the above works as the compiler writes a function with function statics for the captured variables, emits code to set them where the lambda itself is declared then sets the value of the lambda expression to the address of the generated function.
+/** todo: save and restore to EEPROM (or the esp32 spi filesystem). */
+struct Login {
+  const char *const ssid;//todo: take advantage of 32 char max. Note that some implementations are defective and limit it to 31 (plus null most likely)
+  const char *const password;//todo: take advantage of max 63 chars.
+  unsigned timeout; // also serves as retry internval.
+  Login(const char *const ssid, const char *const password, unsigned timeout = 5000) : ssid(ssid), password(password), timeout(timeout) {
+  }
+};
 
 
 class RGB_Server {
   bool connected = false;
- 
   WebServer server{rgb_server_port};
   public:
+
   RGB_C3 driver{rgb_server_triplet}; // todo: make an interface and pass this in
   MilliTick refreshRate=0;
-
+  bool enableWeb=false; //untilow ehave time to difure out why we are getting NO_AP_FOUND"
+  
   private:
 
   MonoStable timedOut;
   MonoStable pollStatus{500}; // 500: inherited value from some examples.
-
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // shared block
 
   char workspace[4096]; // 2k is biggest so far. Choosing "eeprom" page size for the ESP-01.
   Sprinter p{workspace, sizeof(workspace)};
@@ -73,121 +53,26 @@ class RGB_Server {
   #define WORKSPACE p.rewind()
 
   StopWatch since; // will roll() with each event.
-  void timestamp(const char *event) {
-    dbg(CRLF, event, ':', double(since.roll()));
-  }
+  void timestamp(const char *event);
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  void diagRequest() {
-    WORKSPACE;
-    p.printf("\n%s %s ", server.uri().c_str(), (server.method() == HTTP_GET) ? "GET" : "POST");
-    for (unsigned i = server.args(); i-- > 0;) {
-      p.printf("\n\t%s:%s ", server.argName(i).c_str(), server.arg(i).c_str());
-    }
-    dbg(p.buffer); // for now track web activity
-  }
+  void diagRequest(void);
 
-  void showRequest() {
-    diagRequest();
-    dbg("Most used: ", Sprinter::mostused); // ## a class static !!??!
-    server.send(404, "text/plain", p.buffer);
-  }
+  void showRequest(void);
 
-  void ackIgnore() {
-    server.send(410, "text/plain", "Sorry Dave, I can't do that");
-  }
+  void ackIgnore(void);
 
-  void slash() {
-    timestamp("Begin main page");
-    bool dumpem = server.args() == 0;
-    for (unsigned i = server.args(); i-- > 0;) {
-      const char *value = server.arg(i).c_str(); // you MUST not persist this outside of the function call
-      char key = server.argName(i)[0]; // single letter names
-
-      switch (key) {
-          //      case 'h': //set time of remote from hh:mm (24H)
-          //        desired.setTimeFrom(value);
-          //        dbg("\nDesired time recorded locally");
-          //        break;
-        case 'u':
-          refreshRate = atoi(value);
-          dbg("setting page refresh rate to ", refreshRate);
-          break;
-        default:
-          dumpem = true;
-          break;
-      }
-    }
-    if (dumpem) {
-      diagRequest();
-      dbg(p.buffer);
-    }
-    WORKSPACE;
-    p.printf(headbody, refreshRate);
-    p.printf(form, refreshRate);
-
-    p.printf(enddocument);
-    server.send(200, "text/html", p.buffer);
-    timestamp("End main page");
-  }
-
-  void onConnection(void) {
-    dbg("\nConnected to ", dnserver->ssid);
-    dbg("\nIP address: ", WiFi.localIP());
-
-    if (MDNS.begin(ourname)) {
-      dbg("\nmDNS working as ", ourname);
-      // Add service to MDNS-SD
-      MDNS.addService("http", "tcp", 80); // todo: check port and protocol.
-    } else {
-      dbg("\nmDNS failed, tried to be ", ourname);
-    }
-
-    server.on("/", ThunkIng(slash));
-    server.on("/favicon.ico", ThunkIng(ackIgnore)); // browser insists on asking us for this, ignore it.
-    server.onNotFound(ThunkIng(showRequest));
-
-    server.begin();
-    dbg("\n RGB controller is at your service.\n");
-  }
+  void slash(void) ;
+  void onConnection(void) ;
 
   public:
 
-  void login() {
-    if (!logins.isValid()) {
-      logins.rewind();
-    }
-    dnserver = &logins.next();
-    dbg("\nTrying ", dnserver->ssid, ' ', dnserver->password);
-    WiFi.begin(dnserver->ssid, dnserver->password);
-    timedOut = dnserver->timeout;
-  }
+  void login(void) ;
 
-  public:
+  void setup(void);
 
-  void setup(void) {
-    WiFi.mode(WIFI_STA);
-    login(); // optional early start, could drop this and wait for the recovery logic in loop to do the login.
-    since.start();
-  }
+  void retry(void);
 
-  void onTick(MilliTick now) {
-    if (connected) {
-      server.handleClient();
-    } else {
-      if (pollStatus.perCycle()) {
-        if (WiFi.status() != WL_CONNECTED) {
-          dbg(".");
-          if (timedOut) {
-            login(); // start over.
-          }
-        } else {
-          connected = true;
-          timestamp("Connected after ");
-          onConnection();
-        }
-      }
-    }
-  }
+  void onTick(MilliTick now) ;
 };

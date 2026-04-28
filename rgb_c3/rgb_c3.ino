@@ -9,33 +9,9 @@
 
 */
 
-#define rgb_server_triplet 0,1,3
-#define rgb_server_port 1859
 
-
-#include "eztypes.h" //countof
-#include "limitedpointer.h" //circular array
 #include "millievent.h" //especially login timing
 
-////////////////////////////////////////////////////////////////
-#include "chainprinter.h"
-ChainPrinter dbg(Serial);
-
-/////////////////////////////////////////////
-struct Login {
-  const char *const ssid;
-  const char *const password;
-  unsigned timeout; // also serves as retry internval.
-  Login(const char *const ssid, const char *const password, unsigned timeout = 5000) : ssid(ssid), password(password), timeout(timeout) {
-  }
-};
-
-static Login known[] = {
-  {"honeypot", "brigadoonwillbebacksoon", 4500}, // timeout set to 4500 just to check up on syntax.
-};
-
-LimitedPointer<Login> logins(known, countof(known));
-Login *dnserver = nullptr; // the actual server in use, which is one of the 'known' ones.
 /////////////////////////////////////////////////////////////
 
 #include "rgb_server.h"
@@ -43,9 +19,13 @@ RGB_Server rgbServer;
 //todo: the next line should be in a cpp file, with some extracts of rgb_driver.h file.
 LEDC::ClockSource LEDC::clockSource;
 
+
+#include "dbgserial.h"
+
 /////////////////////////////////////////////////////////
 void setup(void) {
   Serial.begin(115200);
+  rgbServer.enableWeb = false;
   rgbServer.setup();
 }
 
@@ -66,6 +46,14 @@ struct myUI: public SUI<unsigned, true, 2> {
         rgbServer.driver.apply(cmd, desired);
       }
         break;
+      case 'x':
+        if(changed(rgbServer.enableWeb,cli[0])){
+          rgbServer.retry();
+        }
+        break;
+      case '!':
+        dbg.stifled=cli[0];
+        break;
       case '\n':
         cout("\t updating.");
         rgbServer.driver.update();
@@ -79,6 +67,7 @@ struct myUI: public SUI<unsigned, true, 2> {
 void loop(void) {
   if (MilliTicker) { 
     rgbServer.onTick(MilliTicker.recent());
+    //todo: check if Serial is available for debug.
   }
 
   sui.loop();

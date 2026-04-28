@@ -6,6 +6,8 @@ cheaptricks.h
 .clang-format
 clirp.h
 cstr.h
+dbgserial.cpp
+dbgserial.h
 easyconsole.h
 eztypes.h
 index.h
