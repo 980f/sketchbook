@@ -10,7 +10,6 @@ ln -sf lib/ezcpp/cstr.h
 ln -sf lib/ezcpp/eztypes.h
 ln -sf lib/ezcpp/index.h
 ln -sf ../shared/lardls
-ln -sf lib/ll
 ln -sf lib/sui.h
 ln -sf lib/ezcpp/textkey.h
 ln -sf lib/unsignedrecognizer.h
