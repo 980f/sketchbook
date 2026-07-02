@@ -13,10 +13,7 @@ using TimerTick = decltype(millis());
 
 TimerTick step[]={100,200,300,400,500,600,700};
 const unsigned numSteps = sizeof(step)/sizeof(step[0]);
-
 unsigned int ledStep = 0;             
-
-TimerTick previousMillis = 0;        // will store last time LED was updated
 TimerTick stepDoneAt=0;
 
 /** whether to show the number of times the LED has been toggled, with each toggle */
@@ -25,10 +22,7 @@ unsigned count=0;
 ///////////////////////////////////////
 #include "sui.h"
 struct MySui: public SUI<> {
-  using SUI::SUI;
-  void spew(){
-   Serial.printf("\ncli\targc:%u\t[0]:%u\t[1]:%u",cli.argc,cli.argv[0],cli.argv[1]);
-  } 
+  using SUI::SUI; //incantation that is required to inherit base class constructors.
 
   bool handleKey(unsigned char cmd ,bool wasUpper){
     switch(tolower(cmd)){
@@ -42,31 +36,26 @@ struct MySui: public SUI<> {
       } else {
         Serial.printf("\nUnreasonable step number, can't set step %d to %d",which,amount);
       }
-    } break;   
-    case '?':
-      spew();
-      return false;//don't clear the args.
-      break;     
+    } break;      
     case 'c':
-      showCount=wasUpper;
+      showCount = wasUpper;
       break;
-    case ' ': 
+    case ' ': //show program state
       Serial.printf("\nSteps:");
       for(unsigned i=0;i<numSteps;++i){
         Serial.printf("\n%d:%d",i,step[i]);
       }
       break;
-    default:       
-      Serial.printf("\nunknown command letter %c",cmd);
+    default: //unrecognized command stuff gets to here      
+      Serial.printf("\nunknown command letter %c",wasUpper? toUpperCase(cmd) : cmd);
       break;
     }
-    //unrecognized command stuff gets to here:
-    //perhaps inform user that they have input garbage.
     return true;//discard
   }
 } sui(Serial,Serial);
 
-TimerTick serialLive=0;
+TimerTick serialLive=0;//takes around a second for USB serial to start working.
+TimerTick serialChecked=0;
 ///////////////////////////////////////
 void setup() {
   // set the digital pin as output:
@@ -77,11 +66,6 @@ void setup() {
 
 void loop() {
   TimerTick currentMillis = millis();
-  if(!serialLive && Serial){
-    serialLive = currentMillis;
-    Serial.printf("\nSerial started at %u",serialLive);
-    sui.spew();
-  }
   if (currentMillis >= stepDoneAt) {
     stepDoneAt = currentMillis + step[ledStep];
     if(++ledStep >= numSteps){
@@ -94,7 +78,16 @@ void loop() {
     }
     digitalWrite(ledPin, ledStep & 1);   
   }
-  if(serialLive){//for clarity in debugging startup issue in clirp.
+  if(!serialLive){
+    if(serialChecked != currentMillis){
+      serialChecked = currentMillis;
+      if(Serial){ //reduce pressure on USB Serial code which takes a long time to check if it is working.
+        serialLive = currentMillis;
+        Serial.printf("\nSerial started at %u",serialLive);
+      }
+    }
+  }
+  if(serialLive){
     sui.loop();
   }
 }
