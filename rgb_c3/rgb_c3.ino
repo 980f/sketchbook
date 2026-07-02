@@ -39,9 +39,10 @@ struct myUI: public SUI<unsigned, true, 2> {
       case 'b':
       case 'g': {
         unsigned desired=cli[0];
-        if(desired>4095){
-          desired=4095;
-        }
+        //removed clipping when lower level started using msbs of values.
+        // if(desired>4095){
+        //   desired=4095;
+        // }
         cout("\n setting ",cmd," to ",desired);
         rgbServer.driver.apply(cmd, desired);
       }

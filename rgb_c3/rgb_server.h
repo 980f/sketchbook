@@ -1,16 +1,16 @@
 #pragma once
 
-#if __has_include("rgb_server_opts.h")
+#if __has_include("rgb_server_opts.h")  //user can create this file to set compile time constants, else built-in defaults will prevail.
 #include "rgb_server_opts.h"
 #endif
 //todo: replace the following defines with NV memory 
 
 #ifndef rgb_server_triplet
-#error "to use rgb_server you must define rgb_server_triplet to the 3 pins of interest, separate by commas. This is typically done in file rgb_server_opts.h" 
+#error "to use rgb_server you must define rgb_server_triplet to the 3 pins of interest, separate by commas. This is typically done in a file you create named rgb_server_opts.h" 
 #endif
 
 #ifndef rgb_server_port
-#error "to use rgb_server you must define rgb_server_port with the IP port to listen on. This is typically done in file rgb_server_opts.h"
+#error "to use rgb_server you must define rgb_server_port with the IP port to listen on. This is typically done in a file you create named rgb_server_opts.h"
 #endif
 
 #include <ESPmDNS.h>
@@ -21,7 +21,7 @@
 #include "sprinter.h" //String printer, that makes sure we don't run off the end of the string
 #include "millievent.h" //MonoStable
 #include "stopwatch.h" //to see how fast we dare poll.
-#include "rgb_driver.h"
+#include "rgb_driver.h" //access to LEDC hardware
 
 /** todo: save and restore to EEPROM (or the esp32 spi filesystem). */
 struct Login {
@@ -40,14 +40,14 @@ class RGB_Server {
 
   RGB_C3 driver{rgb_server_triplet}; // todo: make an interface and pass this in
   MilliTick refreshRate=0;
-  bool enableWeb=false; //untilow ehave time to difure out why we are getting NO_AP_FOUND"
+  bool enableWeb=false; //false until we have time to figure out why we are getting NO_AP_FOUND"
   
   private:
 
   MonoStable timedOut;
   MonoStable pollStatus{500}; // 500: inherited value from some examples.
 
-  char workspace[4096]; // 2k is biggest so far. Choosing "eeprom" page size for the ESP-01.
+  char workspace[4096]; // 2k is biggest so far. 4k is "eeprom" page size for the ESP-01.
   Sprinter p{workspace, sizeof(workspace)};
   // invoke the following to start printing to the shared big block
   #define WORKSPACE p.rewind()

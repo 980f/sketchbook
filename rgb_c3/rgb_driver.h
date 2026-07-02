@@ -30,7 +30,7 @@ class LEDC {
   /** sets output duty cycle from msb aligned value, passes @param duty back*/
   uint32_t operator =(unsigned duty){
     if(ok){ //do not even attempt the ledcWrite unless ledcAttach was called successfully. (reduces error spew when library debug is enabled)
-      //don't update, might ail due to bad data value:  ok = 
+      //don't update, might be due to bad data value:  ok = 
       ledcWrite(pin, uint32_t(duty) >> shift);
     }
     return duty;
@@ -51,7 +51,6 @@ class LEDC {
 
   /** connect to hardware using local defaults for frequency and resolution */
   LEDC &attach(unsigned gpioPin){
-    // if already ok then detach
     detach();
     //todo: check that pin is realistic
     ok = ledcAttach(pin, clockSource.typicalFrequency, shiftForResolution(shift));    
@@ -101,6 +100,11 @@ class LEDC {
   }
 };
 
+/**
+a color is maintained as an array of three integers, index 0..2 with no guarantee as to which color goes to which index.
+there is mapping logic from the letter 'r','g', and 'b' to array index. There is an enum for the index.
+
+*/
 struct Color {
  
   static constexpr unsigned indexFor(char rgb){//b->0, g->1, r->2
@@ -129,11 +133,11 @@ struct Color {
 };
 
 /** access to the hardware */
-#include "ESP32Servo.h"
+// #include "ESP32Servo.h"
 struct RGB_C3 {
   Color desired; // retain applied value for debug, and as a convenience for manipulation
 
-  LEDC driver[3];
+  LEDC driver[Color::Hue::numHues];
   
   RGB_C3(unsigned red, unsigned green, unsigned blue){
     //attach the pins
@@ -157,6 +161,5 @@ struct RGB_C3 {
   void apply(char color, unsigned rawvalue) {
     desired.apply(color,rawvalue);
   }
-
 
 };
