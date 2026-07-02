@@ -24,11 +24,6 @@
   https://www.arduino.cc/en/Tutorial/BuiltInExamples/Blink
 */
 
-// //#ifdef ESP32-C3 super mini, can't find a predefined board definition for this.
-// #undef LED_BUILTIN
-// #define LED_BUILTIN 8
-// //#endif
-
 // the setup function runs once when you press reset or power the board
 void setup() {
   // initialize digital pin LED_BUILTIN as an output.
@@ -36,11 +31,12 @@ void setup() {
   Serial.begin(115200);
 }
 
-bool showCount = false;
+bool showCount = true;//true until we figure out why serial monitor gets no action.
 unsigned count=0;
-unsigned highTime=900;
+unsigned highTime=100;
 // the loop function runs over and over again forever
 void loop() {
+  ++count;
   digitalWrite(LED_BUILTIN, HIGH);   
   delay(highTime);                      
   digitalWrite(LED_BUILTIN, LOW);    
@@ -75,7 +71,7 @@ void loop() {
   }
   if(showCount){
     Serial.println();
-    Serial.print(++count);
+    Serial.print(count);
   }
   
 }
