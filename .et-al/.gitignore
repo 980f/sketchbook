@@ -1,6 +1,8 @@
 package_*_index.json 
 *.sig
+?*.clang-format
 cache/
 staging/
 packages/
 
+inventory.yaml
