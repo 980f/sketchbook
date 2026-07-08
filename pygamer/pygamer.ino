@@ -1,5 +1,6 @@
 #include "cheaptricks.h"
 #include <Mouse.h>
+#include "dbgserial.h"
 /*
   explore pygamer board
 */
@@ -50,7 +51,7 @@ void loop() {
     if (changed(serialChecked, currentMillis)) {
       if (Serial) { // reduce pressure on USB Serial code which takes a time to check if it is working.
         serialLive = serialChecked;
-        Serial.printf("\nSerial started at %u", serialLive);
+        dbg("Serial started at ", serialLive);
       }
     }
   }

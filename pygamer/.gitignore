@@ -6,6 +6,8 @@ cheaptricks.h
 clirp.h
 cstr.cpp
 cstr.h
+dbgserial.cpp
+dbgserial.h
 eztypes.h
 index.h
 lardls
