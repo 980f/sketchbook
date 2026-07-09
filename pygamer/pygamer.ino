@@ -47,15 +47,15 @@ void setup() {
 void loop() {
   TimerTick currentMillis = millis();
   flasher.loop(currentMillis);
-  if (!serialLive) {
-    if (changed(serialChecked, currentMillis)) {
-      if (Serial) { // reduce pressure on USB Serial code which takes a time to check if it is working.
+  if (dbg.stifled) {
+    if (changed(serialChecked, currentMillis)) {//only check once per millisecond
+      if (changed(dbg.stifled,Serial)) {
         serialLive = serialChecked;
-        dbg("Serial started at ", serialLive);
+        dbg("Serial connected at ", serialLive);//which won't print if Serial just quit ;)
       }
     }
   }
-  if (serialLive) { // don't check the user interface if it is not connected.
+  if (!dbg.stifled) { // don't check the user interface if it is not connected.
     sui.loop();
   }
 }
