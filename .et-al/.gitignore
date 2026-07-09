@@ -6,3 +6,5 @@ staging/
 packages/
 
 inventory.yaml
+library_index.json
+package_index.json
