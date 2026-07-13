@@ -1,11 +1,13 @@
 #include "cheaptricks.h"
-#include <Mouse.h>
 #include "dbgserial.h"
+#include <Mouse.h>
 /*
   explore pygamer board
 */
 
-using TimerTick = decltype(millis());
+// using TimerTick = decltype(millis());
+#include "millievent.h"
+
 #include "pinFlasher.h"
 Flasher flasher(LED_BUILTIN);
 
@@ -20,7 +22,7 @@ struct MySui : public SUI<> {
     case '\n':
       break;
     case '!': {
-      flasher.adjust(cli[1],cli[0]);
+      flasher.adjust(cli[1], cli[0]);
     } break;
     case 'c':
       flasher.showCount = wasUpper;
@@ -36,8 +38,8 @@ struct MySui : public SUI<> {
   }
 } sui(Serial, Serial);
 
-TimerTick serialLive = 0; // takes around a second for USB serial to start working.
-TimerTick serialChecked = 0;
+/** how often to check if usb serial has connected */
+MonoStable serialChecker(100); //adafruit often uses 25 here.
 ///////////////////////////////////////
 void setup() {
   Serial.begin(115200);
@@ -45,16 +47,15 @@ void setup() {
 }
 
 void loop() {
-  TimerTick currentMillis = millis();
-  flasher.loop(currentMillis);
-  if (dbg.stifled) {
-    if (changed(serialChecked, currentMillis)) {//only check once per millisecond
-      if (changed(dbg.stifled,Serial)) {
-        serialLive = serialChecked;
-        dbg("Serial connected at ", serialLive);//which won't print if Serial just quit ;)
-      }
+  if (MilliTicker) {
+    flasher.loop(MilliTicker);
+    if (serialChecker.isDone()) {
+      if (changed(dbg.stifled, !Serial)) { //stifle debug if Serial is not connected.       
+        dbg("Serial connected at ", MilliTicker); // which won't print if Serial just quit ;)
+      }      
     }
   }
+
   if (!dbg.stifled) { // don't check the user interface if it is not connected.
     sui.loop();
   }

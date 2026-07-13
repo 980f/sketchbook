@@ -12,6 +12,7 @@ eztypes.h
 index.h
 lardls
 lib
+millievent.cpp
 millievent.h
 pinFlasher.h
 sui.h

@@ -12,6 +12,7 @@ ln -sf lib/dbgserial.h
 ln -sf lib/ezcpp/eztypes.h
 ln -sf lib/ezcpp/index.h
 ln -sf /r/sketchbook/shared/lardls
+ln -sf lib/millievent.cpp
 ln -sf lib/millievent.h
 ln -sf lib/pinFlasher.h
 ln -sf lib/sui.h
